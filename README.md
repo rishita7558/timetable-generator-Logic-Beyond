@@ -19,11 +19,13 @@ This system creates optimized schedules for multiple semesters and sections base
 🚀 **Automated Generation** – Create timetables for semesters 1, 3, 5, and 7  
 🎨 **Modern Dashboard** – Beautiful, responsive web interface  
 📊 **Multiple Views** – Grid, list, and compact view modes  
+🔍 **Search & Filter** – Search timetables and filter by semester or section  
 🔧 **Smart Filtering** – Filter by semester and section  
 📱 **Responsive Design** – Works perfectly on desktop, tablet, and mobile  
 📤 **Export Options** – Download individual or all timetables as Excel files  
 📈 **Real-time Stats** – Live statistics dashboard  
-⚡ **Quick Actions** – One-click operations for common tasks  
+⚡ **Quick Actions** – One-click operations for common tasks
+  
 
 ---
 
@@ -44,9 +46,9 @@ This system creates optimized schedules for multiple semesters and sections base
 
 ---
 
-## 🚀 Quick Start
+## 📦 Installation & Running Locally
 
-### **Method 1: Clone and Run (Recommended)**
+### **Clone and Run**
 
 ```bash
 # Clone the repository

@@ -1,6 +1,8 @@
 // Global variables
 let currentTimetables = [];
 let currentView = 'grid';
+let currentSemesterFilter = 'all';
+let currentSectionFilter = 'all';
 
 // DOM Elements
 const generateBtn = document.getElementById('generate-btn');
@@ -11,6 +13,7 @@ const timetablesContainer = document.getElementById('timetables-container');
 const emptyState = document.getElementById('empty-state');
 const loadingOverlay = document.getElementById('loading-overlay');
 const notificationContainer = document.getElementById('notification-container');
+const sectionTitle = document.getElementById('section-title');
 
 // Stats elements
 const totalTimetablesEl = document.getElementById('total-timetables');
@@ -36,9 +39,22 @@ function initializeApp() {
     emptyGenerateBtn.addEventListener('click', generateTimetables);
     
     // Filter listeners
-    semesterFilter.addEventListener('change', filterTimetables);
-    sectionFilter.addEventListener('change', filterTimetables);
+    semesterFilter.addEventListener('change', function() {
+        currentSemesterFilter = this.value;
+        updateSectionTitle();
+        renderTimetables();
+    });
+    
+    sectionFilter.addEventListener('change', function() {
+        currentSectionFilter = this.value;
+        updateSectionTitle();
+        renderTimetables();
+    });
+    
     viewMode.addEventListener('change', changeViewMode);
+    
+    // Sidebar navigation
+    setupSidebarNavigation();
     
     // View toggle buttons
     document.querySelectorAll('.view-btn').forEach(btn => {
@@ -61,6 +77,49 @@ function initializeApp() {
     // Load initial data
     loadStats();
     loadTimetables();
+}
+
+// Sidebar Navigation
+function setupSidebarNavigation() {
+    const navItems = document.querySelectorAll('.sidebar-nav a[data-semester]');
+    
+    navItems.forEach(item => {
+        item.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            // Remove active class from all items
+            document.querySelectorAll('.nav-item').forEach(nav => {
+                nav.classList.remove('active');
+            });
+            
+            // Add active class to clicked item
+            this.parentElement.classList.add('active');
+            
+            // Get semester filter
+            const semester = this.getAttribute('data-semester');
+            currentSemesterFilter = semester;
+            
+            // Update semester filter dropdown
+            semesterFilter.value = semester;
+            
+            // Update section title and render
+            updateSectionTitle();
+            renderTimetables();
+        });
+    });
+}
+
+function updateSectionTitle() {
+    if (currentSemesterFilter === 'all') {
+        sectionTitle.textContent = 'All Timetables';
+    } else {
+        sectionTitle.textContent = `Semester ${currentSemesterFilter} Timetables`;
+    }
+    
+    // Add section info if filtered
+    if (currentSectionFilter !== 'all') {
+        sectionTitle.textContent += ` - Section ${currentSectionFilter}`;
+    }
 }
 
 // API Functions
@@ -130,6 +189,19 @@ function renderTimetables() {
     
     const filteredTimetables = filterTimetablesData();
     
+    if (filteredTimetables.length === 0) {
+        timetablesContainer.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">
+                    <i class="fas fa-search"></i>
+                </div>
+                <h3>No Timetables Found</h3>
+                <p>No timetables match the current filters. Try adjusting your selection.</p>
+            </div>
+        `;
+        return;
+    }
+    
     if (currentView === 'grid') {
         renderGridView(filteredTimetables);
     } else if (currentView === 'list') {
@@ -192,18 +264,11 @@ function renderListView(timetables) {
 
 // Filtering Functions
 function filterTimetablesData() {
-    const semester = semesterFilter.value;
-    const section = sectionFilter.value;
-    
     return currentTimetables.filter(timetable => {
-        const semesterMatch = semester === 'all' || timetable.semester === parseInt(semester);
-        const sectionMatch = section === 'all' || timetable.section === section;
+        const semesterMatch = currentSemesterFilter === 'all' || timetable.semester === parseInt(currentSemesterFilter);
+        const sectionMatch = currentSectionFilter === 'all' || timetable.section === currentSectionFilter;
         return semesterMatch && sectionMatch;
     });
-}
-
-function filterTimetables() {
-    renderTimetables();
 }
 
 function changeViewMode() {

@@ -82,3 +82,6 @@ logs/
 
 # Windows
 Thumbs.db
+
+# Generated timetables
+output_timetables/*
