@@ -463,25 +463,23 @@ body {
 
 /* Enhanced Table Styles */
 .timetable-table {
-    width: 100%;
-    border-collapse: collapse;
+    width: 100% !important;
+    border-collapse: collapse !important;
+    margin: 1rem 0 !important;
     font-size: 0.85rem;
 }
 
-.timetable-table th {
-    background: var(--light);
-    padding: 0.75rem;
-    text-align: center;
-    font-weight: 600;
-    color: var(--dark);
-    border-bottom: 2px solid var(--border);
+.timetable-table th,
+.timetable-table td {
+    border: 1px solid #ddd !important;
+    padding: 8px !important;
+    text-align: center !important;
 }
 
-.timetable-table td {
-    padding: 0.75rem;
-    text-align: center;
-    border: 1px solid var(--border);
-    transition: all 0.3s ease;
+.timetable-table th {
+    background-color: #f5f5f5 !important;
+    font-weight: bold !important;
+    color: var(--dark);
 }
 
 .timetable-table td:first-child {

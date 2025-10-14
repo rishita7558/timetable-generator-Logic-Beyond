@@ -74,6 +74,12 @@ function initializeApp() {
         });
     });
     
+    // Print button
+    const printAllBtn = document.getElementById('print-all-btn');
+    if (printAllBtn) {
+        printAllBtn.addEventListener('click', printAllTimetables);
+    }
+    
     // Load initial data
     loadStats();
     loadTimetables();
@@ -138,6 +144,7 @@ async function generateTimetables() {
         
         if (result.success) {
             showNotification('Timetables generated successfully!', 'success');
+            console.log('Generated files:', result.files);
             await loadTimetables();
             await loadStats();
         } else {
@@ -152,14 +159,37 @@ async function generateTimetables() {
 
 async function loadTimetables() {
     try {
+        console.log("🔄 Loading timetables...");
         const response = await fetch('/timetables');
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const timetables = await response.json();
+        
+        console.log(`📊 Received ${timetables.length} timetables:`, timetables);
         
         currentTimetables = timetables;
         renderTimetables();
+        
+        // Show notification if no timetables
+        if (timetables.length === 0) {
+            showNotification('No timetables found. Please generate them first.', 'info');
+        }
+        
     } catch (error) {
-        console.error('Error loading timetables:', error);
-        showNotification('Error loading timetables', 'error');
+        console.error('❌ Error loading timetables:', error);
+        showNotification('Error loading timetables: ' + error.message, 'error');
+        
+        // Try debug endpoint
+        try {
+            const debugResponse = await fetch('/debug-timetables');
+            const debugInfo = await debugResponse.json();
+            console.log('🐛 Debug info:', debugInfo);
+        } catch (debugError) {
+            console.error('Debug endpoint failed:', debugError);
+        }
     }
 }
 
@@ -206,6 +236,8 @@ function renderTimetables() {
         renderGridView(filteredTimetables);
     } else if (currentView === 'list') {
         renderListView(filteredTimetables);
+    } else if (currentView === 'compact') {
+        renderCompactView(filteredTimetables);
     }
 }
 
@@ -235,6 +267,9 @@ function renderGridView(timetables) {
     
     html += '</div>';
     timetablesContainer.innerHTML = html;
+    
+    // Enhance tables after rendering
+    enhanceTables();
 }
 
 function renderListView(timetables) {
@@ -242,16 +277,16 @@ function renderListView(timetables) {
     
     timetables.forEach(timetable => {
         html += `
-            <div class="timetable-item">
-                <div class="timetable-header">
-                    <h3>Semester ${timetable.semester} - Section ${timetable.section}</h3>
+            <div class="timetable-item" style="background: white; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 1.5rem; overflow: hidden;">
+                <div class="timetable-header" style="background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: white; padding: 1.25rem; display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Semester ${timetable.semester} - Section ${timetable.section}</h3>
                     <div class="timetable-actions">
-                        <button class="btn btn-outline" onclick="downloadTimetable('${timetable.filename}')">
+                        <button class="btn btn-outline" onclick="downloadTimetable('${timetable.filename}')" style="background: rgba(255, 255, 255, 0.2); color: white; border: 1px solid rgba(255, 255, 255, 0.5);">
                             <i class="fas fa-download"></i> Download
                         </button>
                     </div>
                 </div>
-                <div class="timetable-content">
+                <div class="timetable-content" style="padding: 1rem;">
                     ${timetable.html}
                 </div>
             </div>
@@ -260,6 +295,63 @@ function renderListView(timetables) {
     
     html += '</div>';
     timetablesContainer.innerHTML = html;
+    
+    // Enhance tables after rendering
+    enhanceTables();
+}
+
+function renderCompactView(timetables) {
+    let html = '<div class="timetables-compact">';
+    
+    timetables.forEach(timetable => {
+        html += `
+            <div class="compact-card" style="background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.5rem; margin-bottom: 1rem;">
+                <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 1rem;">
+                    <h4 style="margin: 0; color: var(--dark);">Semester ${timetable.semester} - Section ${timetable.section}</h4>
+                    <div>
+                        <button class="btn btn-outline btn-sm" onclick="downloadTimetable('${timetable.filename}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">
+                            <i class="fas fa-download"></i>
+                        </button>
+                    </div>
+                </div>
+                <div style="overflow-x: auto;">
+                    ${timetable.html}
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    timetablesContainer.innerHTML = html;
+    
+    // Enhance tables after rendering
+    enhanceTables();
+}
+
+function enhanceTables() {
+    // Add hover effects and better styling to tables
+    document.querySelectorAll('.timetable-table').forEach(table => {
+        // Ensure proper styling
+        table.style.width = '100%';
+        table.style.borderCollapse = 'collapse';
+        
+        // Add hover effects to cells
+        const cells = table.querySelectorAll('td:not(:first-child)');
+        cells.forEach(cell => {
+            if (cell.textContent.trim() && cell.textContent.trim() !== 'Free' && cell.textContent.trim() !== 'LUNCH BREAK') {
+                cell.style.cursor = 'pointer';
+                cell.addEventListener('mouseenter', function() {
+                    this.style.transform = 'scale(1.02)';
+                    this.style.zIndex = '1';
+                    this.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+                });
+                cell.addEventListener('mouseleave', function() {
+                    this.style.transform = 'scale(1)';
+                    this.style.boxShadow = 'none';
+                });
+            }
+        });
+    });
 }
 
 // Filtering Functions
@@ -279,7 +371,13 @@ function changeViewMode() {
 // Action Functions
 async function downloadAllTimetables() {
     try {
+        showNotification('Preparing download...', 'info');
+        
         const response = await fetch('/download-all');
+        if (!response.ok) {
+            throw new Error('Failed to download files');
+        }
+        
         const blob = await response.blob();
         
         const url = window.URL.createObjectURL(blob);
@@ -301,12 +399,95 @@ async function downloadAllTimetables() {
 
 function downloadTimetable(filename) {
     window.open(`/download/${filename}`, '_blank');
+    showNotification(`Downloading ${filename}...`, 'info');
 }
 
 function printTimetable(semester, section) {
     showNotification(`Printing Semester ${semester} - Section ${section}`, 'info');
-    // In a real implementation, this would open a print dialog for the specific timetable
-    window.print();
+    
+    // Create a print-friendly version
+    const printWindow = window.open('', '_blank');
+    const timetable = currentTimetables.find(t => t.semester === semester && t.section === section);
+    
+    if (timetable) {
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Semester ${semester} - Section ${section} Timetable</title>
+                <style>
+                    body { font-family: Arial, sans-serif; margin: 20px; }
+                    h1 { color: #333; text-align: center; }
+                    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+                    th { background-color: #f5f5f5; font-weight: bold; }
+                    .timetable-header { background: #4361ee; color: white; padding: 15px; text-align: center; }
+                </style>
+            </head>
+            <body>
+                <div class="timetable-header">
+                    <h1>IIIT Dharwad - Semester ${semester} - Section ${section}</h1>
+                    <p>Generated on ${new Date().toLocaleDateString()}</p>
+                </div>
+                ${timetable.html}
+                <script>
+                    window.onload = function() { window.print(); }
+                </script>
+            </body>
+            </html>
+        `);
+        printWindow.document.close();
+    }
+}
+
+function printAllTimetables() {
+    showNotification('Preparing all timetables for printing...', 'info');
+    
+    const printWindow = window.open('', '_blank');
+    const filteredTimetables = filterTimetablesData();
+    
+    let printContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>All Timetables - IIIT Dharwad</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                h1 { color: #333; text-align: center; }
+                h2 { color: #4361ee; margin-top: 30px; }
+                table { width: 100%; border-collapse: collapse; margin: 20px 0; page-break-inside: avoid; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+                th { background-color: #f5f5f5; font-weight: bold; }
+                .timetable-section { margin-bottom: 40px; }
+                @media print {
+                    .timetable-section { page-break-after: always; }
+                }
+            </style>
+        </head>
+        <body>
+            <h1>IIIT Dharwad - All Timetables</h1>
+            <p>Generated on ${new Date().toLocaleDateString()}</p>
+    `;
+    
+    filteredTimetables.forEach(timetable => {
+        printContent += `
+            <div class="timetable-section">
+                <h2>Semester ${timetable.semester} - Section ${timetable.section}</h2>
+                ${timetable.html}
+            </div>
+        `;
+    });
+    
+    printContent += `
+            <script>
+                window.onload = function() { window.print(); }
+            </script>
+        </body>
+        </html>
+    `;
+    
+    printWindow.document.write(printContent);
+    printWindow.document.close();
 }
 
 function handleQuickAction(action) {
@@ -319,9 +500,11 @@ function handleQuickAction(action) {
             break;
         case 'help':
             showNotification('Help and support information', 'info');
+            // You could redirect to a help page or open a modal
             break;
         case 'feedback':
             showNotification('Feedback form would open here', 'info');
+            // You could open a feedback modal or redirect
             break;
     }
 }
@@ -374,8 +557,11 @@ function showNotification(message, type = 'info') {
     
     notificationContainer.appendChild(notification);
     
+    // Auto remove after 5 seconds
     setTimeout(() => {
-        notification.remove();
+        if (notification.parentNode) {
+            notification.remove();
+        }
     }, 5000);
 }
 
@@ -387,3 +573,18 @@ function getNotificationIcon(type) {
         default: return 'info-circle';
     }
 }
+
+// Debug function to check current state
+function debugState() {
+    console.log('=== DEBUG STATE ===');
+    console.log('Current timetables:', currentTimetables);
+    console.log('Current filters - Semester:', currentSemesterFilter, 'Section:', currentSectionFilter);
+    console.log('Current view:', currentView);
+    console.log('Filtered timetables:', filterTimetablesData());
+    console.log('===================');
+}
+
+// Export functions for global access
+window.downloadTimetable = downloadTimetable;
+window.printTimetable = printTimetable;
+window.debugState = debugState;
