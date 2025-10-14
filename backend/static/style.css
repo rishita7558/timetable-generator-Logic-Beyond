@@ -725,3 +725,132 @@ body {
         border-radius: 0;
     }
 }
+
+/* Color Coding for Courses */
+.course-MA101 { background: linear-gradient(135deg, #ff6b6b, #ff8e8e) !important; color: white !important; }
+.course-DS101 { background: linear-gradient(135deg, #4ecdc4, #88d8d0) !important; color: white !important; }
+.course-MA102 { background: linear-gradient(135deg, #45b7d1, #7acde5) !important; color: white !important; }
+.course-EC101 { background: linear-gradient(135deg, #96ceb4, #b8e0c8) !important; color: #333 !important; }
+.course-CS101 { background: linear-gradient(135deg, #feca57, #ffdb8b) !important; color: #333 !important; }
+.course-HS101 { background: linear-gradient(135deg, #ff9ff3, #ffbdf7) !important; color: #333 !important; }
+.course-CS151 { background: linear-gradient(135deg, #54a0ff, #85b9ff) !important; color: white !important; }
+.course-MA261 { background: linear-gradient(135deg, #5f27cd, #8b5ce5) !important; color: white !important; }
+.course-CS261 { background: linear-gradient(135deg, #00d2d3, #4de3e3) !important; color: #333 !important; }
+.course-CS263 { background: linear-gradient(135deg, #ff9f43, #ffb76b) !important; color: #333 !important; }
+.course-CS264 { background: linear-gradient(135deg, #10ac84, #45d0a9) !important; color: white !important; }
+.course-CS309 { background: linear-gradient(135deg, #ee5a24, #f27c52) !important; color: white !important; }
+.course-CS303 { background: linear-gradient(135deg, #0984e3, #3ba0eb) !important; color: white !important; }
+.course-CS304 { background: linear-gradient(135deg, #00b894, #45d4b4) !important; color: white !important; }
+.course-CS461 { background: linear-gradient(135deg, #6c5ce7, #8e82f0) !important; color: white !important; }
+.course-DS456 { background: linear-gradient(135deg, #e84393, #ef75b2) !important; color: white !important; }
+.course-EC456 { background: linear-gradient(135deg, #fdcb6e, #ffdb9c) !important; color: #333 !important; }
+.course-DS401 { background: linear-gradient(135deg, #00cec9, #45e0dc) !important; color: #333 !important; }
+
+/* Hover effects for colored cells */
+.timetable-table td[class*="course-"]:hover {
+    transform: scale(1.05) !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+    z-index: 2 !important;
+}
+
+/* Legend Styles */
+.timetable-legend {
+    background: white;
+    border-radius: var(--radius-sm);
+    padding: 1rem;
+    margin-top: 1rem;
+    box-shadow: var(--shadow);
+    border-left: 4px solid var(--primary);
+}
+
+.legend-title {
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--dark);
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.legend-title i {
+    color: var(--primary);
+}
+
+.legend-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.5rem;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    background: var(--light);
+    transition: all 0.3s ease;
+}
+
+.legend-item:hover {
+    transform: translateX(5px);
+    background: white;
+    box-shadow: var(--shadow);
+}
+
+.legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.legend-course-code {
+    font-weight: 600;
+    min-width: 50px;
+}
+
+.legend-course-name {
+    color: var(--gray);
+    flex: 1;
+    font-size: 0.75rem;
+}
+
+/* Compact legend for mobile */
+@media (max-width: 768px) {
+    .legend-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .legend-item {
+        padding: 0.5rem;
+    }
+}
+
+/* Enhanced table cell styling */
+.timetable-table td:not(:first-child):not(.empty-cell) {
+    font-weight: 500;
+    position: relative;
+    overflow: hidden;
+}
+
+.timetable-table td:not(:first-child):not(.empty-cell)::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
+    z-index: 1;
+}
+
+/* Ensure text is readable on colored backgrounds */
+.timetable-table td[class*="course-"] {
+    text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    font-weight: 600;
+    position: relative;
+    z-index: 1;
+}

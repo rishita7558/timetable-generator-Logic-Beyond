@@ -4,6 +4,28 @@ let currentView = 'grid';
 let currentSemesterFilter = 'all';
 let currentSectionFilter = 'all';
 
+// Course information database
+const courseDatabase = {
+    'MA101': { name: 'Mathematics I', credits: 4, type: 'Core' },
+    'DS101': { name: 'Data Structures', credits: 4, type: 'Core' },
+    'MA102': { name: 'Mathematics II', credits: 4, type: 'Core' },
+    'EC101': { name: 'Electronics', credits: 3, type: 'Core' },
+    'CS101': { name: 'Computer Programming', credits: 4, type: 'Core' },
+    'HS101': { name: 'Communication Skills', credits: 2, type: 'Core' },
+    'CS151': { name: 'Programming Lab', credits: 2, type: 'Lab' },
+    'MA261': { name: 'Probability & Statistics', credits: 4, type: 'Core' },
+    'CS261': { name: 'Algorithms', credits: 4, type: 'Core' },
+    'CS263': { name: 'Database Systems', credits: 4, type: 'Core' },
+    'CS264': { name: 'Computer Networks', credits: 4, type: 'Core' },
+    'CS309': { name: 'Software Engineering', credits: 4, type: 'Core' },
+    'CS303': { name: 'Machine Learning', credits: 4, type: 'Core' },
+    'CS304': { name: 'Operating Systems', credits: 4, type: 'Core' },
+    'CS461': { name: 'Artificial Intelligence', credits: 4, type: 'Elective' },
+    'DS456': { name: 'Data Science', credits: 4, type: 'Elective' },
+    'EC456': { name: 'Embedded Systems', credits: 4, type: 'Elective' },
+    'DS401': { name: 'Big Data Analytics', credits: 4, type: 'Elective' }
+};
+
 // DOM Elements
 const generateBtn = document.getElementById('generate-btn');
 const refreshBtn = document.getElementById('refresh-btn');
@@ -32,6 +54,8 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function initializeApp() {
+    console.log("🚀 Initializing Timetable Application...");
+    
     // Event listeners
     generateBtn.addEventListener('click', generateTimetables);
     refreshBtn.addEventListener('click', refreshAll);
@@ -80,9 +104,14 @@ function initializeApp() {
         printAllBtn.addEventListener('click', printAllTimetables);
     }
     
+    // Debug button (add this to your HTML or use browser console)
+    window.debugApp = debugApp;
+    
     // Load initial data
     loadStats();
     loadTimetables();
+    
+    console.log("✅ Application initialized successfully");
 }
 
 // Sidebar Navigation
@@ -133,6 +162,7 @@ async function generateTimetables() {
     showLoading(true);
     
     try {
+        console.log("🔄 Starting timetable generation...");
         const response = await fetch('/generate', {
             method: 'POST',
             headers: {
@@ -141,17 +171,27 @@ async function generateTimetables() {
         });
         
         const result = await response.json();
+        console.log("📦 Generation result:", result);
         
         if (result.success) {
-            showNotification('Timetables generated successfully!', 'success');
-            console.log('Generated files:', result.files);
+            showNotification(`✅ ${result.message}`, 'success');
+            console.log('📁 Generated files:', result.files);
+            
+            // Reload data
             await loadTimetables();
             await loadStats();
+            
+            // If no files were generated, show debug info
+            if (result.generated_count === 0) {
+                showNotification('⚠️ No timetables were generated. Check the console for details.', 'warning');
+            }
         } else {
-            showNotification(result.message || 'Error generating timetables', 'error');
+            showNotification(`❌ ${result.message}`, 'error');
+            console.error('Generation failed:', result.message);
         }
     } catch (error) {
-        showNotification('Error generating timetables: ' + error.message, 'error');
+        console.error('❌ Error generating timetables:', error);
+        showNotification('❌ Error generating timetables: ' + error.message, 'error');
     } finally {
         showLoading(false);
     }
@@ -168,28 +208,22 @@ async function loadTimetables() {
         
         const timetables = await response.json();
         
-        console.log(`📊 Received ${timetables.length} timetables:`, timetables);
+        console.log(`📊 Received ${timetables.length} timetables`);
         
         currentTimetables = timetables;
         renderTimetables();
         
         // Show notification if no timetables
         if (timetables.length === 0) {
-            showNotification('No timetables found. Please generate them first.', 'info');
+            console.log("ℹ️ No timetables available");
+            showNotification('No timetables found. Click "Generate All Timetables" to create them.', 'info');
+        } else {
+            console.log("✅ Timetables loaded successfully");
         }
         
     } catch (error) {
         console.error('❌ Error loading timetables:', error);
-        showNotification('Error loading timetables: ' + error.message, 'error');
-        
-        // Try debug endpoint
-        try {
-            const debugResponse = await fetch('/debug-timetables');
-            const debugInfo = await debugResponse.json();
-            console.log('🐛 Debug info:', debugInfo);
-        } catch (debugError) {
-            console.error('Debug endpoint failed:', debugError);
-        }
+        showNotification('❌ Error loading timetables: ' + error.message, 'error');
     }
 }
 
@@ -202,13 +236,169 @@ async function loadStats() {
         totalCoursesEl.textContent = stats.total_courses;
         totalFacultyEl.textContent = stats.total_faculty;
         totalClassroomsEl.textContent = stats.total_classrooms;
+        
+        console.log("📈 Stats loaded:", stats);
     } catch (error) {
         console.error('Error loading stats:', error);
     }
 }
 
+// Color Coding and Legend Functions
+function applyColorCoding(tableElement) {
+    const cells = tableElement.querySelectorAll('td');
+    
+    cells.forEach(cell => {
+        const text = cell.textContent.trim();
+        
+        // Skip header cells, empty cells, and special slots
+        if (!text || text === 'Free' || text === 'LUNCH BREAK' || cell.cellIndex === 0) {
+            cell.classList.add('empty-cell');
+            return;
+        }
+        
+        // Extract course code (assuming format like "MA101" or similar)
+        const courseCode = extractCourseCode(text);
+        
+        if (courseCode && courseDatabase[courseCode]) {
+            // Add color coding class
+            cell.classList.add(`course-${courseCode}`);
+            
+            // Add tooltip with course info
+            const courseInfo = courseDatabase[courseCode];
+            cell.title = `${courseCode}: ${courseInfo.name} (${courseInfo.credits} credits)`;
+            
+            // Make cell clickable for more info
+            cell.style.cursor = 'help';
+        }
+    });
+}
+
+function extractCourseCode(text) {
+    // Match common course code patterns like MA101, CS101, etc.
+    const coursePattern = /[A-Z]{2,3}\d{3}/;
+    const match = text.match(coursePattern);
+    return match ? match[0] : text;
+}
+
+function createLegend(semester, section) {
+    const timetable = currentTimetables.find(t => 
+        t.semester === semester && t.section === section
+    );
+    
+    if (!timetable) return '';
+    
+    // Extract unique courses from the timetable
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = timetable.html;
+    const cells = tempDiv.querySelectorAll('td');
+    const uniqueCourses = new Set();
+    
+    cells.forEach(cell => {
+        const text = cell.textContent.trim();
+        if (text && text !== 'Free' && text !== 'LUNCH BREAK') {
+            const courseCode = extractCourseCode(text);
+            if (courseCode && courseDatabase[courseCode]) {
+                uniqueCourses.add(courseCode);
+            }
+        }
+    });
+    
+    if (uniqueCourses.size === 0) return '';
+    
+    // Create legend HTML
+    let legendHtml = `
+        <div class="timetable-legend">
+            <div class="legend-title">
+                <i class="fas fa-palette"></i>
+                Course Legend - Semester ${semester}, Section ${section}
+            </div>
+            <div class="legend-grid">
+    `;
+    
+    // Sort courses alphabetically
+    const sortedCourses = Array.from(uniqueCourses).sort();
+    
+    sortedCourses.forEach(courseCode => {
+        const courseInfo = courseDatabase[courseCode];
+        legendHtml += `
+            <div class="legend-item">
+                <div class="legend-color course-${courseCode}"></div>
+                <span class="legend-course-code">${courseCode}</span>
+                <span class="legend-course-name">${courseInfo.name} (${courseInfo.credits} cr)</span>
+            </div>
+        `;
+    });
+    
+    legendHtml += `
+            </div>
+        </div>
+    `;
+    
+    return legendHtml;
+}
+
+function enhanceTables() {
+    document.querySelectorAll('.timetable-table').forEach(table => {
+        // Apply color coding
+        applyColorCoding(table);
+        
+        // Find the parent timetable card and add legend
+        const timetableCard = table.closest('.timetable-card') || table.closest('.timetable-item');
+        if (timetableCard) {
+            const header = timetableCard.querySelector('.timetable-header h3');
+            if (header) {
+                const match = header.textContent.match(/Semester (\d+) - Section ([AB])/);
+                if (match) {
+                    const semester = parseInt(match[1]);
+                    const section = match[2];
+                    const legend = createLegend(semester, section);
+                    if (legend) {
+                        // Remove existing legend if any
+                        const existingLegend = timetableCard.querySelector('.timetable-legend');
+                        if (existingLegend) {
+                            existingLegend.remove();
+                        }
+                        // Add new legend
+                        timetableCard.insertAdjacentHTML('beforeend', legend);
+                    }
+                }
+            }
+        }
+    });
+    
+    // Add hover effects to colored cells
+    const coloredCells = document.querySelectorAll('td[class*="course-"]');
+    coloredCells.forEach(cell => {
+        cell.addEventListener('mouseenter', function() {
+            this.style.transform = 'scale(1.05)';
+            this.style.zIndex = '2';
+            this.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+        });
+        
+        cell.addEventListener('mouseleave', function() {
+            this.style.transform = 'scale(1)';
+            this.style.boxShadow = 'none';
+        });
+        
+        // Add click handler for course info
+        cell.addEventListener('click', function() {
+            const courseCode = extractCourseCode(this.textContent);
+            if (courseCode && courseDatabase[courseCode]) {
+                const courseInfo = courseDatabase[courseCode];
+                showNotification(`${courseCode}: ${courseInfo.name} - ${courseInfo.credits} credits (${courseInfo.type})`, 'info');
+            }
+        });
+    });
+}
+
 // Rendering Functions
 function renderTimetables() {
+    console.log(`🎨 Rendering ${currentTimetables.length} timetables with filters:`, {
+        semester: currentSemesterFilter,
+        section: currentSectionFilter,
+        view: currentView
+    });
+    
     if (currentTimetables.length === 0) {
         emptyState.style.display = 'block';
         timetablesContainer.innerHTML = '';
@@ -218,6 +408,7 @@ function renderTimetables() {
     emptyState.style.display = 'none';
     
     const filteredTimetables = filterTimetablesData();
+    console.log(`🔍 Filtered to ${filteredTimetables.length} timetables`);
     
     if (filteredTimetables.length === 0) {
         timetablesContainer.innerHTML = `
@@ -227,6 +418,9 @@ function renderTimetables() {
                 </div>
                 <h3>No Timetables Found</h3>
                 <p>No timetables match the current filters. Try adjusting your selection.</p>
+                <button class="btn btn-outline" onclick="currentSemesterFilter='all'; currentSectionFilter='all'; semesterFilter.value='all'; sectionFilter.value='all'; updateSectionTitle(); renderTimetables();">
+                    Show All Timetables
+                </button>
             </div>
         `;
         return;
@@ -239,6 +433,8 @@ function renderTimetables() {
     } else if (currentView === 'compact') {
         renderCompactView(filteredTimetables);
     }
+    
+    console.log("✅ Timetables rendered successfully");
 }
 
 function renderGridView(timetables) {
@@ -268,7 +464,7 @@ function renderGridView(timetables) {
     html += '</div>';
     timetablesContainer.innerHTML = html;
     
-    // Enhance tables after rendering
+    // Enhance tables with color coding and legends
     enhanceTables();
 }
 
@@ -296,7 +492,7 @@ function renderListView(timetables) {
     html += '</div>';
     timetablesContainer.innerHTML = html;
     
-    // Enhance tables after rendering
+    // Enhance tables with color coding and legends
     enhanceTables();
 }
 
@@ -324,34 +520,8 @@ function renderCompactView(timetables) {
     html += '</div>';
     timetablesContainer.innerHTML = html;
     
-    // Enhance tables after rendering
+    // Enhance tables with color coding and legends
     enhanceTables();
-}
-
-function enhanceTables() {
-    // Add hover effects and better styling to tables
-    document.querySelectorAll('.timetable-table').forEach(table => {
-        // Ensure proper styling
-        table.style.width = '100%';
-        table.style.borderCollapse = 'collapse';
-        
-        // Add hover effects to cells
-        const cells = table.querySelectorAll('td:not(:first-child)');
-        cells.forEach(cell => {
-            if (cell.textContent.trim() && cell.textContent.trim() !== 'Free' && cell.textContent.trim() !== 'LUNCH BREAK') {
-                cell.style.cursor = 'pointer';
-                cell.addEventListener('mouseenter', function() {
-                    this.style.transform = 'scale(1.02)';
-                    this.style.zIndex = '1';
-                    this.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
-                });
-                cell.addEventListener('mouseleave', function() {
-                    this.style.transform = 'scale(1)';
-                    this.style.boxShadow = 'none';
-                });
-            }
-        });
-    });
 }
 
 // Filtering Functions
@@ -371,14 +541,19 @@ function changeViewMode() {
 // Action Functions
 async function downloadAllTimetables() {
     try {
-        showNotification('Preparing download...', 'info');
+        showNotification('📦 Preparing download...', 'info');
         
         const response = await fetch('/download-all');
         if (!response.ok) {
-            throw new Error('Failed to download files');
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to download files');
         }
         
         const blob = await response.blob();
+        
+        if (blob.size === 0) {
+            throw new Error('Download file is empty - no timetables available');
+        }
         
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -391,19 +566,19 @@ async function downloadAllTimetables() {
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
         
-        showNotification('All timetables downloaded successfully!', 'success');
+        showNotification('✅ All timetables downloaded successfully!', 'success');
     } catch (error) {
-        showNotification('Error downloading timetables: ' + error.message, 'error');
+        showNotification('❌ Error downloading timetables: ' + error.message, 'error');
     }
 }
 
 function downloadTimetable(filename) {
     window.open(`/download/${filename}`, '_blank');
-    showNotification(`Downloading ${filename}...`, 'info');
+    showNotification(`📥 Downloading ${filename}...`, 'info');
 }
 
 function printTimetable(semester, section) {
-    showNotification(`Printing Semester ${semester} - Section ${section}`, 'info');
+    showNotification(`🖨️ Printing Semester ${semester} - Section ${section}`, 'info');
     
     // Create a print-friendly version
     const printWindow = window.open('', '_blank');
@@ -441,7 +616,7 @@ function printTimetable(semester, section) {
 }
 
 function printAllTimetables() {
-    showNotification('Preparing all timetables for printing...', 'info');
+    showNotification('🖨️ Preparing all timetables for printing...', 'info');
     
     const printWindow = window.open('', '_blank');
     const filteredTimetables = filterTimetablesData();
@@ -500,11 +675,9 @@ function handleQuickAction(action) {
             break;
         case 'help':
             showNotification('Help and support information', 'info');
-            // You could redirect to a help page or open a modal
             break;
         case 'feedback':
             showNotification('Feedback form would open here', 'info');
-            // You could open a feedback modal or redirect
             break;
     }
 }
@@ -512,7 +685,7 @@ function handleQuickAction(action) {
 function refreshAll() {
     loadTimetables();
     loadStats();
-    showNotification('Data refreshed successfully!', 'success');
+    showNotification('🔄 Data refreshed successfully!', 'success');
 }
 
 // UI Helper Functions
@@ -575,16 +748,17 @@ function getNotificationIcon(type) {
 }
 
 // Debug function to check current state
-function debugState() {
+function debugApp() {
     console.log('=== DEBUG STATE ===');
     console.log('Current timetables:', currentTimetables);
     console.log('Current filters - Semester:', currentSemesterFilter, 'Section:', currentSectionFilter);
     console.log('Current view:', currentView);
     console.log('Filtered timetables:', filterTimetablesData());
+    console.log('Course database:', courseDatabase);
     console.log('===================');
 }
 
 // Export functions for global access
 window.downloadTimetable = downloadTimetable;
 window.printTimetable = printTimetable;
-window.debugState = debugState;
+window.debugApp = debugApp;
