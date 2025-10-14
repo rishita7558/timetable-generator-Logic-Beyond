@@ -1,0 +1,18 @@
+code,name,lecture_hours,tutorial_hours,practical_hours,self_study_hours,credits,instructors
+MA261,Differential Equations,3,1,0,4,4,anand.baranji@univ.edu
+MA262,Multivariate Calculus,2,0,0,2,3,sreenivas.b@univ.edu
+CS261,Operating System,3,0,4,4,5,SWAROOP.HAZRA@univ.edu
+CS262,Software design tools and techniques,2,0,2,3,4,"sastik.sp@univ.edu,vishwaraj.r@univ.edu"
+CS263,Design and Analysis of Algorithms,3,0,2,4,5,"malay.k@univ.edu,pramod.v@univ.edu"
+CS264,Computer Networks,3,1,0,4,5,prabhakar.bm@univ.edu
+HS261,HSS (Ethics & Values) / Environmental Studies,2,1,0,2,3,panjak.g@univ.edu
+EC251,Electronic System Design-I,3,0,2,3,4,rajesh.kumar@univ.edu
+EC352,Introduction of RFIC design,2,0,0,2,2,rajesh.kumar@univ.edu
+New,Introduction to Embedded Signal Intelligence,2,0,0,2,2,sibamendu.p@univ.edu
+New,Electronic System Engineering,2,0,0,2,2,"mallikarjun.k@univ.edu,rajesh.kumar@univ.edu"
+CS352,Data Science with Python,2,0,2,3,4,abdul.wahid@univ.edu
+AB352,User Interactions and Experience Design,4,0,0,4,4,santhosh.p@univ.edu
+CS251,2D Computer Graphics,2,0,2,3,4,vivekraj.vk@univ.edu
+CS353,Introduction to Machine Learning,3,1,2,4,5,"abdul.wahid@univ.edu,prabhakar.bm@univ.edu"
+HS262,Communication Skills,2,0,0,2,2,panjak.g@univ.edu
+MA263,Linear Algebra,3,1,0,4,4,anand.baranji@univ.edu

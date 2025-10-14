@@ -1,0 +1,16 @@
+roll_number,name,program,batch,section
+24BCS001,Anil Kumar,Computer Science,Batch A1,CSE-A
+24BCS005,,Computer Science,Batch A1,CSE-A
+24BCS043,Rohan Gupta,Computer Science,,CSE-B
+24BCS085,Neha Reddy,computer science,Batch B1,CSE-C
+24BCS126,Vikas Singh,Computer Science,Batch B2,
+24Bcs200,Pooja Singh,Comp Sci,Batch C1,CSE-X
+24CSE999,Test User,Data Science,Batch D1,CSE-D
+XINVALID1,Invalid Roll,Computer Science,Batch X1,CSE-Y
+123,Short Roll,Computer Science,Batch Y1,CSE-Z
+24BCS9999,Too Long Roll,Computer Science,Batch A1,CSE-A
+24BEE010,Arjun Das,Electrical Engineering,Batch E1,EEE-A
+24MEC015,Ravi Varma,Mechanical Engineering,Batch M1,MECH-A
+24CIV018,*,Civil Engineering,Batch C1,CIVIL-A
+24ART001,李华,Arts,Batch AR1,ART-A
+24BCS001,Duplicate Anil,Computer Science,Batch A1,CSE-A

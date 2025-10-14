@@ -1,0 +1,17 @@
+professor_email,day_of_week,start_time,end_time
+anand.baranji@univ.edu,0,08:00,18:00
+anand.baranji@univ.edu,1,08:00,18:00
+swaroop.hazra@univ.edu,0,09:00,17:00
+swaroop.hazra@univ.edu,3,09:00,17:00
+sastik.sp@univ.edu,2,10:00,17:00
+malay.k@univ.edu,4,09:00,17:00
+prabhakar.bm@univ.edu,0,09:00,17:00
+prabhakar.bm@univ.edu,1,09:00,17:00
+rajesh.kumar@univ.edu,0,08:00,18:00
+rajesh.kumar@univ.edu,4,08:00,18:00
+priya.sharma@univ.edu,5,10:00,15:00
+amit.patel@univ.edu,6,09:00,12:00
+duplicate.prof@univ.edu,2,08:00,16:00
+duplicate.prof@univ.edu,2,08:00,16:00
+early.start@univ.edu,1,00:00,06:00
+late.end@univ.edu,3,18:00,23:59
