@@ -50,6 +50,12 @@
                 </a>
             </li>
             <li class="nav-item">
+                <a href="#upload" id="upload-nav-btn">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <span>Upload Files</span>
+                </a>
+            </li>
+            <li class="nav-item">
                 <a href="#settings">
                     <i class="fas fa-cog"></i>
                     <span>Settings</span>
@@ -132,6 +138,76 @@
             </div>
         </section>
 
+        <!-- File Upload Section -->
+        <section class="upload-section" id="upload-section" style="display: none;">
+            <div class="upload-container">
+                <div class="upload-header">
+                    <h2>Upload CSV Files</h2>
+                    <p>Drag and drop your CSV files or click to browse</p>
+                </div>
+                
+                <div class="upload-area" id="upload-area">
+                    <div class="upload-content">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <h3>Drag & Drop Files Here</h3>
+                        <p>Supported files: CSV</p>
+                        <button class="btn btn-outline" id="browse-btn">
+                            <i class="fas fa-folder-open"></i>
+                            Browse Files
+                        </button>
+                    </div>
+                    <input type="file" id="file-input" multiple accept=".csv" style="display: none;">
+                </div>
+                
+                <div class="file-list" id="file-list">
+                    <h4>Required Files:</h4>
+                    <div class="required-files">
+                        <div class="file-item required" data-file="course_data.csv">
+                            <i class="fas fa-file-csv"></i>
+                            <span>course_data.csv</span>
+                            <span class="file-status"></span>
+                        </div>
+                        <div class="file-item required" data-file="faculty_availability.csv">
+                            <i class="fas fa-file-csv"></i>
+                            <span>faculty_availability.csv</span>
+                            <span class="file-status"></span>
+                        </div>
+                        <div class="file-item required" data-file="classroom_data.csv">
+                            <i class="fas fa-file-csv"></i>
+                            <span>classroom_data.csv</span>
+                            <span class="file-status"></span>
+                        </div>
+                        <div class="file-item required" data-file="student_data.csv">
+                            <i class="fas fa-file-csv"></i>
+                            <span>student_data.csv</span>
+                            <span class="file-status"></span>
+                        </div>
+                        <div class="file-item required" data-file="exams_data.csv">
+                            <i class="fas fa-file-csv"></i>
+                            <span>exams_data.csv</span>
+                            <span class="file-status"></span>
+                        </div>
+                    </div>
+                    
+                    <div class="uploaded-files" id="uploaded-files">
+                        <h4>Uploaded Files:</h4>
+                        <!-- Uploaded files will appear here -->
+                    </div>
+                </div>
+                
+                <div class="upload-actions">
+                    <button class="btn btn-outline" id="cancel-upload-btn">
+                        <i class="fas fa-times"></i>
+                        Cancel
+                    </button>
+                    <button class="btn btn-primary" id="process-files-btn" disabled>
+                        <i class="fas fa-cog"></i>
+                        Process Files
+                    </button>
+                </div>
+            </div>
+        </section>
+
         <!-- Controls Section -->
         <section class="controls-section">
             <div class="control-group">
@@ -163,6 +239,10 @@
                 </div>
             </div>
             <div class="control-actions">
+                <button class="btn btn-outline" id="upload-files-btn">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    Upload Files
+                </button>
                 <button class="btn btn-outline" id="print-all-btn">
                     <i class="fas fa-print"></i>
                     Print All
@@ -197,7 +277,7 @@
                         <i class="fas fa-calendar-plus"></i>
                     </div>
                     <h3>No Timetables Generated Yet</h3>
-                    <p>Click "Generate All Timetables" to create your schedule</p>
+                    <p>Upload CSV files and click "Generate All Timetables" to create your schedule</p>
                     <button class="btn btn-primary" id="empty-generate-btn">
                         <i class="fas fa-bolt"></i>
                         Generate Timetables
@@ -210,6 +290,10 @@
         <section class="quick-actions">
             <h3>Quick Actions</h3>
             <div class="action-grid">
+                <div class="action-card" data-action="upload">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <span>Upload Files</span>
+                </div>
                 <div class="action-card" data-action="export">
                     <i class="fas fa-file-export"></i>
                     <span>Export Data</span>
@@ -221,10 +305,6 @@
                 <div class="action-card" data-action="help">
                     <i class="fas fa-question-circle"></i>
                     <span>Help & Support</span>
-                </div>
-                <div class="action-card" data-action="feedback">
-                    <i class="fas fa-comment-alt"></i>
-                    <span>Feedback</span>
                 </div>
             </div>
         </section>
@@ -243,6 +323,23 @@
                     <div class="progress-fill" id="progress-fill"></div>
                 </div>
                 <span class="progress-text" id="progress-text">0%</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Progress Overlay -->
+    <div class="loading-overlay" id="upload-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner">
+                <i class="fas fa-upload fa-spin"></i>
+            </div>
+            <h3>Uploading Files</h3>
+            <p>Processing your CSV files...</p>
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="upload-progress-fill"></div>
+                </div>
+                <span class="progress-text" id="upload-progress-text">0%</span>
             </div>
         </div>
     </div>

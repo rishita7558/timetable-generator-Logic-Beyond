@@ -3,28 +3,11 @@ let currentTimetables = [];
 let currentView = 'grid';
 let currentSemesterFilter = 'all';
 let currentSectionFilter = 'all';
+let uploadedFiles = [];
+let isUploadSectionVisible = false;
 
-// Course information database
-const courseDatabase = {
-    'MA101': { name: 'Mathematics I', credits: 4, type: 'Core' },
-    'DS101': { name: 'Data Structures', credits: 4, type: 'Core' },
-    'MA102': { name: 'Mathematics II', credits: 4, type: 'Core' },
-    'EC101': { name: 'Electronics', credits: 3, type: 'Core' },
-    'CS101': { name: 'Computer Programming', credits: 4, type: 'Core' },
-    'HS101': { name: 'Communication Skills', credits: 2, type: 'Core' },
-    'CS151': { name: 'Programming Lab', credits: 2, type: 'Lab' },
-    'MA261': { name: 'Probability & Statistics', credits: 4, type: 'Core' },
-    'CS261': { name: 'Algorithms', credits: 4, type: 'Core' },
-    'CS263': { name: 'Database Systems', credits: 4, type: 'Core' },
-    'CS264': { name: 'Computer Networks', credits: 4, type: 'Core' },
-    'CS309': { name: 'Software Engineering', credits: 4, type: 'Core' },
-    'CS303': { name: 'Machine Learning', credits: 4, type: 'Core' },
-    'CS304': { name: 'Operating Systems', credits: 4, type: 'Core' },
-    'CS461': { name: 'Artificial Intelligence', credits: 4, type: 'Elective' },
-    'DS456': { name: 'Data Science', credits: 4, type: 'Elective' },
-    'EC456': { name: 'Embedded Systems', credits: 4, type: 'Elective' },
-    'DS401': { name: 'Big Data Analytics', credits: 4, type: 'Elective' }
-};
+// Course information database - will be populated from server data
+let courseDatabase = {};
 
 // DOM Elements
 const generateBtn = document.getElementById('generate-btn');
@@ -61,6 +44,9 @@ function initializeApp() {
     refreshBtn.addEventListener('click', refreshAll);
     downloadAllBtn.addEventListener('click', downloadAllTimetables);
     emptyGenerateBtn.addEventListener('click', generateTimetables);
+    
+    // New upload-related event listeners
+    setupFileUpload();
     
     // Filter listeners
     semesterFilter.addEventListener('change', function() {
@@ -104,7 +90,13 @@ function initializeApp() {
         printAllBtn.addEventListener('click', printAllTimetables);
     }
     
-    // Debug button (add this to your HTML or use browser console)
+    // Upload files button
+    const uploadFilesBtn = document.getElementById('upload-files-btn');
+    if (uploadFilesBtn) {
+        uploadFilesBtn.addEventListener('click', showUploadSection);
+    }
+    
+    // Debug button
     window.debugApp = debugApp;
     
     // Load initial data
@@ -112,6 +104,392 @@ function initializeApp() {
     loadTimetables();
     
     console.log("✅ Application initialized successfully");
+}
+
+// File Upload Functions
+function setupFileUpload() {
+    const uploadArea = document.getElementById('upload-area');
+    const fileInput = document.getElementById('file-input');
+    const browseBtn = document.getElementById('browse-btn');
+    const cancelUploadBtn = document.getElementById('cancel-upload-btn');
+    const processFilesBtn = document.getElementById('process-files-btn');
+    const uploadNavBtn = document.getElementById('upload-nav-btn');
+
+    // Browse button click
+    if (browseBtn) {
+        browseBtn.addEventListener('click', () => fileInput.click());
+    }
+
+    // File input change
+    if (fileInput) {
+        fileInput.addEventListener('change', handleFileSelect);
+    }
+
+    // Drag and drop events
+    if (uploadArea) {
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => {
+                uploadArea.classList.add('drag-over');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => {
+                uploadArea.classList.remove('drag-over');
+            }, false);
+        });
+
+        // Drop event
+        uploadArea.addEventListener('drop', handleDrop, false);
+    }
+
+    // Cancel upload
+    if (cancelUploadBtn) {
+        cancelUploadBtn.addEventListener('click', hideUploadSection);
+    }
+
+    // Process files
+    if (processFilesBtn) {
+        processFilesBtn.addEventListener('click', processUploadedFiles);
+    }
+
+    // Navigation upload button
+    if (uploadNavBtn) {
+        uploadNavBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            showUploadSection();
+        });
+    }
+}
+
+function handleFileSelect(e) {
+    const files = e.target.files;
+    handleFiles(files);
+}
+
+function handleDrop(e) {
+    const dt = e.dataTransfer;
+    const files = dt.files;
+    handleFiles(files);
+}
+
+function handleFiles(files) {
+    const validFiles = Array.from(files).filter(file => {
+        const isValidCSV = file.name.toLowerCase().endsWith('.csv');
+        if (!isValidCSV) {
+            showNotification(`❌ ${file.name} is not a CSV file`, 'error');
+            return false;
+        }
+        return true;
+    });
+
+    if (validFiles.length > 0) {
+        uploadedFiles = [...uploadedFiles, ...validFiles];
+        updateFileList();
+        updateUploadArea();
+        updateProcessButton();
+        showNotification(`✅ Added ${validFiles.length} file(s)`, 'success');
+    }
+}
+
+function updateFileList() {
+    const uploadedFilesContainer = document.getElementById('uploaded-files');
+    const requiredFiles = document.querySelectorAll('.file-item.required');
+    
+    if (!uploadedFilesContainer) return;
+    
+    // Clear existing uploaded files display
+    const existingUploaded = uploadedFilesContainer.querySelectorAll('.uploaded-file-item');
+    existingUploaded.forEach(item => item.remove());
+    
+    // Update required files status
+    requiredFiles.forEach(item => {
+        const fileName = item.dataset.file;
+        const fileStatus = item.querySelector('.file-status');
+        const isUploaded = uploadedFiles.some(file => 
+            file.name.toLowerCase().replace(/[ _-]/g, '') === fileName.toLowerCase().replace(/[ _-]/g, '') ||
+            fileName.toLowerCase().replace(/[ _-]/g, '').includes(file.name.toLowerCase().replace(/[ _-]/g, '')) ||
+            file.name.toLowerCase().replace(/[ _-]/g, '').includes(fileName.toLowerCase().replace(/[ _-]/g, ''))
+        );
+        
+        if (isUploaded) {
+            item.classList.add('uploaded');
+            fileStatus.textContent = 'Uploaded';
+            fileStatus.classList.add('uploaded');
+            fileStatus.classList.remove('missing');
+        } else {
+            item.classList.remove('uploaded');
+            fileStatus.textContent = 'Missing';
+            fileStatus.classList.add('missing');
+            fileStatus.classList.remove('uploaded');
+        }
+    });
+    
+    // Display uploaded files
+    uploadedFiles.forEach((file, index) => {
+        const fileItem = document.createElement('div');
+        fileItem.className = 'uploaded-file-item';
+        fileItem.innerHTML = `
+            <i class="fas fa-file-csv"></i>
+            <div class="file-info">
+                <div class="file-name">${file.name}</div>
+                <div class="file-size">${formatFileSize(file.size)}</div>
+            </div>
+            <button class="remove-file" data-index="${index}">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
+        uploadedFilesContainer.appendChild(fileItem);
+    });
+    
+    // Add event listeners to remove buttons
+    document.querySelectorAll('.remove-file').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const index = parseInt(this.dataset.index);
+            removeFile(index);
+        });
+    });
+}
+
+function removeFile(index) {
+    const removedFile = uploadedFiles[index];
+    uploadedFiles.splice(index, 1);
+    updateFileList();
+    updateUploadArea();
+    updateProcessButton();
+    showNotification(`🗑️ Removed ${removedFile.name}`, 'info');
+}
+
+function updateUploadArea() {
+    const uploadArea = document.getElementById('upload-area');
+    if (!uploadArea) return;
+    
+    if (uploadedFiles.length > 0) {
+        uploadArea.classList.add('has-files');
+        const uploadContent = uploadArea.querySelector('.upload-content');
+        uploadContent.innerHTML = `
+            <i class="fas fa-check-circle"></i>
+            <h3>${uploadedFiles.length} File(s) Ready</h3>
+            <p>Drag and drop more files or click to browse</p>
+            <button class="btn btn-outline" id="browse-btn">
+                <i class="fas fa-folder-open"></i>
+                Add More Files
+            </button>
+        `;
+        
+        // Reattach browse button event listener
+        const newBrowseBtn = uploadArea.querySelector('#browse-btn');
+        newBrowseBtn.addEventListener('click', () => {
+            document.getElementById('file-input').click();
+        });
+    } else {
+        uploadArea.classList.remove('has-files');
+        const uploadContent = uploadArea.querySelector('.upload-content');
+        uploadContent.innerHTML = `
+            <i class="fas fa-cloud-upload-alt"></i>
+            <h3>Drag & Drop Files Here</h3>
+            <p>Supported files: CSV</p>
+            <button class="btn btn-outline" id="browse-btn">
+                <i class="fas fa-folder-open"></i>
+                Browse Files
+            </button>
+        `;
+        
+        // Reattach browse button event listener
+        const newBrowseBtn = uploadArea.querySelector('#browse-btn');
+        newBrowseBtn.addEventListener('click', () => {
+            document.getElementById('file-input').click();
+        });
+    }
+}
+
+function updateProcessButton() {
+    const processFilesBtn = document.getElementById('process-files-btn');
+    if (!processFilesBtn) return;
+    
+    const requiredFiles = [
+        'course_data.csv',
+        'faculty_availability.csv', 
+        'classroom_data.csv',
+        'student_data.csv',
+        'exams_data.csv'
+    ];
+    
+    const hasAllRequired = requiredFiles.every(requiredFile => {
+        // More flexible matching for file names
+        const requiredFileClean = requiredFile.toLowerCase().replace(/[ _-]/g, '');
+        return uploadedFiles.some(file => {
+            const fileNameClean = file.name.toLowerCase().replace(/[ _-]/g, '');
+            return fileNameClean.includes(requiredFileClean) || requiredFileClean.includes(fileNameClean);
+        });
+    });
+    
+    processFilesBtn.disabled = !hasAllRequired;
+    
+    if (hasAllRequired) {
+        processFilesBtn.innerHTML = '<i class="fas fa-cog"></i> Process Files & Generate Timetables';
+    } else {
+        processFilesBtn.innerHTML = '<i class="fas fa-cog"></i> Process Files';
+    }
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+async function processUploadedFiles() {
+    if (uploadedFiles.length === 0) {
+        showNotification('❌ No files to process', 'error');
+        return;
+    }
+
+    showUploadProgress(true);
+    
+    try {
+        const formData = new FormData();
+        uploadedFiles.forEach(file => {
+            formData.append('files', file);
+        });
+
+        const response = await fetch('/upload', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification(`✅ ${result.message}`, 'success');
+            console.log('📁 Uploaded files:', result.uploaded_files);
+            console.log('📊 Generated timetables:', result.generated_count);
+            
+            // Clear uploaded files
+            uploadedFiles = [];
+            updateFileList();
+            updateUploadArea();
+            updateProcessButton();
+            
+            // Hide upload section
+            hideUploadSection();
+            
+            // Reload timetables and stats
+            await loadTimetables();
+            await loadStats();
+            
+        } else {
+            showNotification(`❌ ${result.message}`, 'error');
+            // Show available files for debugging
+            if (result.available_files) {
+                console.log('Available files:', result.available_files);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Error uploading files:', error);
+        showNotification('❌ Error uploading files: ' + error.message, 'error');
+    } finally {
+        showUploadProgress(false);
+    }
+}
+
+function showUploadSection() {
+    const uploadSection = document.getElementById('upload-section');
+    const timetablesSection = document.querySelector('.timetables-section');
+    const controlsSection = document.querySelector('.controls-section');
+    const quickActions = document.querySelector('.quick-actions');
+    
+    if (uploadSection) {
+        uploadSection.style.display = 'block';
+    }
+    if (timetablesSection) timetablesSection.style.display = 'none';
+    if (controlsSection) controlsSection.style.display = 'none';
+    if (quickActions) quickActions.style.display = 'none';
+    
+    isUploadSectionVisible = true;
+    
+    // Update navigation
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('active');
+    });
+    const uploadNavBtn = document.querySelector('#upload-nav-btn');
+    if (uploadNavBtn) {
+        uploadNavBtn.parentElement.classList.add('active');
+    }
+}
+
+function hideUploadSection() {
+    const uploadSection = document.getElementById('upload-section');
+    const timetablesSection = document.querySelector('.timetables-section');
+    const controlsSection = document.querySelector('.controls-section');
+    const quickActions = document.querySelector('.quick-actions');
+    
+    if (uploadSection) {
+        uploadSection.style.display = 'none';
+    }
+    if (timetablesSection) timetablesSection.style.display = 'block';
+    if (controlsSection) controlsSection.style.display = 'flex';
+    if (quickActions) quickActions.style.display = 'block';
+    
+    isUploadSectionVisible = false;
+    
+    // Reset to dashboard view
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('active');
+    });
+    const dashboardNav = document.querySelector('[data-semester="all"]');
+    if (dashboardNav) {
+        dashboardNav.parentElement.classList.add('active');
+    }
+}
+
+function showUploadProgress(show) {
+    const uploadOverlay = document.getElementById('upload-overlay');
+    const progressFill = document.getElementById('upload-progress-fill');
+    const progressText = document.getElementById('upload-progress-text');
+    
+    if (uploadOverlay && progressFill && progressText) {
+        if (show) {
+            uploadOverlay.classList.add('active');
+            // Simulate upload progress
+            simulateUploadProgress(progressFill, progressText);
+        } else {
+            uploadOverlay.classList.remove('active');
+            progressFill.style.width = '0%';
+            progressText.textContent = '0%';
+        }
+    }
+}
+
+function simulateUploadProgress(progressFill, progressText) {
+    let progress = 0;
+    
+    const interval = setInterval(() => {
+        if (progress < 90) {
+            progress += Math.random() * 15;
+            progress = Math.min(progress, 90);
+            progressFill.style.width = progress + '%';
+            progressText.textContent = Math.round(progress) + '%';
+        }
+    }, 200);
+    
+    // Clear interval when upload is done
+    setTimeout(() => {
+        clearInterval(interval);
+        progressFill.style.width = '100%';
+        progressText.textContent = '100%';
+    }, 2000);
 }
 
 // Sidebar Navigation
@@ -135,7 +513,14 @@ function setupSidebarNavigation() {
             currentSemesterFilter = semester;
             
             // Update semester filter dropdown
-            semesterFilter.value = semester;
+            if (semesterFilter) {
+                semesterFilter.value = semester;
+            }
+            
+            // Hide upload section if visible
+            if (isUploadSectionVisible) {
+                hideUploadSection();
+            }
             
             // Update section title and render
             updateSectionTitle();
@@ -145,15 +530,17 @@ function setupSidebarNavigation() {
 }
 
 function updateSectionTitle() {
-    if (currentSemesterFilter === 'all') {
-        sectionTitle.textContent = 'All Timetables';
-    } else {
-        sectionTitle.textContent = `Semester ${currentSemesterFilter} Timetables`;
-    }
-    
-    // Add section info if filtered
-    if (currentSectionFilter !== 'all') {
-        sectionTitle.textContent += ` - Section ${currentSectionFilter}`;
+    if (sectionTitle) {
+        if (currentSemesterFilter === 'all') {
+            sectionTitle.textContent = 'All Timetables';
+        } else {
+            sectionTitle.textContent = `Semester ${currentSemesterFilter} Timetables`;
+        }
+        
+        // Add section info if filtered
+        if (currentSectionFilter !== 'all') {
+            sectionTitle.textContent += ` - Section ${currentSectionFilter}`;
+        }
     }
 }
 
@@ -211,12 +598,19 @@ async function loadTimetables() {
         console.log(`📊 Received ${timetables.length} timetables`);
         
         currentTimetables = timetables;
+        
+        // Update course database with server data
+        if (timetables.length > 0 && timetables[0].course_info) {
+            courseDatabase = timetables[0].course_info;
+            console.log('📚 Course database updated from server:', courseDatabase);
+        }
+        
         renderTimetables();
         
         // Show notification if no timetables
         if (timetables.length === 0) {
             console.log("ℹ️ No timetables available");
-            showNotification('No timetables found. Click "Generate All Timetables" to create them.', 'info');
+            showNotification('No timetables found. Upload CSV files and click "Generate All Timetables" to create them.', 'info');
         } else {
             console.log("✅ Timetables loaded successfully");
         }
@@ -232,10 +626,10 @@ async function loadStats() {
         const response = await fetch('/stats');
         const stats = await response.json();
         
-        totalTimetablesEl.textContent = stats.total_timetables;
-        totalCoursesEl.textContent = stats.total_courses;
-        totalFacultyEl.textContent = stats.total_faculty;
-        totalClassroomsEl.textContent = stats.total_classrooms;
+        if (totalTimetablesEl) totalTimetablesEl.textContent = stats.total_timetables;
+        if (totalCoursesEl) totalCoursesEl.textContent = stats.total_courses;
+        if (totalFacultyEl) totalFacultyEl.textContent = stats.total_faculty;
+        if (totalClassroomsEl) totalClassroomsEl.textContent = stats.total_classrooms;
         
         console.log("📈 Stats loaded:", stats);
     } catch (error) {
@@ -244,7 +638,7 @@ async function loadStats() {
 }
 
 // Color Coding and Legend Functions
-function applyColorCoding(tableElement) {
+function applyDynamicColorCoding(tableElement, courseColors) {
     const cells = tableElement.querySelectorAll('td');
     
     cells.forEach(cell => {
@@ -256,21 +650,50 @@ function applyColorCoding(tableElement) {
             return;
         }
         
-        // Extract course code (assuming format like "MA101" or similar)
+        // Extract course code
         const courseCode = extractCourseCode(text);
         
-        if (courseCode && courseDatabase[courseCode]) {
-            // Add color coding class
-            cell.classList.add(`course-${courseCode}`);
+        if (courseCode && courseColors[courseCode]) {
+            // Apply dynamic color
+            const color = courseColors[courseCode];
+            cell.style.background = color;
+            cell.style.color = getContrastColor(color);
+            cell.style.fontWeight = '600';
+            cell.style.border = '2px solid white';
             
             // Add tooltip with course info
             const courseInfo = courseDatabase[courseCode];
-            cell.title = `${courseCode}: ${courseInfo.name} (${courseInfo.credits} credits)`;
+            if (courseInfo) {
+                cell.title = `${courseCode}: ${courseInfo.name} (${courseInfo.credits} credits) - ${courseInfo.instructor}`;
+            }
             
             // Make cell clickable for more info
-            cell.style.cursor = 'help';
+            cell.style.cursor = 'pointer';
+            cell.classList.add('colored-cell');
+            
+            // Add elective indicator
+            if (text.includes('(Elective)')) {
+                cell.classList.add('elective-slot');
+                cell.title += " - Common Elective Slot (Same for both sections)";
+            }
         }
     });
+}
+
+function getContrastColor(hexcolor) {
+    // Remove the # if present
+    hexcolor = hexcolor.replace("#", "");
+    
+    // Convert to RGB
+    const r = parseInt(hexcolor.substr(0, 2), 16);
+    const g = parseInt(hexcolor.substr(2, 2), 16);
+    const b = parseInt(hexcolor.substr(4, 2), 16);
+    
+    // Calculate luminance
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    
+    // Return black or white based on luminance
+    return luminance > 0.5 ? '#000000' : '#FFFFFF';
 }
 
 function extractCourseCode(text) {
@@ -280,69 +703,118 @@ function extractCourseCode(text) {
     return match ? match[0] : text;
 }
 
-function createLegend(semester, section) {
-    const timetable = currentTimetables.find(t => 
-        t.semester === semester && t.section === section
+function createEnhancedLegend(semester, section, courses, courseColors, courseInfo, coreCourses = [], electiveCourses = []) {
+    if (!courses || courses.length === 0) return '';
+    
+    // Separate courses into core and elective for better organization
+    const coreCourseList = coreCourses.filter(course => courses.includes(course));
+    const electiveCourseList = electiveCourses.filter(course => courses.includes(course));
+    const otherCourses = courses.filter(course => 
+        !coreCourseList.includes(course) && !electiveCourseList.includes(course)
     );
     
-    if (!timetable) return '';
-    
-    // Extract unique courses from the timetable
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = timetable.html;
-    const cells = tempDiv.querySelectorAll('td');
-    const uniqueCourses = new Set();
-    
-    cells.forEach(cell => {
-        const text = cell.textContent.trim();
-        if (text && text !== 'Free' && text !== 'LUNCH BREAK') {
-            const courseCode = extractCourseCode(text);
-            if (courseCode && courseDatabase[courseCode]) {
-                uniqueCourses.add(courseCode);
-            }
-        }
-    });
-    
-    if (uniqueCourses.size === 0) return '';
-    
-    // Create legend HTML
     let legendHtml = `
         <div class="timetable-legend">
             <div class="legend-title">
                 <i class="fas fa-palette"></i>
                 Course Legend - Semester ${semester}, Section ${section}
             </div>
-            <div class="legend-grid">
     `;
     
-    // Sort courses alphabetically
-    const sortedCourses = Array.from(uniqueCourses).sort();
-    
-    sortedCourses.forEach(courseCode => {
-        const courseInfo = courseDatabase[courseCode];
+    // Core Courses Section
+    if (coreCourseList.length > 0) {
         legendHtml += `
-            <div class="legend-item">
-                <div class="legend-color course-${courseCode}"></div>
-                <span class="legend-course-code">${courseCode}</span>
-                <span class="legend-course-name">${courseInfo.name} (${courseInfo.credits} cr)</span>
+            <div class="legend-section">
+                <div class="legend-section-title">
+                    <i class="fas fa-book"></i>
+                    Core Courses
+                </div>
+                <div class="legend-grid">
+        `;
+        
+        coreCourseList.sort().forEach(courseCode => {
+            const info = courseInfo[courseCode];
+            const color = courseColors[courseCode] || '#CCCCCC';
+            legendHtml += createLegendItem(courseCode, info, color);
+        });
+        
+        legendHtml += `
+                </div>
             </div>
         `;
-    });
+    }
     
-    legendHtml += `
+    // Elective Courses Section
+    if (electiveCourseList.length > 0) {
+        legendHtml += `
+            <div class="legend-section">
+                <div class="legend-section-title elective">
+                    <i class="fas fa-clipboard-list"></i>
+                    Elective Basket
+                </div>
+                <div class="legend-grid">
+        `;
+        
+        electiveCourseList.sort().forEach(courseCode => {
+            const info = courseInfo[courseCode];
+            const color = courseColors[courseCode] || '#CCCCCC';
+            legendHtml += createLegendItem(courseCode, info, color);
+        });
+        
+        legendHtml += `
+                </div>
             </div>
+        `;
+    }
+    
+    // Other Courses Section (if any)
+    if (otherCourses.length > 0) {
+        legendHtml += `
+            <div class="legend-section">
+                <div class="legend-section-title">
+                    <i class="fas fa-graduation-cap"></i>
+                    Other Courses
+                </div>
+                <div class="legend-grid">
+        `;
+        
+        otherCourses.sort().forEach(courseCode => {
+            const info = courseInfo[courseCode];
+            const color = courseColors[courseCode] || '#CCCCCC';
+            legendHtml += createLegendItem(courseCode, info, color);
+        });
+        
+        legendHtml += `
+                </div>
+            </div>
+        `;
+    }
+    
+    legendHtml += `</div>`;
+    return legendHtml;
+}
+
+function createLegendItem(courseCode, courseInfo, color) {
+    const courseName = courseInfo ? courseInfo.name : 'Unknown Course';
+    const credits = courseInfo ? courseInfo.credits : '?';
+    const instructor = courseInfo ? courseInfo.instructor : 'Unknown';
+    const courseType = courseInfo ? courseInfo.type : 'Core';
+    
+    return `
+        <div class="legend-item ${courseType.toLowerCase()}">
+            <div class="legend-color" style="background: ${color};"></div>
+            <span class="legend-course-code">${courseCode}</span>
+            <span class="legend-course-name">
+                ${courseName} (${credits} cr)
+                <br><small>${instructor} • ${courseType}</small>
+            </span>
         </div>
     `;
-    
-    return legendHtml;
 }
 
 function enhanceTables() {
     document.querySelectorAll('.timetable-table').forEach(table => {
-        // Apply color coding
-        applyColorCoding(table);
-        
-        // Find the parent timetable card and add legend
+        // Find the parent timetable card and get course information
         const timetableCard = table.closest('.timetable-card') || table.closest('.timetable-item');
         if (timetableCard) {
             const header = timetableCard.querySelector('.timetable-header h3');
@@ -351,23 +823,60 @@ function enhanceTables() {
                 if (match) {
                     const semester = parseInt(match[1]);
                     const section = match[2];
-                    const legend = createLegend(semester, section);
-                    if (legend) {
-                        // Remove existing legend if any
-                        const existingLegend = timetableCard.querySelector('.timetable-legend');
-                        if (existingLegend) {
-                            existingLegend.remove();
+                    
+                    // Find the timetable data
+                    const timetable = currentTimetables.find(t => 
+                        t.semester === semester && t.section === section
+                    );
+                    
+                    if (timetable && timetable.course_colors) {
+                        // Apply dynamic color coding
+                        applyDynamicColorCoding(table, timetable.course_colors);
+                        
+                        // Create enhanced legend with course type separation
+                        if (timetable.courses) {
+                            const legend = createEnhancedLegend(
+                                semester, 
+                                section, 
+                                timetable.courses, 
+                                timetable.course_colors, 
+                                timetable.course_info,
+                                timetable.core_courses || [],
+                                timetable.elective_courses || []
+                            );
+                            if (legend) {
+                                // Remove existing legend if any
+                                const existingLegend = timetableCard.querySelector('.timetable-legend');
+                                if (existingLegend) {
+                                    existingLegend.remove();
+                                }
+                                // Add new legend
+                                timetableCard.insertAdjacentHTML('beforeend', legend);
+                            }
                         }
-                        // Add new legend
-                        timetableCard.insertAdjacentHTML('beforeend', legend);
                     }
                 }
             }
         }
     });
     
-    // Add hover effects to colored cells
-    const coloredCells = document.querySelectorAll('td[class*="course-"]');
+    // Add enhanced hover effects for elective courses
+    const electiveCells = document.querySelectorAll('.elective-slot');
+    electiveCells.forEach(cell => {
+        cell.addEventListener('mouseenter', function() {
+            this.style.transform = 'scale(1.08)';
+            this.style.zIndex = '3';
+            this.style.boxShadow = '0 6px 20px rgba(114, 9, 183, 0.4)';
+        });
+        
+        cell.addEventListener('mouseleave', function() {
+            this.style.transform = 'scale(1)';
+            this.style.boxShadow = 'none';
+        });
+    });
+    
+    // Add hover effects and click handlers to all colored cells
+    const coloredCells = document.querySelectorAll('.colored-cell');
     coloredCells.forEach(cell => {
         cell.addEventListener('mouseenter', function() {
             this.style.transform = 'scale(1.05)';
@@ -385,7 +894,17 @@ function enhanceTables() {
             const courseCode = extractCourseCode(this.textContent);
             if (courseCode && courseDatabase[courseCode]) {
                 const courseInfo = courseDatabase[courseCode];
-                showNotification(`${courseCode}: ${courseInfo.name} - ${courseInfo.credits} credits (${courseInfo.type})`, 'info');
+                const isElective = this.classList.contains('elective-slot');
+                const electiveText = isElective ? '<br><strong>⚡ Common Elective Slot (Same for both sections)</strong>' : '';
+                
+                showNotification(
+                    `<strong>${courseCode}: ${courseInfo.name}</strong><br>
+                    Credits: ${courseInfo.credits}<br>
+                    Type: ${courseInfo.type}<br>
+                    Instructor: ${courseInfo.instructor}<br>
+                    Department: ${courseInfo.department}${electiveText}`, 
+                    'info'
+                );
             }
         });
     });
@@ -399,13 +918,15 @@ function renderTimetables() {
         view: currentView
     });
     
+    if (!timetablesContainer) return;
+    
     if (currentTimetables.length === 0) {
-        emptyState.style.display = 'block';
+        if (emptyState) emptyState.style.display = 'block';
         timetablesContainer.innerHTML = '';
         return;
     }
     
-    emptyState.style.display = 'none';
+    if (emptyState) emptyState.style.display = 'none';
     
     const filteredTimetables = filterTimetablesData();
     console.log(`🔍 Filtered to ${filteredTimetables.length} timetables`);
@@ -433,6 +954,9 @@ function renderTimetables() {
     } else if (currentView === 'compact') {
         renderCompactView(filteredTimetables);
     }
+    
+    // Enhance tables with color coding and legends
+    enhanceTables();
     
     console.log("✅ Timetables rendered successfully");
 }
@@ -463,9 +987,6 @@ function renderGridView(timetables) {
     
     html += '</div>';
     timetablesContainer.innerHTML = html;
-    
-    // Enhance tables with color coding and legends
-    enhanceTables();
 }
 
 function renderListView(timetables) {
@@ -491,9 +1012,6 @@ function renderListView(timetables) {
     
     html += '</div>';
     timetablesContainer.innerHTML = html;
-    
-    // Enhance tables with color coding and legends
-    enhanceTables();
 }
 
 function renderCompactView(timetables) {
@@ -519,9 +1037,6 @@ function renderCompactView(timetables) {
     
     html += '</div>';
     timetablesContainer.innerHTML = html;
-    
-    // Enhance tables with color coding and legends
-    enhanceTables();
 }
 
 // Filtering Functions
@@ -534,8 +1049,10 @@ function filterTimetablesData() {
 }
 
 function changeViewMode() {
-    currentView = viewMode.value;
-    renderTimetables();
+    if (viewMode) {
+        currentView = viewMode.value;
+        renderTimetables();
+    }
 }
 
 // Action Functions
@@ -597,6 +1114,7 @@ function printTimetable(semester, section) {
                     th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
                     th { background-color: #f5f5f5; font-weight: bold; }
                     .timetable-header { background: #4361ee; color: white; padding: 15px; text-align: center; }
+                    .elective-slot { border: 2px dashed #7209b7 !important; background: #f8f8f8 !important; }
                 </style>
             </head>
             <body>
@@ -634,6 +1152,7 @@ function printAllTimetables() {
                 th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
                 th { background-color: #f5f5f5; font-weight: bold; }
                 .timetable-section { margin-bottom: 40px; }
+                .elective-slot { border: 2px dashed #7209b7 !important; background: #f8f8f8 !important; }
                 @media print {
                     .timetable-section { page-break-after: always; }
                 }
@@ -667,6 +1186,9 @@ function printAllTimetables() {
 
 function handleQuickAction(action) {
     switch(action) {
+        case 'upload':
+            showUploadSection();
+            break;
         case 'export':
             downloadAllTimetables();
             break;
@@ -690,37 +1212,44 @@ function refreshAll() {
 
 // UI Helper Functions
 function showLoading(show) {
-    if (show) {
-        loadingOverlay.classList.add('active');
-        // Simulate progress
-        simulateProgress();
-    } else {
-        loadingOverlay.classList.remove('active');
+    if (loadingOverlay) {
+        if (show) {
+            loadingOverlay.classList.add('active');
+            // Simulate progress
+            simulateProgress();
+        } else {
+            loadingOverlay.classList.remove('active');
+        }
     }
 }
 
 function simulateProgress() {
     const progressFill = document.getElementById('progress-fill');
     const progressText = document.getElementById('progress-text');
-    let progress = 0;
     
-    const interval = setInterval(() => {
-        if (progress < 90) {
-            progress += Math.random() * 10;
-            progressFill.style.width = progress + '%';
-            progressText.textContent = Math.round(progress) + '%';
-        }
-    }, 200);
-    
-    // Clear interval when loading is done
-    setTimeout(() => {
-        clearInterval(interval);
-        progressFill.style.width = '100%';
-        progressText.textContent = '100%';
-    }, 3000);
+    if (progressFill && progressText) {
+        let progress = 0;
+        
+        const interval = setInterval(() => {
+            if (progress < 90) {
+                progress += Math.random() * 10;
+                progressFill.style.width = progress + '%';
+                progressText.textContent = Math.round(progress) + '%';
+            }
+        }, 200);
+        
+        // Clear interval when loading is done
+        setTimeout(() => {
+            clearInterval(interval);
+            progressFill.style.width = '100%';
+            progressText.textContent = '100%';
+        }, 3000);
+    }
 }
 
 function showNotification(message, type = 'info') {
+    if (!notificationContainer) return;
+    
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
     notification.innerHTML = `
@@ -753,12 +1282,41 @@ function debugApp() {
     console.log('Current timetables:', currentTimetables);
     console.log('Current filters - Semester:', currentSemesterFilter, 'Section:', currentSectionFilter);
     console.log('Current view:', currentView);
-    console.log('Filtered timetables:', filterTimetablesData());
+    console.log('Uploaded files:', uploadedFiles);
+    console.log('Upload section visible:', isUploadSectionVisible);
     console.log('Course database:', courseDatabase);
+    console.log('Filtered timetables:', filterTimetablesData());
     console.log('===================');
+}
+
+// Debug file matching
+function debugFileMatching() {
+    console.log('=== FILE MATCHING DEBUG ===');
+    const requiredFiles = [
+        'course_data.csv',
+        'faculty_availability.csv', 
+        'classroom_data.csv',
+        'student_data.csv',
+        'exams_data.csv'
+    ];
+    
+    requiredFiles.forEach(requiredFile => {
+        const requiredFileClean = requiredFile.toLowerCase().replace(/[ _-]/g, '');
+        console.log(`Required: ${requiredFile} -> ${requiredFileClean}`);
+        
+        uploadedFiles.forEach(file => {
+            const fileNameClean = file.name.toLowerCase().replace(/[ _-]/g, '');
+            const matches = fileNameClean.includes(requiredFileClean) || requiredFileClean.includes(fileNameClean);
+            console.log(`  ${file.name} -> ${fileNameClean} : ${matches ? '✅ MATCH' : '❌ NO MATCH'}`);
+        });
+    });
+    console.log('==========================');
 }
 
 // Export functions for global access
 window.downloadTimetable = downloadTimetable;
 window.printTimetable = printTimetable;
 window.debugApp = debugApp;
+window.showUploadSection = showUploadSection;
+window.hideUploadSection = hideUploadSection;
+window.debugFileMatching = debugFileMatching;

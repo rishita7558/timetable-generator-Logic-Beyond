@@ -488,25 +488,53 @@ body {
     color: var(--dark);
 }
 
-.timetable-table td:not(:first-child):not(:empty) {
-    background: linear-gradient(135deg, #e3f2fd, #f3e5f5);
-    cursor: pointer;
+/* Dynamic Color Coding */
+.colored-cell {
+    transition: all 0.3s ease !important;
     position: relative;
+    overflow: hidden;
+    font-weight: 600 !important;
+    border: 2px solid white !important;
 }
 
-.timetable-table td:not(:first-child):not(:empty):hover {
-    background: linear-gradient(135deg, #bbdefb, #e1bee7);
-    transform: scale(1.05);
+.colored-cell::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
     z-index: 1;
-    box-shadow: var(--shadow);
 }
 
-/* Course-specific colors */
-.timetable-table td[data-course]:nth-child(2) { background: linear-gradient(135deg, #e3f2fd, #f3e5f5); }
-.timetable-table td[data-course]:nth-child(3) { background: linear-gradient(135deg, #e8f5e8, #f0f4c3); }
-.timetable-table td[data-course]:nth-child(4) { background: linear-gradient(135deg, #ffe0e0, #ffecb3); }
-.timetable-table td[data-course]:nth-child(5) { background: linear-gradient(135deg, #e0f2f1, #d1c4e9); }
-.timetable-table td[data-course]:nth-child(6) { background: linear-gradient(135deg, #fce4ec, #c8e6c9); }
+.colored-cell:hover {
+    transform: scale(1.05) !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+    z-index: 2 !important;
+}
+
+/* Elective Slot Styling */
+.elective-slot {
+    position: relative;
+    border: 3px dashed var(--secondary) !important;
+    background: linear-gradient(135deg, rgba(114, 9, 183, 0.1), rgba(114, 9, 183, 0.05)) !important;
+}
+
+.elective-slot::after {
+    content: '⚡';
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 0.7rem;
+    opacity: 0.7;
+}
+
+.elective-slot:hover {
+    transform: scale(1.08) !important;
+    box-shadow: 0 6px 20px rgba(114, 9, 183, 0.4) !important;
+    z-index: 3 !important;
+}
 
 /* Quick Actions */
 .quick-actions {
@@ -663,6 +691,309 @@ body {
     }
 }
 
+/* Enhanced Legend Styles */
+.timetable-legend {
+    background: white;
+    border-radius: var(--radius-sm);
+    padding: 1rem;
+    margin-top: 1rem;
+    box-shadow: var(--shadow);
+    border-left: 4px solid var(--primary);
+}
+
+.legend-title {
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--dark);
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.legend-title i {
+    color: var(--primary);
+}
+
+.legend-section {
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: var(--light);
+    border-radius: var(--radius-sm);
+    border-left: 4px solid var(--primary);
+}
+
+.legend-section.elective {
+    border-left-color: var(--secondary);
+    background: rgba(114, 9, 183, 0.05);
+}
+
+.legend-section-title {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--dark);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.legend-section-title.elective {
+    color: var(--secondary);
+}
+
+.legend-section-title i {
+    font-size: 0.8rem;
+}
+
+.legend-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.5rem;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    background: var(--light);
+    transition: all 0.3s ease;
+}
+
+.legend-item:hover {
+    transform: translateX(5px);
+    background: white;
+    box-shadow: var(--shadow);
+}
+
+.legend-item.elective {
+    background: rgba(114, 9, 183, 0.05);
+    border-left: 3px solid var(--secondary);
+}
+
+.legend-item.core {
+    background: rgba(67, 97, 238, 0.05);
+    border-left: 3px solid var(--primary);
+}
+
+.legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    border: 2px solid white;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.legend-course-code {
+    font-weight: 600;
+    min-width: 50px;
+}
+
+.legend-course-name {
+    color: var(--gray);
+    flex: 1;
+    font-size: 0.75rem;
+}
+
+.legend-course-name small {
+    color: var(--gray);
+    font-size: 0.7rem;
+    opacity: 0.8;
+}
+
+/* File Upload Section */
+.upload-section {
+    background: white;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-bottom: 2rem;
+    animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.upload-container {
+    padding: 2rem;
+}
+
+.upload-header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.upload-header h2 {
+    color: var(--dark);
+    margin-bottom: 0.5rem;
+}
+
+.upload-header p {
+    color: var(--gray);
+}
+
+/* Upload Area */
+.upload-area {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 3rem 2rem;
+    text-align: center;
+    transition: all 0.3s ease;
+    background: var(--light);
+    margin-bottom: 2rem;
+}
+
+.upload-area.drag-over {
+    border-color: var(--primary);
+    background: rgba(67, 97, 238, 0.05);
+}
+
+.upload-area.has-files {
+    border-color: var(--success);
+    background: rgba(76, 201, 240, 0.05);
+}
+
+.upload-content i {
+    font-size: 3rem;
+    color: var(--primary);
+    margin-bottom: 1rem;
+}
+
+.upload-content h3 {
+    color: var(--dark);
+    margin-bottom: 0.5rem;
+}
+
+.upload-content p {
+    color: var(--gray);
+    margin-bottom: 1.5rem;
+}
+
+/* File List */
+.file-list {
+    margin-bottom: 2rem;
+}
+
+.file-list h4 {
+    color: var(--dark);
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+.required-files {
+    margin-bottom: 2rem;
+}
+
+.file-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--light);
+    border-radius: var(--radius-sm);
+    margin-bottom: 0.5rem;
+    transition: all 0.3s ease;
+}
+
+.file-item.required {
+    border-left: 4px solid var(--primary);
+}
+
+.file-item.uploaded {
+    border-left: 4px solid var(--success);
+    background: rgba(76, 201, 240, 0.1);
+}
+
+.file-item i {
+    color: var(--primary);
+    width: 20px;
+}
+
+.file-item.uploaded i {
+    color: var(--success);
+}
+
+.file-status {
+    margin-left: auto;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.file-status.uploaded {
+    color: var(--success);
+}
+
+.file-status.missing {
+    color: var(--warning);
+}
+
+.uploaded-files {
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+}
+
+.uploaded-file-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--light);
+    border-radius: var(--radius-sm);
+    margin-bottom: 0.5rem;
+    border-left: 4px solid var(--success);
+}
+
+.uploaded-file-item i {
+    color: var(--success);
+}
+
+.file-info {
+    flex: 1;
+}
+
+.file-name {
+    font-weight: 500;
+    color: var(--dark);
+}
+
+.file-size {
+    font-size: 0.8rem;
+    color: var(--gray);
+}
+
+.remove-file {
+    background: none;
+    border: none;
+    color: var(--warning);
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 4px;
+    transition: all 0.3s ease;
+}
+
+.remove-file:hover {
+    background: var(--warning);
+    color: white;
+}
+
+/* Upload Actions */
+.upload-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+}
+
 /* Responsive Design */
 @media (max-width: 1024px) {
     .sidebar {
@@ -709,6 +1040,34 @@ body {
     .stats-overview {
         grid-template-columns: 1fr;
     }
+    
+    .upload-container {
+        padding: 1rem;
+    }
+    
+    .upload-area {
+        padding: 2rem 1rem;
+    }
+    
+    .upload-actions {
+        flex-direction: column;
+    }
+    
+    .upload-actions .btn {
+        width: 100%;
+    }
+    
+    .legend-section {
+        padding: 0.5rem;
+    }
+    
+    .legend-item {
+        padding: 0.5rem;
+    }
+    
+    .legend-course-name {
+        font-size: 0.7rem;
+    }
 }
 
 @media (max-width: 480px) {
@@ -726,131 +1085,30 @@ body {
     }
 }
 
-/* Color Coding for Courses */
-.course-MA101 { background: linear-gradient(135deg, #ff6b6b, #ff8e8e) !important; color: white !important; }
-.course-DS101 { background: linear-gradient(135deg, #4ecdc4, #88d8d0) !important; color: white !important; }
-.course-MA102 { background: linear-gradient(135deg, #45b7d1, #7acde5) !important; color: white !important; }
-.course-EC101 { background: linear-gradient(135deg, #96ceb4, #b8e0c8) !important; color: #333 !important; }
-.course-CS101 { background: linear-gradient(135deg, #feca57, #ffdb8b) !important; color: #333 !important; }
-.course-HS101 { background: linear-gradient(135deg, #ff9ff3, #ffbdf7) !important; color: #333 !important; }
-.course-CS151 { background: linear-gradient(135deg, #54a0ff, #85b9ff) !important; color: white !important; }
-.course-MA261 { background: linear-gradient(135deg, #5f27cd, #8b5ce5) !important; color: white !important; }
-.course-CS261 { background: linear-gradient(135deg, #00d2d3, #4de3e3) !important; color: #333 !important; }
-.course-CS263 { background: linear-gradient(135deg, #ff9f43, #ffb76b) !important; color: #333 !important; }
-.course-CS264 { background: linear-gradient(135deg, #10ac84, #45d0a9) !important; color: white !important; }
-.course-CS309 { background: linear-gradient(135deg, #ee5a24, #f27c52) !important; color: white !important; }
-.course-CS303 { background: linear-gradient(135deg, #0984e3, #3ba0eb) !important; color: white !important; }
-.course-CS304 { background: linear-gradient(135deg, #00b894, #45d4b4) !important; color: white !important; }
-.course-CS461 { background: linear-gradient(135deg, #6c5ce7, #8e82f0) !important; color: white !important; }
-.course-DS456 { background: linear-gradient(135deg, #e84393, #ef75b2) !important; color: white !important; }
-.course-EC456 { background: linear-gradient(135deg, #fdcb6e, #ffdb9c) !important; color: #333 !important; }
-.course-DS401 { background: linear-gradient(135deg, #00cec9, #45e0dc) !important; color: #333 !important; }
-
-/* Hover effects for colored cells */
-.timetable-table td[class*="course-"]:hover {
-    transform: scale(1.05) !important;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
-    z-index: 2 !important;
+/* Enhanced button styles for upload */
+#upload-files-btn {
+    background: var(--info);
+    color: white;
 }
 
-/* Legend Styles */
-.timetable-legend {
-    background: white;
-    border-radius: var(--radius-sm);
-    padding: 1rem;
-    margin-top: 1rem;
-    box-shadow: var(--shadow);
-    border-left: 4px solid var(--primary);
+#upload-files-btn:hover {
+    background: #3a8ee0;
+    transform: translateY(-2px);
 }
 
-.legend-title {
-    font-weight: 600;
-    margin-bottom: 0.75rem;
-    color: var(--dark);
-    font-size: 0.9rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.legend-title i {
-    color: var(--primary);
-}
-
-.legend-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 0.5rem;
-}
-
-.legend-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.6rem;
-    border-radius: 6px;
-    font-size: 0.8rem;
-    background: var(--light);
-    transition: all 0.3s ease;
-}
-
-.legend-item:hover {
-    transform: translateX(5px);
-    background: white;
-    box-shadow: var(--shadow);
-}
-
-.legend-color {
-    width: 16px;
-    height: 16px;
-    border-radius: 4px;
-    flex-shrink: 0;
-}
-
-.legend-course-code {
-    font-weight: 600;
-    min-width: 50px;
-}
-
-.legend-course-name {
-    color: var(--gray);
-    flex: 1;
-    font-size: 0.75rem;
-}
-
-/* Compact legend for mobile */
-@media (max-width: 768px) {
-    .legend-grid {
-        grid-template-columns: 1fr;
+/* Print Styles for Course Types */
+@media print {
+    .elective-slot {
+        background: #f8f8f8 !important;
+        border: 2px dashed #999 !important;
     }
     
-    .legend-item {
-        padding: 0.5rem;
+    .legend-section.elective {
+        background: #f8f8f8 !important;
+        border: 1px solid #999 !important;
     }
-}
-
-/* Enhanced table cell styling */
-.timetable-table td:not(:first-child):not(.empty-cell) {
-    font-weight: 500;
-    position: relative;
-    overflow: hidden;
-}
-
-.timetable-table td:not(:first-child):not(.empty-cell)::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
-    z-index: 1;
-}
-
-/* Ensure text is readable on colored backgrounds */
-.timetable-table td[class*="course-"] {
-    text-shadow: 0 1px 2px rgba(0,0,0,0.1);
-    font-weight: 600;
-    position: relative;
-    z-index: 1;
+    
+    .colored-cell {
+        border: 1px solid #ddd !important;
+    }
 }
