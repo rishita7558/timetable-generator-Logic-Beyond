@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug - Timetable System</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; }
+        .success { color: green; }
+        .error { color: red; }
+        .warning { color: orange; }
+        button { margin: 5px; padding: 10px; }
+        pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Timetable System Debug</h1>
+    
+    <div class="section">
+        <h2>1. File System Status</h2>
+        <button onclick="checkFiles()">Check Files</button>
+        <div id="files-result"></div>
+    </div>
+    
+    <div class="section">
+        <h2>2. Course Data Status</h2>
+        <button onclick="checkCourses()">Check Course Data</button>
+        <div id="courses-result"></div>
+    </div>
+    
+    <div class="section">
+        <h2>3. Current Loaded Data</h2>
+        <button onclick="checkCurrentData()">Check Current Data</button>
+        <div id="current-data-result"></div>
+    </div>
+    
+    <div class="section">
+        <h2>4. System Actions</h2>
+        <button onclick="clearCache()">Clear Cache</button>
+        <button onclick="resetAll()" style="background: #ffcccc;">Reset Everything</button>
+        <button onclick="generateTimetables()">Generate Timetables</button>
+        <div id="actions-result"></div>
+    </div>
+    
+    <div class="section">
+        <h2>5. Upload Test Files</h2>
+        <input type="file" id="debug-files" multiple accept=".csv">
+        <button onclick="uploadDebugFiles()">Upload These Files</button>
+        <div id="upload-result"></div>
+    </div>
+
+    <script>
+        async function checkFiles() {
+            const result = document.getElementById('files-result');
+            result.innerHTML = 'Loading...';
+            
+            try {
+                const response = await fetch('/debug/files');
+                const data = await response.json();
+                result.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                result.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function checkCourses() {
+            const result = document.getElementById('courses-result');
+            result.innerHTML = 'Loading...';
+            
+            try {
+                const response = await fetch('/debug/courses');
+                const data = await response.json();
+                result.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                result.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function checkCurrentData() {
+            const result = document.getElementById('current-data-result');
+            result.innerHTML = 'Loading...';
+            
+            try {
+                const response = await fetch('/debug/current-data');
+                const data = await response.json();
+                result.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                result.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function clearCache() {
+            const result = document.getElementById('actions-result');
+            result.innerHTML = 'Clearing cache...';
+            
+            try {
+                const response = await fetch('/debug/clear-cache');
+                const data = await response.json();
+                result.innerHTML = `<div class="success">${data.message}</div>`;
+            } catch (error) {
+                result.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function resetAll() {
+            const result = document.getElementById('actions-result');
+            result.innerHTML = 'Resetting everything...';
+            
+            try {
+                const response = await fetch('/debug/reset-all');
+                const data = await response.json();
+                result.innerHTML = `<div class="success">${data.message}</div>`;
+            } catch (error) {
+                result.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function generateTimetables() {
+            const result = document.getElementById('actions-result');
+            result.innerHTML = 'Generating timetables...';
+            
+            try {
+                const response = await fetch('/generate', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    result.innerHTML = `<div class="success">${data.message}</div>`;
+                } else {
+                    result.innerHTML = `<div class="error">${data.message}</div>`;
+                }
+            } catch (error) {
+                result.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+        
+        async function uploadDebugFiles() {
+            const fileInput = document.getElementById('debug-files');
+            const files = fileInput.files;
+            const result = document.getElementById('upload-result');
+            
+            if (files.length === 0) {
+                result.innerHTML = '<div class="warning">No files selected</div>';
+                return;
+            }
+            
+            result.innerHTML = 'Uploading...';
+            
+            const formData = new FormData();
+            for (let file of files) {
+                formData.append('files', file);
+            }
+            
+            try {
+                const response = await fetch('/upload', { method: 'POST', body: formData });
+                const data = await response.json();
+                if (data.success) {
+                    result.innerHTML = `<div class="success">${data.message}</div>`;
+                } else {
+                    result.innerHTML = `<div class="error">${data.message}</div>`;
+                }
+            } catch (error) {
+                result.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+        
+        // Load initial file status
+        checkFiles();
+    </script>
+</body>
+</html>

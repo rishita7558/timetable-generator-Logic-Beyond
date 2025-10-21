@@ -777,10 +777,10 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
     // Elective Courses Section
     if (electiveCourseList.length > 0) {
         legendHtml += `
-            <div class="legend-section">
+            <div class="legend-section elective">
                 <div class="legend-section-title elective">
                     <i class="fas fa-clipboard-list"></i>
-                    Elective Basket
+                    Elective Basket (Common for Both Sections)
                 </div>
                 <div class="legend-grid">
         `;

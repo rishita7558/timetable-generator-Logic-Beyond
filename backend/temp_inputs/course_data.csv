@@ -1,19 +1,19 @@
 Course Code,Course Name,Semester,Department,LTPSC,Credits,Instructor,Registered Students,Elective (Yes/No),Half Semester (Yes/No)
-MA105,Statistical Methods,1,Math,2-0-0-0-2,2,Dr. Priya Sharma,150,No,No
-DS105,Fundamentals of Data Science,1,DS,2-0-0-0-2,2,Dr. Rohan Verma,150,No,No
-MA106,Probability Theory,1,Math,2-0-0-0-2,2,Dr. Sanjay Kumar,150,No,No
-EC105,Digital Systems,1,ECE,3-0-0-2-5,5,Dr. Anjali Mehta,150,No,No
-CS105,Programming Fundamentals,1,CSE,3-0-2-0-5,5,Dr. Vikram Joshi,150,No,No
-HS105,Professional Communication,1,HSS,3-0-0-0-3,3,Dr. Rajeev Malhotra,150,No,No
-CS155,Cybersecurity Basics,1,CSE,2-0-0-0-2,2,Dr. Kavya Iyer,45,Yes,No
-MA265,Advanced Calculus,3,Math,2-0-0-0-2,2,Dr. Meena Patel,120,No,No
-CS265,System Software,3,CSE,3-0-0-4-2,5,Dr. Rajeev Malhotra,120,No,No
-CS268,Algorithm Design,3,CSE,3-0-2-0-4,7,Dr. Ananya Das,120,No,No
-CS269,Network Systems,3,CSE,3-1-0-0-4,8,Dr. Ananya Das,120,No,No
-CS312,Data Analysis for CS,5,CSE,3-1-0-0-4,4,Dr. Rohit Singh,90,No,No
-CS307,Advanced Networks,5,CSE,3-1-2-0-6,6,Dr. Pooja Nair,90,No,No
-CS308,Machine Learning,5,CSE,3-1-0-0-4,4,Dr. Karthik Rao,90,No,No
-CS465,Distributed Systems,5,CSE,4-0-0-0-4,4,Dr. Divya Gupta,30,Yes,No
-DS460,Security Analytics,7,DS,4-0-0-0-4,4,Dr. Sneha Kapoor,40,Yes,No
-EC460,Deep Learning,7,ECE,4-0-0-0-4,4,Dr. Arnav Reddy,40,Yes,No
-DS405,Bioinformatics,7,DS,4-0-0-0-4,4,Dr. Kavya Iyer,40,Yes,No
+MA101,Statistics,1,Math,2-0-0-0-2,2,Dr. Ramesh Adve,150,No,No
+DS101,Introduction to DS and AI,1,DS,2-0-0-0-2,2,Dr. Abdul Wahid,150,No,No
+MA102,Probability,1,Math,2-0-0-0-2,2,Dr. Chintamani,150,No,No
+EC101,Digital Design,1,ECE,3-0-0-2-5,5,Dr. Prakash Pawar,150,No,No
+CS101,Problem Solving through Programming,1,CSE,3-0-2-0-5,5,Dr. Sunil P V,150,No,No
+HS101,English Language and Communication,1,HSS,3-0-0-0-3,3,Dr. Rajesh N S,150,No,No
+CS151,Introduction to Cybersecurity,1,CSE,2-0-0-0-2,2,Dr. Girish,45,Yes,No
+MA261,Differential Equations,3,Math,2-0-0-0-2,2,Dr. Anand Barangi,120,No,No
+CS261,Operating System,3,CSE,3-0-0-4-2,5,Dr. Somes,120,No,No
+CS263,Design & Analysis of Algorithms,3,CSE,3-0-2-0-4,7,Dr. Prabhu Prasad,120,No,No
+CS264,Computer Networks,3,CSE,3-1-0-0-4,8,Dr. Prabhu Prasad,120,No,No
+CS309,Statistics for Computer Science,5,CSE,3-1-0-0-4,4,Dr. Sunil C K,90,No,No
+CS303,Computer Networks,5,CSE,3-1-2-0-6,6,Dr. Animesh Roy,90,No,No
+CS304,Artificial Intelligence,5,CSE,3-1-0-0-4,4,Dr. Krishnendu,90,No,No
+CS461,Parallel computing,5,CSE,4-0-0-0-4,4,Dr. Pramod,30,Yes,No
+DS456,Cybersecurity Techniques,7,DS,4-0-0-0-4,4,Dr. Rajendra Hegadi,40,Yes,No
+EC456,Reinforcement Learning,7,ECE,4-0-0-0-4,4,Dr. Divyajyothi,40,Yes,No
+DS401,Health Care Data Analytics,7,DS,4-0-0-0-4,4,Dr. Girish G N,40,Yes,No

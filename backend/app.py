@@ -8,6 +8,7 @@ from werkzeug.utils import secure_filename
 import traceback
 import shutil
 import time
+import hashlib
 
 app = Flask(__name__)
 
@@ -17,15 +18,53 @@ OUTPUT_DIR = os.path.join(os.getcwd(), "output_timetables")
 os.makedirs(INPUT_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Cache variables
+# Cache variables with file hashes to detect changes
 _cached_data_frames = None
 _cached_timestamp = 0
+_file_hashes = {}
 
 # Allowed file extensions
 ALLOWED_EXTENSIONS = {'csv'}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def get_file_hash(filepath):
+    """Calculate MD5 hash of a file to detect changes"""
+    try:
+        with open(filepath, 'rb') as f:
+            return hashlib.md5(f.read()).hexdigest()
+    except:
+        return None
+
+def has_files_changed():
+    """Check if any input files have changed since last load"""
+    global _file_hashes
+    
+    if not os.path.exists(INPUT_DIR):
+        return True
+        
+    current_files = os.listdir(INPUT_DIR)
+    current_hashes = {}
+    
+    for file in current_files:
+        filepath = os.path.join(INPUT_DIR, file)
+        current_hashes[file] = get_file_hash(filepath)
+    
+    # If number of files changed
+    if set(current_files) != set(_file_hashes.keys()):
+        print("📁 File count changed")
+        _file_hashes = current_hashes
+        return True
+    
+    # If file contents changed
+    for file, current_hash in current_hashes.items():
+        if file not in _file_hashes or _file_hashes[file] != current_hash:
+            print(f"📄 File content changed: {file}")
+            _file_hashes = current_hashes
+            return True
+    
+    return False
 
 def find_csv_file(filename):
     """Find CSV file with flexible search (case-insensitive, space-insensitive)."""
@@ -54,13 +93,24 @@ def load_all_data(force_reload=False):
     global _cached_data_frames
     global _cached_timestamp
     
-    # Use caching but allow force reload
-    if not force_reload and '_cached_data_frames' in globals() and _cached_data_frames is not None:
+    # Always check if files have changed
+    files_changed = has_files_changed()
+    
+    # Use caching but allow force reload or if files changed
+    if (not force_reload and 
+        not files_changed and
+        '_cached_data_frames' in globals() and 
+        _cached_data_frames is not None):
         current_time = time.time()
         # Cache for 30 seconds max
         if current_time - _cached_timestamp < 30:
-            print("📂 Using cached data frames")
+            print("📂 Using cached data frames (files unchanged)")
             return _cached_data_frames
+        else:
+            print("📂 Cache expired, reloading data")
+    
+    if files_changed:
+        print("📂 Files changed, reloading data")
     
     required_files = [
         "course_data.csv",
@@ -73,6 +123,12 @@ def load_all_data(force_reload=False):
     
     print("📂 Loading CSV files...")
     print(f"📁 Input directory contents: {os.listdir(INPUT_DIR) if os.path.exists(INPUT_DIR) else 'Directory not found'}")
+    
+    # Update file hashes
+    if os.path.exists(INPUT_DIR):
+        for file in os.listdir(INPUT_DIR):
+            filepath = os.path.join(INPUT_DIR, file)
+            _file_hashes[file] = get_file_hash(filepath)
     
     for f in required_files:
         file_path = find_csv_file(f)
@@ -90,17 +146,13 @@ def load_all_data(force_reload=False):
             dfs[key] = pd.read_csv(file_path)
             print(f"✅ Loaded {f} from {file_path} ({len(dfs[key])} rows)")
             
-            # Show basic info about the loaded data
+            # Show sample data for verification
             if not dfs[key].empty:
                 print(f"   Columns: {list(dfs[key].columns)}")
                 if 'course' in key:
-                    print(f"   Courses: {len(dfs[key])}")
-                    if 'Semester' in dfs[key].columns:
-                        print(f"   Available semesters: {dfs[key]['Semester'].unique()}")
-                    if 'Elective (Yes/No)' in dfs[key].columns:
-                        elective_count = len(dfs[key][dfs[key]['Elective (Yes/No)'].str.upper() == 'YES'])
-                        core_count = len(dfs[key]) - elective_count
-                        print(f"   Core courses: {core_count}, Elective courses: {elective_count}")
+                    print(f"   First 3 courses:")
+                    for i, row in dfs[key].head(3).iterrows():
+                        print(f"     {i+1}. {row['Course Code'] if 'Course Code' in row else 'N/A'} - Semester: {row.get('Semester', 'N/A')}")
                 
         except Exception as e:
             print(f"❌ Error loading {f}: {e}")
@@ -236,66 +288,89 @@ def schedule_core_courses(core_courses, schedule, used_slots, days, times):
     print(f"   ✅ Scheduled {lectures_scheduled_total}/{total_lectures_needed} core lectures")
     return used_slots
 
-def schedule_elective_slots(elective_courses, schedule, used_slots, days, times, section):
-    """Schedule elective courses in common slots for both sections"""
-    if elective_courses.empty:
-        return used_slots
-    
-    # Define common elective slots (typically 1-2 slots per week)
-    elective_slots = [
+def pre_allocate_elective_slots(elective_courses):
+    """Pre-allocate elective courses to common time slots for both sections"""
+    common_elective_slots = [
         ('Thu', '15:30-17:00'),  # Common elective slot 1
-        ('Fri', '14:00-15:30')   # Common elective slot 2
+        ('Fri', '14:00-15:30'),  # Common elective slot 2
+        ('Thu', '14:00-15:30'),  # Common elective slot 3
+        ('Fri', '15:30-17:00')   # Common elective slot 4
     ]
     
-    available_elective_slots = [slot for slot in elective_slots if slot not in used_slots]
+    allocations = {}
     
-    if not available_elective_slots:
-        print("   ⚠️ No available elective slots found")
-        return used_slots
+    print("🎯 Pre-allocating elective courses to common slots...")
+    print(f"   Available elective slots: {common_elective_slots}")
+    print(f"   Elective courses to allocate: {len(elective_courses)}")
     
-    # Parse LTPSC for elective courses
-    if 'LTPSC' in elective_courses.columns:
-        try:
-            elective_courses[['L', 'T', 'P', 'S', 'C']] = elective_courses['LTPSC'].str.split('-', expand=True)
-            elective_courses[['L', 'T', 'P']] = elective_courses[['L', 'T', 'P']].apply(pd.to_numeric, errors='coerce').fillna(0).astype(int)
-        except Exception as e:
-            print(f"⚠️ Error parsing LTPSC for elective courses: {e}")
-            elective_courses['L'] = 2  # Electives typically have fewer lectures
-            elective_courses['T'] = 0
-            elective_courses['P'] = 0
-    else:
-        elective_courses['L'] = 2
-        elective_courses['T'] = 0
-        elective_courses['P'] = 0
+    for slot_index, (day, time_slot) in enumerate(common_elective_slots):
+        if slot_index < len(elective_courses):
+            course = elective_courses.iloc[slot_index]
+            course_code = course['Course Code']
+            allocations[course_code] = {
+                'day': day,
+                'time_slot': time_slot,
+                'slot_name': f"Elective_Slot_{slot_index + 1}"
+            }
+            print(f"   ✅ Allocated {course_code} to {day} {time_slot}")
+        else:
+            break
+    
+    # Handle case where we have more electives than slots
+    if len(elective_courses) > len(common_elective_slots):
+        print(f"   ⚠️ Warning: {len(elective_courses) - len(common_elective_slots)} elective courses cannot be scheduled due to limited slots")
+        for i in range(len(common_elective_slots), len(elective_courses)):
+            course = elective_courses.iloc[i]
+            course_code = course['Course Code']
+            allocations[course_code] = None
+            print(f"   ❌ No slot available for {course_code}")
+    
+    return allocations
 
-    print(f"   🎯 Scheduling elective courses for Section {section}...")
-    print(f"      Available elective slots: {available_elective_slots}")
-    
+def schedule_pre_allocated_electives(elective_courses, schedule, used_slots, elective_allocations, section):
+    """Schedule elective courses using pre-allocated common slots"""
     elective_scheduled = 0
     
     for _, course in elective_courses.iterrows():
         course_code = course['Course Code']
-        lectures_needed = min(course['L'], len(available_elective_slots))  # Limit to available slots
         
-        if lectures_needed > 0 and available_elective_slots:
-            # Use the first available elective slot
-            day, time_slot = available_elective_slots[0]
+        if course_code in elective_allocations and elective_allocations[course_code] is not None:
+            allocation = elective_allocations[course_code]
+            day = allocation['day']
+            time_slot = allocation['time_slot']
             key = (day, time_slot)
             
+            # Check if the slot is available
             if schedule.loc[time_slot, day] == 'Free':
                 schedule.loc[time_slot, day] = f"{course_code} (Elective)"
                 used_slots.add(key)
-                available_elective_slots.pop(0)  # Remove used slot
                 elective_scheduled += 1
-                print(f"      ✅ Scheduled elective {course_code} at {day} {time_slot}")
+                print(f"      ✅ Scheduled elective {course_code} at {day} {time_slot} for Section {section}")
             else:
-                print(f"      ⚠️ Elective slot {day} {time_slot} is already occupied")
+                print(f"      ⚠️ Pre-allocated slot occupied for {course_code} at {day} {time_slot}: {schedule.loc[time_slot, day]}")
+                # Try to find an alternative slot
+                alternative_slot_found = False
+                for alt_day in ['Thu', 'Fri']:
+                    for alt_time in ['14:00-15:30', '15:30-17:00']:
+                        alt_key = (alt_day, alt_time)
+                        if alt_key not in used_slots and schedule.loc[alt_time, alt_day] == 'Free':
+                            schedule.loc[alt_time, alt_day] = f"{course_code} (Elective)"
+                            used_slots.add(alt_key)
+                            elective_scheduled += 1
+                            alternative_slot_found = True
+                            print(f"      ✅ Rescheduled elective {course_code} to {alt_day} {alt_time} for Section {section}")
+                            break
+                    if alternative_slot_found:
+                        break
+        else:
+            print(f"      ❌ No allocation found for elective {course_code}")
     
-    print(f"   ✅ Scheduled {elective_scheduled} elective courses")
+    print(f"   ✅ Scheduled {elective_scheduled} elective courses for Section {section}")
     return used_slots
 
-def generate_section_schedule(dfs, semester_id, section):
-    print(f"   Generating schedule for Semester {semester_id}, Section {section}...")
+def generate_section_schedule_with_electives(dfs, semester_id, section, elective_allocations):
+    """Generate schedule with pre-allocated elective slots"""
+    print(f"   Generating coordinated schedule for Semester {semester_id}, Section {section}...")
     
     if 'course' not in dfs:
         print("❌ Course data not available")
@@ -307,10 +382,6 @@ def generate_section_schedule(dfs, semester_id, section):
         core_courses = course_baskets['core_courses']
         elective_courses = course_baskets['elective_courses']
         
-        if core_courses.empty and elective_courses.empty:
-            print(f"⚠️ No courses found for semester {semester_id}")
-            return None
-
         days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
         times = ['9:00-10:30', '10:30-12:00', '12:30-14:00', '14:00-15:30', '15:30-17:00', '17:00-18:30']
         
@@ -322,13 +393,13 @@ def generate_section_schedule(dfs, semester_id, section):
 
         # Schedule core courses first
         if not core_courses.empty:
-            print(f"   📚 Scheduling {len(core_courses)} core courses...")
+            print(f"   📚 Scheduling {len(core_courses)} core courses for Section {section}...")
             used_slots = schedule_core_courses(core_courses, schedule, used_slots, days, times)
         
-        # Schedule elective courses in common slots
+        # Schedule elective courses using pre-allocated slots
         if not elective_courses.empty:
-            print(f"   🎯 Scheduling {len(elective_courses)} elective courses...")
-            used_slots = schedule_elective_slots(elective_courses, schedule, used_slots, days, times, section)
+            print(f"   🎯 Scheduling {len(elective_courses)} elective courses for Section {section}...")
+            used_slots = schedule_pre_allocated_electives(elective_courses, schedule, used_slots, elective_allocations, section)
         
         # Fill remaining slots with tutorials/labs if needed
         schedule = fill_remaining_slots(schedule, used_slots, core_courses, elective_courses, days, times)
@@ -336,7 +407,7 @@ def generate_section_schedule(dfs, semester_id, section):
         return schedule
         
     except Exception as e:
-        print(f"❌ Error generating schedule: {e}")
+        print(f"❌ Error generating coordinated schedule: {e}")
         traceback.print_exc()
         return None
 
@@ -368,12 +439,48 @@ def fill_remaining_slots(schedule, used_slots, core_courses, elective_courses, d
     
     return schedule
 
+def create_elective_summary(elective_allocations):
+    """Create a summary of elective course allocations"""
+    summary_data = []
+    
+    for course_code, allocation in elective_allocations.items():
+        if allocation:
+            summary_data.append({
+                'Elective Course': course_code,
+                'Day': allocation['day'],
+                'Time Slot': allocation['time_slot'],
+                'Slot Name': allocation['slot_name'],
+                'Sections': 'A & B (Common Slot)'
+            })
+        else:
+            summary_data.append({
+                'Elective Course': course_code,
+                'Day': 'Not Scheduled',
+                'Time Slot': 'Not Scheduled', 
+                'Slot Name': 'No Slot Available',
+                'Sections': 'None'
+            })
+    
+    return pd.DataFrame(summary_data)
+
 def export_semester_timetable(dfs, semester):
-    print(f"\n📊 Generating timetable for Semester {semester}...")
+    print(f"\n📊 Generating COORDINATED timetable for Semester {semester}...")
     
     try:
-        section_a = generate_section_schedule(dfs, semester, 'A')
-        section_b = generate_section_schedule(dfs, semester, 'B')
+        # First, identify all elective courses for this semester
+        course_baskets = separate_courses_by_type(dfs, semester)
+        elective_courses = course_baskets['elective_courses']
+        
+        print(f"🎯 Elective courses found for semester {semester}: {len(elective_courses)}")
+        if not elective_courses.empty:
+            print("   Elective courses:", elective_courses['Course Code'].tolist())
+        
+        # Pre-allocate common elective slots
+        common_elective_allocations = pre_allocate_elective_slots(elective_courses)
+        
+        # Generate schedules for both sections with coordinated electives
+        section_a = generate_section_schedule_with_electives(dfs, semester, 'A', common_elective_allocations)
+        section_b = generate_section_schedule_with_electives(dfs, semester, 'B', common_elective_allocations)
         
         if section_a is None or section_b is None:
             print(f"❌ Failed to generate timetable for semester {semester}")
@@ -390,12 +497,63 @@ def export_semester_timetable(dfs, semester):
             course_summary = create_course_summary(dfs, semester)
             course_summary.to_excel(writer, sheet_name='Course_Summary', index=False)
             
-        print(f"✅ Timetable saved: {filename}")
+            # Add elective coordination sheet
+            elective_summary = create_elective_summary(common_elective_allocations)
+            elective_summary.to_excel(writer, sheet_name='Elective_Coordination', index=False)
+            
+        print(f"✅ Coordinated timetable saved: {filename}")
+        
+        # Verify elective coordination
+        verify_elective_coordination(section_a, section_b, elective_courses)
+        
         return True
         
     except Exception as e:
         print(f"❌ Error generating timetable for semester {semester}: {e}")
         return False
+
+def verify_elective_coordination(section_a, section_b, elective_courses):
+    """Verify that elective courses are scheduled in the same slots for both sections"""
+    print("🔍 Verifying elective course coordination between sections...")
+    
+    elective_course_codes = elective_courses['Course Code'].tolist()
+    coordination_issues = []
+    
+    for course_code in elective_course_codes:
+        # Find elective in Section A
+        a_slot = find_course_slot(section_a, course_code)
+        # Find elective in Section B  
+        b_slot = find_course_slot(section_b, course_code)
+        
+        if a_slot and b_slot:
+            if a_slot == b_slot:
+                print(f"   ✅ {course_code}: Both sections at {a_slot}")
+            else:
+                coordination_issues.append(f"{course_code}: Section A at {a_slot}, Section B at {b_slot}")
+                print(f"   ❌ {course_code}: MISMATCH - Section A at {a_slot}, Section B at {b_slot}")
+        elif a_slot and not b_slot:
+            coordination_issues.append(f"{course_code}: Only in Section A at {a_slot}")
+            print(f"   ❌ {course_code}: Only scheduled in Section A at {a_slot}")
+        elif not a_slot and b_slot:
+            coordination_issues.append(f"{course_code}: Only in Section B at {b_slot}")
+            print(f"   ❌ {course_code}: Only scheduled in Section B at {b_slot}")
+        else:
+            coordination_issues.append(f"{course_code}: Not scheduled in either section")
+            print(f"   ⚠️ {course_code}: Not scheduled in either section")
+    
+    if coordination_issues:
+        print(f"🚨 Found {len(coordination_issues)} coordination issues")
+    else:
+        print("🎉 All elective courses are properly coordinated between sections!")
+
+def find_course_slot(schedule, course_code):
+    """Find the time slot for a given course in a schedule"""
+    for time_slot in schedule.index:
+        for day in schedule.columns:
+            cell_value = schedule.loc[time_slot, day]
+            if isinstance(cell_value, str) and course_code in cell_value:
+                return f"{day} {time_slot}"
+    return None
 
 def create_course_summary(dfs, semester):
     """Create a summary sheet showing core vs elective courses"""
@@ -492,6 +650,8 @@ def index():
 @app.route('/generate', methods=['POST'])
 def generate_timetables():
     try:
+        print("🔄 Starting timetable generation...")
+        
         # Clear existing timetables first
         excel_files = glob.glob(os.path.join(OUTPUT_DIR, "*.xlsx"))
         for file in excel_files:
@@ -501,7 +661,8 @@ def generate_timetables():
             except Exception as e:
                 print(f"⚠️ Could not remove {file}: {e}")
 
-        # Load data and generate timetables
+        # Load data and generate timetables - ALWAYS force reload
+        print("📂 Forcing data reload for generation...")
         data_frames = load_all_data(force_reload=True)
         if data_frames is None:
             return jsonify({'success': False, 'message': 'Failed to load CSV data'})
@@ -513,6 +674,7 @@ def generate_timetables():
         
         for sem in target_semesters:
             try:
+                print(f"🔄 Generating timetable for semester {sem}...")
                 success = export_semester_timetable(data_frames, sem)
                 filename = f"sem{sem}_timetable.xlsx"
                 filepath = os.path.join(OUTPUT_DIR, filename)
@@ -545,8 +707,11 @@ def get_timetables():
         timetables = []
         excel_files = glob.glob(os.path.join(OUTPUT_DIR, "*.xlsx"))
         
-        # Load course data for course information
-        data_frames = load_all_data()
+        print(f"📁 Looking for timetable files in {OUTPUT_DIR}")
+        print(f"📄 Found {len(excel_files)} Excel files: {excel_files}")
+        
+        # Load course data for course information - force reload to get latest data
+        data_frames = load_all_data(force_reload=True)
         course_info = get_course_info(data_frames) if data_frames else {}
         
         # Generate colors for all courses
@@ -561,6 +726,8 @@ def get_timetables():
                 try:
                     sem_part = filename.split('sem')[1].split('_')[0]
                     sem = int(sem_part)
+                    
+                    print(f"📖 Reading timetable file: {filename}")
                     
                     # Read both sections from the Excel file
                     df_a = pd.read_excel(file_path, sheet_name='Section_A')
@@ -664,8 +831,8 @@ def get_stats():
         faculty_count = 0
         classroom_count = 0
         
-        # Load data to get accurate counts
-        data_frames = load_all_data()
+        # Load data to get accurate counts - force reload
+        data_frames = load_all_data(force_reload=True)
         if data_frames:
             if 'course' in data_frames:
                 course_count = len(data_frames['course'])
@@ -693,7 +860,9 @@ def get_stats():
 @app.route('/upload', methods=['POST'])
 def upload_files():
     try:
-        print("📤 Received file upload request...")
+        print("=" * 50)
+        print("📤 RECEIVED FILE UPLOAD REQUEST")
+        print("=" * 50)
         
         if 'files' not in request.files:
             return jsonify({
@@ -703,6 +872,8 @@ def upload_files():
         
         files = request.files.getlist('files')
         uploaded_files = []
+        
+        print(f"📦 Received {len(files)} files")
         
         # Clear input directory first using shutil for better file handling
         if os.path.exists(INPUT_DIR):
@@ -814,6 +985,12 @@ def upload_files():
                 print(f"❌ Error generating timetable for semester {sem}: {e}")
                 traceback.print_exc()
 
+        print("=" * 50)
+        print("✅ UPLOAD AND GENERATION COMPLETED")
+        print(f"📁 Uploaded: {len(uploaded_files)} files")
+        print(f"📊 Generated: {success_count} timetables")
+        print("=" * 50)
+
         return jsonify({
             'success': True,
             'message': f'Successfully uploaded {len(uploaded_files)} files and generated {success_count} timetables!',
@@ -848,7 +1025,9 @@ def debug_files():
             'output_dir': OUTPUT_DIR,
             'output_files': output_files,
             'input_dir_exists': os.path.exists(INPUT_DIR),
-            'output_dir_exists': os.path.exists(OUTPUT_DIR)
+            'output_dir_exists': os.path.exists(OUTPUT_DIR),
+            'cached_data': _cached_data_frames is not None,
+            'file_hashes': _file_hashes
         })
     except Exception as e:
         return jsonify({'error': str(e)})
@@ -857,7 +1036,7 @@ def debug_files():
 def debug_courses():
     """Debug endpoint to check course data"""
     try:
-        data_frames = load_all_data()
+        data_frames = load_all_data(force_reload=True)
         if data_frames is None or 'course' not in data_frames:
             return jsonify({'error': 'No course data available'})
         
@@ -865,6 +1044,7 @@ def debug_courses():
         return jsonify({
             'columns': list(course_df.columns),
             'semesters': course_df['Semester'].unique().tolist() if 'Semester' in course_df.columns else [],
+            'total_courses': len(course_df),
             'sample_data': course_df.head(10).to_dict('records')
         })
     except Exception as e:
@@ -874,7 +1054,7 @@ def debug_courses():
 def debug_current_data():
     """Debug endpoint to check currently loaded data"""
     try:
-        data_frames = load_all_data()
+        data_frames = load_all_data(force_reload=True)
         if data_frames is None:
             return jsonify({'error': 'No data available'})
         
@@ -894,13 +1074,48 @@ def debug_current_data():
 def debug_clear_cache():
     """Debug endpoint to clear cache"""
     global _cached_data_frames
+    global _file_hashes
     _cached_data_frames = None
+    _file_hashes = {}
     return jsonify({'success': True, 'message': 'Cache cleared'})
 
+@app.route('/debug/reset-all')
+def debug_reset_all():
+    """Debug endpoint to reset everything"""
+    global _cached_data_frames
+    global _file_hashes
+    
+    # Clear input directory
+    if os.path.exists(INPUT_DIR):
+        shutil.rmtree(INPUT_DIR)
+        os.makedirs(INPUT_DIR, exist_ok=True)
+    
+    # Clear output directory  
+    if os.path.exists(OUTPUT_DIR):
+        shutil.rmtree(OUTPUT_DIR)
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    # Clear cache
+    _cached_data_frames = None
+    _file_hashes = {}
+    
+    return jsonify({'success': True, 'message': 'Complete reset done'})
+
+@app.route('/debug')
+def debug_page():
+    return render_template('debug.html')
+
 if __name__ == '__main__':
-    print("Starting Timetable Generator Web Application...")
-    print(f"Access the application at: http://127.0.0.1:5000")
-    print(f"Input directory: {INPUT_DIR}")
-    print(f"Output directory: {OUTPUT_DIR}")
+    print("🚀 Starting Timetable Generator Web Application...")
+    print(f"🌐 Access the application at: http://127.0.0.1:5000")
+    print(f"📁 Input directory: {INPUT_DIR}")
+    print(f"📁 Output directory: {OUTPUT_DIR}")
+    print("🔧 Debug endpoints available:")
+    print("   /debug/files - Check uploaded files")
+    print("   /debug/courses - Check course data") 
+    print("   /debug/current-data - Check loaded data")
+    print("   /debug/clear-cache - Clear cache")
+    print("   /debug/reset-all - Reset everything")
+    print("   /debug - Debug interface")
     
     app.run(debug=True, host='127.0.0.1', port=5000)
