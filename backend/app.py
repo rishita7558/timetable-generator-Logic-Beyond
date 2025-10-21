@@ -292,38 +292,29 @@ def pre_allocate_elective_slots(elective_courses):
     """Pre-allocate elective courses to common time slots for both sections"""
     common_elective_slots = [
         ('Thu', '15:30-17:00'),  # Common elective slot 1
-        ('Fri', '14:00-15:30'),  # Common elective slot 2
-        ('Thu', '14:00-15:30'),  # Common elective slot 3
-        ('Fri', '15:30-17:00')   # Common elective slot 4
+        ('Fri', '14:00-15:30')   # Common elective slot 2
     ]
     
     allocations = {}
+    slot_index = 0
     
     print("🎯 Pre-allocating elective courses to common slots...")
-    print(f"   Available elective slots: {common_elective_slots}")
-    print(f"   Elective courses to allocate: {len(elective_courses)}")
     
-    for slot_index, (day, time_slot) in enumerate(common_elective_slots):
-        if slot_index < len(elective_courses):
-            course = elective_courses.iloc[slot_index]
-            course_code = course['Course Code']
+    for _, course in elective_courses.iterrows():
+        course_code = course['Course Code']
+        
+        if slot_index < len(common_elective_slots):
+            day, time_slot = common_elective_slots[slot_index]
             allocations[course_code] = {
                 'day': day,
                 'time_slot': time_slot,
                 'slot_name': f"Elective_Slot_{slot_index + 1}"
             }
             print(f"   ✅ Allocated {course_code} to {day} {time_slot}")
+            slot_index += 1
         else:
-            break
-    
-    # Handle case where we have more electives than slots
-    if len(elective_courses) > len(common_elective_slots):
-        print(f"   ⚠️ Warning: {len(elective_courses) - len(common_elective_slots)} elective courses cannot be scheduled due to limited slots")
-        for i in range(len(common_elective_slots), len(elective_courses)):
-            course = elective_courses.iloc[i]
-            course_code = course['Course Code']
+            print(f"   ⚠️ No more elective slots available for {course_code}")
             allocations[course_code] = None
-            print(f"   ❌ No slot available for {course_code}")
     
     return allocations
 
@@ -348,20 +339,6 @@ def schedule_pre_allocated_electives(elective_courses, schedule, used_slots, ele
                 print(f"      ✅ Scheduled elective {course_code} at {day} {time_slot} for Section {section}")
             else:
                 print(f"      ⚠️ Pre-allocated slot occupied for {course_code} at {day} {time_slot}: {schedule.loc[time_slot, day]}")
-                # Try to find an alternative slot
-                alternative_slot_found = False
-                for alt_day in ['Thu', 'Fri']:
-                    for alt_time in ['14:00-15:30', '15:30-17:00']:
-                        alt_key = (alt_day, alt_time)
-                        if alt_key not in used_slots and schedule.loc[alt_time, alt_day] == 'Free':
-                            schedule.loc[alt_time, alt_day] = f"{course_code} (Elective)"
-                            used_slots.add(alt_key)
-                            elective_scheduled += 1
-                            alternative_slot_found = True
-                            print(f"      ✅ Rescheduled elective {course_code} to {alt_day} {alt_time} for Section {section}")
-                            break
-                    if alternative_slot_found:
-                        break
         else:
             print(f"      ❌ No allocation found for elective {course_code}")
     
@@ -502,58 +479,11 @@ def export_semester_timetable(dfs, semester):
             elective_summary.to_excel(writer, sheet_name='Elective_Coordination', index=False)
             
         print(f"✅ Coordinated timetable saved: {filename}")
-        
-        # Verify elective coordination
-        verify_elective_coordination(section_a, section_b, elective_courses)
-        
         return True
         
     except Exception as e:
         print(f"❌ Error generating timetable for semester {semester}: {e}")
         return False
-
-def verify_elective_coordination(section_a, section_b, elective_courses):
-    """Verify that elective courses are scheduled in the same slots for both sections"""
-    print("🔍 Verifying elective course coordination between sections...")
-    
-    elective_course_codes = elective_courses['Course Code'].tolist()
-    coordination_issues = []
-    
-    for course_code in elective_course_codes:
-        # Find elective in Section A
-        a_slot = find_course_slot(section_a, course_code)
-        # Find elective in Section B  
-        b_slot = find_course_slot(section_b, course_code)
-        
-        if a_slot and b_slot:
-            if a_slot == b_slot:
-                print(f"   ✅ {course_code}: Both sections at {a_slot}")
-            else:
-                coordination_issues.append(f"{course_code}: Section A at {a_slot}, Section B at {b_slot}")
-                print(f"   ❌ {course_code}: MISMATCH - Section A at {a_slot}, Section B at {b_slot}")
-        elif a_slot and not b_slot:
-            coordination_issues.append(f"{course_code}: Only in Section A at {a_slot}")
-            print(f"   ❌ {course_code}: Only scheduled in Section A at {a_slot}")
-        elif not a_slot and b_slot:
-            coordination_issues.append(f"{course_code}: Only in Section B at {b_slot}")
-            print(f"   ❌ {course_code}: Only scheduled in Section B at {b_slot}")
-        else:
-            coordination_issues.append(f"{course_code}: Not scheduled in either section")
-            print(f"   ⚠️ {course_code}: Not scheduled in either section")
-    
-    if coordination_issues:
-        print(f"🚨 Found {len(coordination_issues)} coordination issues")
-    else:
-        print("🎉 All elective courses are properly coordinated between sections!")
-
-def find_course_slot(schedule, course_code):
-    """Find the time slot for a given course in a schedule"""
-    for time_slot in schedule.index:
-        for day in schedule.columns:
-            cell_value = schedule.loc[time_slot, day]
-            if isinstance(cell_value, str) and course_code in cell_value:
-                return f"{day} {time_slot}"
-    return None
 
 def create_course_summary(dfs, semester):
     """Create a summary sheet showing core vs elective courses"""
