@@ -1,0 +1,18 @@
+Room Number,Type,Capacity,Facilities
+R201,Recreation,nil,None
+R202,large classroom,120,Projector
+R203,large classroom,140,Projector
+R204,Auditorium,250,Audio/Video System
+R301,classroom,100,Projector
+R302,classroom,100,Projector
+R303,library,nil,"Computers, Books"
+R304,classroom,100,Projector
+L301,Hardware Lab,45,Equipment
+L302,Software Lab,45,Computers
+L303,Software Lab,45,Computers
+R401,Examination room,nil,"Tables, Chairs"
+R402,classroom,100,Projector
+R403,classroom,100,Projector
+L401,Physics Lab,nil,Physics Equipment
+R501,classroom,100,Projector
+R502,classroom,80,None
