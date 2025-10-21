@@ -7,6 +7,7 @@ import glob
 from werkzeug.utils import secure_filename
 import traceback
 import shutil
+import time
 
 app = Flask(__name__)
 
@@ -15,6 +16,10 @@ INPUT_DIR = os.path.join(os.getcwd(), "temp_inputs")
 OUTPUT_DIR = os.path.join(os.getcwd(), "output_timetables")
 os.makedirs(INPUT_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# Cache variables
+_cached_data_frames = None
+_cached_timestamp = 0
 
 # Allowed file extensions
 ALLOWED_EXTENSIONS = {'csv'}
@@ -44,8 +49,19 @@ def find_csv_file(filename):
     
     return None
 
-def load_all_data():
-    """Load CSV files and return dataframes"""
+def load_all_data(force_reload=False):
+    """Load CSV files and return dataframes with force reload option"""
+    global _cached_data_frames
+    global _cached_timestamp
+    
+    # Use caching but allow force reload
+    if not force_reload and '_cached_data_frames' in globals() and _cached_data_frames is not None:
+        current_time = time.time()
+        # Cache for 30 seconds max
+        if current_time - _cached_timestamp < 30:
+            print("📂 Using cached data frames")
+            return _cached_data_frames
+    
     required_files = [
         "course_data.csv",
         "faculty_availability.csv",
@@ -56,6 +72,7 @@ def load_all_data():
     dfs = {}
     
     print("📂 Loading CSV files...")
+    print(f"📁 Input directory contents: {os.listdir(INPUT_DIR) if os.path.exists(INPUT_DIR) else 'Directory not found'}")
     
     for f in required_files:
         file_path = find_csv_file(f)
@@ -71,7 +88,7 @@ def load_all_data():
         try:
             key = f.replace("_data.csv", "").replace(".csv", "")
             dfs[key] = pd.read_csv(file_path)
-            print(f"✅ Loaded {f} ({len(dfs[key])} rows)")
+            print(f"✅ Loaded {f} from {file_path} ({len(dfs[key])} rows)")
             
             # Show basic info about the loaded data
             if not dfs[key].empty:
@@ -97,6 +114,10 @@ def load_all_data():
             print(f"❌ Missing columns in course_data: {missing_columns}")
             print(f"   Available columns: {list(dfs['course'].columns)}")
             return None
+    
+    # Cache the results
+    _cached_data_frames = dfs
+    _cached_timestamp = time.time()
     
     print("✅ All CSV files loaded successfully!")
     return dfs
@@ -481,7 +502,7 @@ def generate_timetables():
                 print(f"⚠️ Could not remove {file}: {e}")
 
         # Load data and generate timetables
-        data_frames = load_all_data()
+        data_frames = load_all_data(force_reload=True)
         if data_frames is None:
             return jsonify({'success': False, 'message': 'Failed to load CSV data'})
 
@@ -698,7 +719,7 @@ def upload_files():
                 filepath = os.path.join(INPUT_DIR, filename)
                 file.save(filepath)
                 uploaded_files.append(filename)
-                print(f"✅ Uploaded: {filename}")
+                print(f"✅ Uploaded: {filename} -> {filepath}")
         
         if not uploaded_files:
             return jsonify({
@@ -718,6 +739,8 @@ def upload_files():
         missing_files = []
         available_files = os.listdir(INPUT_DIR)
         
+        print(f"📁 Available files after upload: {available_files}")
+        
         for required_file in required_files:
             found = False
             required_clean = required_file.lower().replace(' ', '').replace('_', '').replace('-', '')
@@ -728,10 +751,12 @@ def upload_files():
                     uploaded_clean in required_clean or
                     any(part in uploaded_clean for part in required_file.split('_'))):
                     found = True
+                    print(f"✅ Matched {required_file} with {uploaded_file}")
                     break
             
             if not found:
                 missing_files.append(required_file)
+                print(f"❌ No match found for {required_file}")
         
         if missing_files:
             return jsonify({
@@ -742,14 +767,29 @@ def upload_files():
                 'available_files': available_files
             }), 400
         
-        # After successful upload, automatically generate timetables
-        print("🔄 Auto-generating timetables after file upload...")
-        data_frames = load_all_data()
+        # Clear any cached data to force reload
+        global _cached_data_frames
+        if '_cached_data_frames' in globals():
+            _cached_data_frames = None
+            print("🗑️ Cleared cached data frames")
+        
+        # Load data with force reload
+        print("🔄 Loading data with force reload...")
+        data_frames = load_all_data(force_reload=True)
         if data_frames is None:
             return jsonify({
                 'success': False,
                 'message': 'Files uploaded but failed to load data for timetable generation'
             }), 400
+        
+        # Clear existing timetables
+        excel_files = glob.glob(os.path.join(OUTPUT_DIR, "*.xlsx"))
+        for file in excel_files:
+            try:
+                os.remove(file)
+                print(f"🗑️ Removed old timetable: {file}")
+            except Exception as e:
+                print(f"⚠️ Could not remove {file}: {e}")
         
         # Generate timetables for semesters 1,3,5,7
         target_semesters = [1, 3, 5, 7]
@@ -758,6 +798,7 @@ def upload_files():
         
         for sem in target_semesters:
             try:
+                print(f"🔄 Generating timetable for semester {sem}...")
                 success = export_semester_timetable(data_frames, sem)
                 filename = f"sem{sem}_timetable.xlsx"
                 filepath = os.path.join(OUTPUT_DIR, filename)
@@ -771,6 +812,7 @@ def upload_files():
                     
             except Exception as e:
                 print(f"❌ Error generating timetable for semester {sem}: {e}")
+                traceback.print_exc()
 
         return jsonify({
             'success': True,
@@ -827,6 +869,33 @@ def debug_courses():
         })
     except Exception as e:
         return jsonify({'error': str(e)})
+
+@app.route('/debug/current-data')
+def debug_current_data():
+    """Debug endpoint to check currently loaded data"""
+    try:
+        data_frames = load_all_data()
+        if data_frames is None:
+            return jsonify({'error': 'No data available'})
+        
+        debug_info = {}
+        for key, df in data_frames.items():
+            debug_info[key] = {
+                'shape': df.shape,
+                'columns': list(df.columns),
+                'sample_data': df.head(3).to_dict('records')
+            }
+        
+        return jsonify(debug_info)
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+@app.route('/debug/clear-cache')
+def debug_clear_cache():
+    """Debug endpoint to clear cache"""
+    global _cached_data_frames
+    _cached_data_frames = None
+    return jsonify({'success': True, 'message': 'Cache cleared'})
 
 if __name__ == '__main__':
     print("Starting Timetable Generator Web Application...")

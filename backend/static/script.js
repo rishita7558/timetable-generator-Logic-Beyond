@@ -98,6 +98,8 @@ function initializeApp() {
     
     // Debug button
     window.debugApp = debugApp;
+    window.verifyDataLoad = verifyDataLoad;
+    window.clearCache = clearCache;
     
     // Load initial data
     loadStats();
@@ -389,6 +391,9 @@ async function processUploadedFiles() {
             await loadTimetables();
             await loadStats();
             
+            // Verify data was loaded correctly
+            await verifyDataLoad();
+            
         } else {
             showNotification(`❌ ${result.message}`, 'error');
             // Show available files for debugging
@@ -490,6 +495,31 @@ function simulateUploadProgress(progressFill, progressText) {
         progressFill.style.width = '100%';
         progressText.textContent = '100%';
     }, 2000);
+}
+
+// Debug Functions
+async function verifyDataLoad() {
+    try {
+        const response = await fetch('/debug/current-data');
+        const data = await response.json();
+        console.log('📊 Current loaded data:', data);
+        return data;
+    } catch (error) {
+        console.error('Error verifying data:', error);
+        return null;
+    }
+}
+
+async function clearCache() {
+    try {
+        const response = await fetch('/debug/clear-cache');
+        const result = await response.json();
+        console.log('🗑️ Cache cleared:', result);
+        return result;
+    } catch (error) {
+        console.error('Error clearing cache:', error);
+        return null;
+    }
 }
 
 // Sidebar Navigation
@@ -1320,3 +1350,5 @@ window.debugApp = debugApp;
 window.showUploadSection = showUploadSection;
 window.hideUploadSection = hideUploadSection;
 window.debugFileMatching = debugFileMatching;
+window.verifyDataLoad = verifyDataLoad;
+window.clearCache = clearCache;
