@@ -288,45 +288,45 @@ def schedule_core_courses(core_courses, schedule, used_slots, days, times):
     print(f"   ✅ Scheduled {lectures_scheduled_total}/{total_lectures_needed} core lectures")
     return used_slots
 
-def pre_allocate_elective_slots(elective_courses):
-    """Pre-allocate elective courses to common time slots for both sections"""
-    common_elective_slots = [
+def get_common_elective_slots():
+    """Define common elective slots that will be used for both sections"""
+    return [
         ('Thu', '15:30-17:00'),  # Common elective slot 1
-        ('Fri', '14:00-15:30')   # Common elective slot 2
+        ('Fri', '14:00-15:30'),   # Common elective slot 2
+        ('Wed', '15:30-17:00'),   # Common elective slot 3
+        ('Tue', '14:00-15:30')    # Common elective slot 4
     ]
+
+def allocate_electives_to_common_slots(elective_courses):
+    """Allocate elective courses to common time slots"""
+    common_slots = get_common_elective_slots()
+    elective_allocations = {}
     
-    allocations = {}
-    slot_index = 0
+    print("🎯 Allocating elective courses to common slots...")
     
-    print("🎯 Pre-allocating elective courses to common slots...")
-    
-    for _, course in elective_courses.iterrows():
+    for i, (_, course) in enumerate(elective_courses.iterrows()):
         course_code = course['Course Code']
         
-        if slot_index < len(common_elective_slots):
-            day, time_slot = common_elective_slots[slot_index]
-            allocations[course_code] = {
+        if i < len(common_slots):
+            day, time_slot = common_slots[i]
+            elective_allocations[course_code] = {
                 'day': day,
                 'time_slot': time_slot,
-                'slot_name': f"Elective_Slot_{slot_index + 1}"
+                'slot_name': f"Elective_Slot_{i + 1}"
             }
             print(f"   ✅ Allocated {course_code} to {day} {time_slot}")
-            slot_index += 1
         else:
-            print(f"   ⚠️ No more elective slots available for {course_code}")
-            allocations[course_code] = None
+            print(f"   ⚠️ No more common slots available for {course_code}")
+            elective_allocations[course_code] = None
     
-    return allocations
+    return elective_allocations
 
-def schedule_pre_allocated_electives(elective_courses, schedule, used_slots, elective_allocations, section):
-    """Schedule elective courses using pre-allocated common slots"""
+def schedule_electives_in_common_slots(elective_allocations, schedule, used_slots, section):
+    """Schedule elective courses in their pre-allocated common slots"""
     elective_scheduled = 0
     
-    for _, course in elective_courses.iterrows():
-        course_code = course['Course Code']
-        
-        if course_code in elective_allocations and elective_allocations[course_code] is not None:
-            allocation = elective_allocations[course_code]
+    for course_code, allocation in elective_allocations.items():
+        if allocation is not None:
             day = allocation['day']
             time_slot = allocation['time_slot']
             key = (day, time_slot)
@@ -338,7 +338,7 @@ def schedule_pre_allocated_electives(elective_courses, schedule, used_slots, ele
                 elective_scheduled += 1
                 print(f"      ✅ Scheduled elective {course_code} at {day} {time_slot} for Section {section}")
             else:
-                print(f"      ⚠️ Pre-allocated slot occupied for {course_code} at {day} {time_slot}: {schedule.loc[time_slot, day]}")
+                print(f"      ⚠️ Common slot occupied for {course_code} at {day} {time_slot}: {schedule.loc[time_slot, day]}")
         else:
             print(f"      ❌ No allocation found for elective {course_code}")
     
@@ -368,15 +368,15 @@ def generate_section_schedule_with_electives(dfs, semester_id, section, elective
         
         used_slots = set()
 
-        # Schedule core courses first
+        # Schedule elective courses FIRST to ensure they get common slots
+        if not elective_courses.empty:
+            print(f"   🎯 Scheduling {len(elective_courses)} elective courses for Section {section}...")
+            used_slots = schedule_electives_in_common_slots(elective_allocations, schedule, used_slots, section)
+        
+        # Schedule core courses after electives
         if not core_courses.empty:
             print(f"   📚 Scheduling {len(core_courses)} core courses for Section {section}...")
             used_slots = schedule_core_courses(core_courses, schedule, used_slots, days, times)
-        
-        # Schedule elective courses using pre-allocated slots
-        if not elective_courses.empty:
-            print(f"   🎯 Scheduling {len(elective_courses)} elective courses for Section {section}...")
-            used_slots = schedule_pre_allocated_electives(elective_courses, schedule, used_slots, elective_allocations, section)
         
         # Fill remaining slots with tutorials/labs if needed
         schedule = fill_remaining_slots(schedule, used_slots, core_courses, elective_courses, days, times)
@@ -452,8 +452,8 @@ def export_semester_timetable(dfs, semester):
         if not elective_courses.empty:
             print("   Elective courses:", elective_courses['Course Code'].tolist())
         
-        # Pre-allocate common elective slots
-        common_elective_allocations = pre_allocate_elective_slots(elective_courses)
+        # Allocate elective courses to common slots
+        common_elective_allocations = allocate_electives_to_common_slots(elective_courses)
         
         # Generate schedules for both sections with coordinated electives
         section_a = generate_section_schedule_with_electives(dfs, semester, 'A', common_elective_allocations)
@@ -483,6 +483,7 @@ def export_semester_timetable(dfs, semester):
         
     except Exception as e:
         print(f"❌ Error generating timetable for semester {semester}: {e}")
+        traceback.print_exc()
         return False
 
 def create_course_summary(dfs, semester):
@@ -864,8 +865,7 @@ def upload_files():
                 'success': False,
                 'message': f'Missing required files: {", ".join(missing_files)}',
                 'uploaded_files': uploaded_files,
-                'missing_files': missing_files,
-                'available_files': available_files
+                'missing_files': missing_files
             }), 400
         
         # Clear any cached data to force reload
@@ -937,115 +937,5 @@ def upload_files():
             'message': f'Error uploading files: {str(e)}'
         }), 500
 
-@app.route('/debug/files')
-def debug_files():
-    """Debug endpoint to check what files are available"""
-    try:
-        input_files = []
-        if os.path.exists(INPUT_DIR):
-            input_files = os.listdir(INPUT_DIR)
-        
-        output_files = []
-        if os.path.exists(OUTPUT_DIR):
-            output_files = os.listdir(OUTPUT_DIR)
-        
-        return jsonify({
-            'input_dir': INPUT_DIR,
-            'input_files': input_files,
-            'output_dir': OUTPUT_DIR,
-            'output_files': output_files,
-            'input_dir_exists': os.path.exists(INPUT_DIR),
-            'output_dir_exists': os.path.exists(OUTPUT_DIR),
-            'cached_data': _cached_data_frames is not None,
-            'file_hashes': _file_hashes
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)})
-
-@app.route('/debug/courses')
-def debug_courses():
-    """Debug endpoint to check course data"""
-    try:
-        data_frames = load_all_data(force_reload=True)
-        if data_frames is None or 'course' not in data_frames:
-            return jsonify({'error': 'No course data available'})
-        
-        course_df = data_frames['course']
-        return jsonify({
-            'columns': list(course_df.columns),
-            'semesters': course_df['Semester'].unique().tolist() if 'Semester' in course_df.columns else [],
-            'total_courses': len(course_df),
-            'sample_data': course_df.head(10).to_dict('records')
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)})
-
-@app.route('/debug/current-data')
-def debug_current_data():
-    """Debug endpoint to check currently loaded data"""
-    try:
-        data_frames = load_all_data(force_reload=True)
-        if data_frames is None:
-            return jsonify({'error': 'No data available'})
-        
-        debug_info = {}
-        for key, df in data_frames.items():
-            debug_info[key] = {
-                'shape': df.shape,
-                'columns': list(df.columns),
-                'sample_data': df.head(3).to_dict('records')
-            }
-        
-        return jsonify(debug_info)
-    except Exception as e:
-        return jsonify({'error': str(e)})
-
-@app.route('/debug/clear-cache')
-def debug_clear_cache():
-    """Debug endpoint to clear cache"""
-    global _cached_data_frames
-    global _file_hashes
-    _cached_data_frames = None
-    _file_hashes = {}
-    return jsonify({'success': True, 'message': 'Cache cleared'})
-
-@app.route('/debug/reset-all')
-def debug_reset_all():
-    """Debug endpoint to reset everything"""
-    global _cached_data_frames
-    global _file_hashes
-    
-    # Clear input directory
-    if os.path.exists(INPUT_DIR):
-        shutil.rmtree(INPUT_DIR)
-        os.makedirs(INPUT_DIR, exist_ok=True)
-    
-    # Clear output directory  
-    if os.path.exists(OUTPUT_DIR):
-        shutil.rmtree(OUTPUT_DIR)
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-    
-    # Clear cache
-    _cached_data_frames = None
-    _file_hashes = {}
-    
-    return jsonify({'success': True, 'message': 'Complete reset done'})
-
-@app.route('/debug')
-def debug_page():
-    return render_template('debug.html')
-
 if __name__ == '__main__':
-    print("🚀 Starting Timetable Generator Web Application...")
-    print(f"🌐 Access the application at: http://127.0.0.1:5000")
-    print(f"📁 Input directory: {INPUT_DIR}")
-    print(f"📁 Output directory: {OUTPUT_DIR}")
-    print("🔧 Debug endpoints available:")
-    print("   /debug/files - Check uploaded files")
-    print("   /debug/courses - Check course data") 
-    print("   /debug/current-data - Check loaded data")
-    print("   /debug/clear-cache - Clear cache")
-    print("   /debug/reset-all - Reset everything")
-    print("   /debug - Debug interface")
-    
-    app.run(debug=True, host='127.0.0.1', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5000)
