@@ -486,9 +486,66 @@ body {
     background: var(--light);
     font-weight: 600;
     color: var(--dark);
+    text-align: right !important;
+    padding-right: 12px !important;
+    width: 120px;
 }
 
-/* Dynamic Color Coding */
+/* Enhanced Time Slot Styling */
+.time-slot {
+    position: relative;
+    font-weight: 600;
+    font-size: 0.8rem;
+}
+
+.time-slot.morning {
+    background: linear-gradient(135deg, #e3f2fd, #bbdefb) !important;
+    border-left: 4px solid #1976d2 !important;
+}
+
+.time-slot.lunch {
+    background: linear-gradient(135deg, #fff3e0, #ffe0b2) !important;
+    border-left: 4px solid #f57c00 !important;
+    font-weight: 700 !important;
+}
+
+.time-slot.afternoon {
+    background: linear-gradient(135deg, #f3e5f5, #e1bee7) !important;
+    border-left: 4px solid #7b1fa2 !important;
+}
+
+.time-slot.evening {
+    background: linear-gradient(135deg, #e8f5e8, #c8e6c9) !important;
+    border-left: 4px solid #388e3c !important;
+}
+
+.slot-duration {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    font-size: 0.6rem;
+    background: rgba(0,0,0,0.1);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-weight: 500;
+}
+
+/* Session Group Headers */
+.session-group-header {
+    background: linear-gradient(135deg, #2b2d42, #1a1b23) !important;
+    color: white !important;
+    font-weight: 700 !important;
+    text-align: center !important;
+}
+
+.session-group-header td {
+    border: none !important;
+    padding: 12px 8px !important;
+    font-size: 0.9rem;
+    letter-spacing: 0.5px;
+}
+
+/* Dynamic Color Coding - Base Styles */
 .colored-cell {
     transition: all 0.3s ease !important;
     position: relative;
@@ -514,11 +571,12 @@ body {
     z-index: 2 !important;
 }
 
-/* Elective Slot Styling */
+/* Enhanced Elective Styling - Same Color for Lectures and Tutorials */
 .elective-slot {
     position: relative;
     border: 3px dashed var(--secondary) !important;
-    background: linear-gradient(135deg, rgba(114, 9, 183, 0.1), rgba(114, 9, 183, 0.05)) !important;
+    background: linear-gradient(135deg, rgba(114, 9, 183, 0.15), rgba(114, 9, 183, 0.08)) !important;
+    font-weight: 700 !important;
 }
 
 .elective-slot::after {
@@ -527,13 +585,41 @@ body {
     top: 2px;
     right: 2px;
     font-size: 0.7rem;
-    opacity: 0.7;
+    opacity: 0.8;
 }
 
 .elective-slot:hover {
     transform: scale(1.08) !important;
     box-shadow: 0 6px 20px rgba(114, 9, 183, 0.4) !important;
     z-index: 3 !important;
+}
+
+/* Special styling for elective tutorials to distinguish from lectures */
+.elective-slot.tutorial {
+    border-style: solid !important;
+    border-width: 2px !important;
+    background: linear-gradient(135deg, rgba(114, 9, 183, 0.2), rgba(114, 9, 183, 0.1)) !important;
+    font-style: italic;
+}
+
+/* Elective lecture specific styling */
+.elective-slot.lecture {
+    border-style: dashed !important;
+    border-width: 3px !important;
+    background: linear-gradient(135deg, rgba(114, 9, 183, 0.12), rgba(114, 9, 183, 0.06)) !important;
+}
+
+/* Ensure consistent color application */
+.colored-cell[style*="background"] {
+    transition: all 0.3s ease !important;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Core course styling */
+.colored-cell:not(.elective-slot) {
+    border: 2px solid white !important;
+    font-weight: 600 !important;
 }
 
 /* Quick Actions */
@@ -779,6 +865,11 @@ body {
     border-left: 3px solid var(--primary);
 }
 
+.legend-item.other {
+    background: rgba(76, 201, 240, 0.05);
+    border-left: 3px solid var(--success);
+}
+
 .legend-color {
     width: 16px;
     height: 16px;
@@ -803,6 +894,14 @@ body {
     color: var(--gray);
     font-size: 0.7rem;
     opacity: 0.8;
+}
+
+.legend-course-name .elective-info {
+    color: var(--secondary);
+    font-size: 0.65rem;
+    font-weight: 600;
+    display: block;
+    margin-top: 2px;
 }
 
 /* File Upload Section */
@@ -1068,6 +1167,15 @@ body {
     .legend-course-name {
         font-size: 0.7rem;
     }
+    
+    .timetable-table {
+        font-size: 0.75rem;
+    }
+    
+    .timetable-table td:first-child {
+        width: 100px;
+        padding-right: 8px !important;
+    }
 }
 
 @media (max-width: 480px) {
@@ -1082,6 +1190,15 @@ body {
     .timetable-card {
         margin: 0 -1rem;
         border-radius: 0;
+    }
+    
+    .timetable-table {
+        font-size: 0.7rem;
+    }
+    
+    .timetable-table th,
+    .timetable-table td {
+        padding: 4px !important;
     }
 }
 
@@ -1103,6 +1220,11 @@ body {
         border: 2px dashed #999 !important;
     }
     
+    .elective-slot.tutorial {
+        border-style: solid !important;
+        background: #f0f0f0 !important;
+    }
+    
     .legend-section.elective {
         background: #f8f8f8 !important;
         border: 1px solid #999 !important;
@@ -1111,4 +1233,121 @@ body {
     .colored-cell {
         border: 1px solid #ddd !important;
     }
+    
+    .time-slot {
+        background: #f5f5f5 !important;
+        border-left: 2px solid #999 !important;
+    }
+}
+
+/* Additional utility classes for better elective visualization */
+.elective-lecture-indicator {
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    font-size: 0.6rem;
+    background: rgba(255,255,255,0.3);
+    padding: 1px 3px;
+    border-radius: 2px;
+    font-weight: bold;
+}
+
+.elective-tutorial-indicator {
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    font-size: 0.6rem;
+    background: rgba(255,255,255,0.3);
+    padding: 1px 3px;
+    border-radius: 2px;
+    font-weight: bold;
+    font-style: italic;
+}
+
+/* Ensure text remains readable on colored backgrounds */
+.colored-cell {
+    text-shadow: 0 1px 1px rgba(0,0,0,0.1);
+}
+
+.elective-slot {
+    text-shadow: 0 1px 1px rgba(0,0,0,0.2);
+}
+
+/* Enhanced Time Slot Styling - Unified Colors */
+.time-slot {
+    position: relative;
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-align: right !important;
+    padding-right: 12px !important;
+    width: 120px;
+}
+
+/* All 1.5-hour lecture slots - Same color */
+.time-slot.lecture-slot {
+    background: linear-gradient(135deg, #e3f2fd, #bbdefb) !important;
+    border-left: 4px solid #1976d2 !important;
+    color: #1565c0;
+}
+
+/* All 1-hour tutorial slots - Same color */
+.time-slot.tutorial-slot {
+    background: linear-gradient(135deg, #e8f5e8, #c8e6c9) !important;
+    border-left: 4px solid #388e3c !important;
+    color: #2e7d32;
+}
+
+/* Lunch break - Separate color */
+.time-slot.lunch-break {
+    background: linear-gradient(135deg, #fff3e0, #ffe0b2) !important;
+    border-left: 4px solid #f57c00 !important;
+    color: #ef6c00;
+    font-weight: 700 !important;
+    font-style: italic;
+}
+
+.slot-duration {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    font-size: 0.6rem;
+    background: rgba(0,0,0,0.1);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-weight: 500;
+    color: rgba(0,0,0,0.7);
+}
+
+.time-slot-content {
+    position: relative;
+    padding-right: 25px;
+}
+
+/* Ensure time cells in tables have consistent styling */
+.timetable-table td:first-child {
+    background: var(--light) !important;
+    font-weight: 600;
+    color: var(--dark);
+    text-align: right !important;
+    padding-right: 12px !important;
+    width: 120px;
+}
+
+/* Hover effects for better interactivity */
+.time-slot:hover {
+    transform: scale(1.02);
+    transition: transform 0.2s ease;
+    z-index: 1;
+}
+
+.time-slot.lecture-slot:hover {
+    box-shadow: 0 2px 8px rgba(25, 118, 210, 0.3);
+}
+
+.time-slot.tutorial-slot:hover {
+    box-shadow: 0 2px 8px rgba(56, 142, 60, 0.3);
+}
+
+.time-slot.lunch-break:hover {
+    box-shadow: 0 2px 8px rgba(245, 124, 0, 0.3);
 }

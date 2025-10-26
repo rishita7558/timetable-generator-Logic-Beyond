@@ -47,6 +47,7 @@ function initializeApp() {
     
     // New upload-related event listeners
     setupFileUpload();
+    setupSettings();
     
     // Filter listeners
     semesterFilter.addEventListener('change', function() {
@@ -667,6 +668,91 @@ async function loadStats() {
     }
 }
 
+// Enhanced Time Slot Functions
+function enhanceTimeSlotHeaders() {
+    document.querySelectorAll('.timetable-table').forEach(table => {
+        const rows = table.querySelectorAll('tr');
+        
+        rows.forEach((row) => {
+            const timeCell = row.cells[0];
+            if (timeCell && timeCell.textContent) {
+                const timeText = timeCell.textContent.trim();
+                
+                // Skip if already processed or if it's a header row
+                if (timeCell.classList.contains('time-slot-processed') || 
+                    timeCell.textContent.includes('Time') || 
+                    !timeText.includes('-')) {
+                    return;
+                }
+                
+                // Clear existing classes and add base classes
+                timeCell.className = '';
+                timeCell.classList.add('time-slot', 'time-slot-processed');
+                
+                let duration = '?';
+                let timeClass = '';
+                
+                // Determine time slot type and duration
+                if (timeText.includes('09:00-10:30') || timeText.includes('10:30-12:00') || 
+                    timeText.includes('13:00-14:30') || timeText.includes('15:30-17:00')) {
+                    // All 1.5-hour lecture slots
+                    timeClass = 'lecture-slot';
+                    duration = '1.5h';
+                } else if (timeText.includes('14:30-15:30') || timeText.includes('17:00-18:00')) {
+                    // All 1-hour tutorial slots
+                    timeClass = 'tutorial-slot';
+                    duration = '1h';
+                } else if (timeText.includes('12:00-13:00')) {
+                    // Lunch break
+                    timeClass = 'lunch-break';
+                    duration = '1h';
+                }
+                
+                // Apply the determined classes
+                timeClass.split(' ').forEach(cls => {
+                    if (cls) timeCell.classList.add(cls);
+                });
+                
+                // Update the cell content with duration
+                timeCell.innerHTML = `<div class="time-slot-content">${timeText}<span class="slot-duration">${duration}</span></div>`;
+            }
+        });
+        
+        // Add session group headers
+        addSessionGroupHeaders(table);
+    });
+}
+
+function addSessionGroupHeaders(table) {
+    const tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    
+    // Find indices for different sessions
+    const morningStart = findRowIndex(rows, '09:00-10:30');
+    const lunchStart = findRowIndex(rows, '12:00-13:00');
+    const afternoonStart = findRowIndex(rows, '13:00-14:30');
+    const eveningStart = findRowIndex(rows, '17:00-18:00');
+    
+    // Insert session headers if needed
+    // You can customize this based on your preference
+}
+
+function findRowIndex(rows, timeText) {
+    return rows.findIndex(row => {
+        const timeCell = row.cells[0];
+        return timeCell && timeCell.textContent.includes(timeText);
+    });
+}
+
+function insertSessionHeader(tbody, beforeRow, headerText) {
+    const headerRow = document.createElement('tr');
+    headerRow.className = 'session-group-header';
+    headerRow.innerHTML = `<td colspan="6">${headerText}</td>`;
+    tbody.insertBefore(headerRow, beforeRow);
+}
+
 // Color Coding and Legend Functions
 function applyDynamicColorCoding(tableElement, courseColors) {
     const cells = tableElement.querySelectorAll('td');
@@ -680,8 +766,22 @@ function applyDynamicColorCoding(tableElement, courseColors) {
             return;
         }
         
-        // Extract course code
-        const courseCode = extractCourseCode(text);
+        // Extract course code - handle both regular and elective/tutorial versions
+        let courseCode = extractCourseCode(text);
+        
+        // For elective tutorials, use the base course code without "(Tutorial)"
+        if (text.includes('(Tutorial)') && courseCode) {
+            // Remove "(Tutorial)" suffix but keep the same course code
+            const baseCourseCode = text.replace(' (Tutorial)', '');
+            courseCode = extractCourseCode(baseCourseCode) || courseCode;
+            cell.classList.add('tutorial'); // Add tutorial class for styling
+        }
+        
+        // For elective lectures, use the base course code without "(Elective)"
+        if (text.includes('(Elective)') && courseCode) {
+            const baseCourseCode = text.replace(' (Elective)', '');
+            courseCode = extractCourseCode(baseCourseCode) || courseCode;
+        }
         
         if (courseCode && courseColors[courseCode]) {
             // Apply dynamic color
@@ -694,17 +794,25 @@ function applyDynamicColorCoding(tableElement, courseColors) {
             // Add tooltip with course info
             const courseInfo = courseDatabase[courseCode];
             if (courseInfo) {
-                cell.title = `${courseCode}: ${courseInfo.name} (${courseInfo.credits} credits) - ${courseInfo.instructor}`;
+                let sessionType = 'Lecture';
+                if (text.includes('(Tutorial)')) sessionType = 'Tutorial';
+                if (text.includes('(Elective)')) sessionType = 'Elective Lecture';
+                
+                cell.title = `${courseCode}: ${courseInfo.name} (${sessionType})\n${courseInfo.credits} credits - ${courseInfo.instructor}`;
             }
             
             // Make cell clickable for more info
             cell.style.cursor = 'pointer';
             cell.classList.add('colored-cell');
             
-            // Add elective indicator
-            if (text.includes('(Elective)')) {
+            // Add elective indicator for both lectures and tutorials
+            if (text.includes('(Elective)') || text.includes('(Tutorial)')) {
                 cell.classList.add('elective-slot');
-                cell.title += " - Common Elective Slot (Same for both sections)";
+                if (text.includes('(Elective)')) {
+                    cell.title += "\n⚡ Common Elective Slot (Same for both sections)";
+                } else if (text.includes('(Tutorial)')) {
+                    cell.title += "\n⚡ Common Tutorial Slot (Same for both sections)";
+                }
             }
         }
     });
@@ -728,9 +836,11 @@ function getContrastColor(hexcolor) {
 
 function extractCourseCode(text) {
     // Match common course code patterns like MA101, CS101, etc.
+    // Handle both regular courses and elective/tutorial marked courses
+    const cleanText = text.replace(' (Elective)', '').replace(' (Tutorial)', '');
     const coursePattern = /[A-Z]{2,3}\d{3}/;
-    const match = text.match(coursePattern);
-    return match ? match[0] : text;
+    const match = cleanText.match(coursePattern);
+    return match ? match[0] : cleanText;
 }
 
 function createEnhancedLegend(semester, section, courses, courseColors, courseInfo, coreCourses = [], electiveCourses = []) {
@@ -765,7 +875,7 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
         coreCourseList.sort().forEach(courseCode => {
             const info = courseInfo[courseCode];
             const color = courseColors[courseCode] || '#CCCCCC';
-            legendHtml += createLegendItem(courseCode, info, color);
+            legendHtml += createLegendItem(courseCode, info, color, 'core');
         });
         
         legendHtml += `
@@ -780,7 +890,7 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
             <div class="legend-section elective">
                 <div class="legend-section-title elective">
                     <i class="fas fa-clipboard-list"></i>
-                    Elective Basket (Common for Both Sections)
+                    Elective Courses (Common for Both Sections)
                 </div>
                 <div class="legend-grid">
         `;
@@ -788,10 +898,14 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
         electiveCourseList.sort().forEach(courseCode => {
             const info = courseInfo[courseCode];
             const color = courseColors[courseCode] || '#CCCCCC';
-            legendHtml += createLegendItem(courseCode, info, color);
+            legendHtml += createLegendItem(courseCode, info, color, 'elective');
         });
         
         legendHtml += `
+                </div>
+                <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--gray);">
+                    <i class="fas fa-info-circle"></i>
+                    Electives have 2 lectures + 1 tutorial (same slots for both sections)
                 </div>
             </div>
         `;
@@ -811,7 +925,7 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
         otherCourses.sort().forEach(courseCode => {
             const info = courseInfo[courseCode];
             const color = courseColors[courseCode] || '#CCCCCC';
-            legendHtml += createLegendItem(courseCode, info, color);
+            legendHtml += createLegendItem(courseCode, info, color, 'other');
         });
         
         legendHtml += `
@@ -822,6 +936,30 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
     
     legendHtml += `</div>`;
     return legendHtml;
+}
+
+function createLegendItem(courseCode, courseInfo, color, type = 'core') {
+    const courseName = courseInfo ? courseInfo.name : 'Unknown Course';
+    const credits = courseInfo ? courseInfo.credits : '?';
+    const instructor = courseInfo ? courseInfo.instructor : 'Unknown';
+    const courseType = courseInfo ? courseInfo.type : 'Core';
+    
+    let additionalInfo = '';
+    if (type === 'elective') {
+        additionalInfo = '<br><small style="color: var(--secondary);">⚡ 2 lectures + 1 tutorial (Common slots)</small>';
+    }
+    
+    return `
+        <div class="legend-item ${type}">
+            <div class="legend-color" style="background: ${color};"></div>
+            <span class="legend-course-code">${courseCode}</span>
+            <span class="legend-course-name">
+                ${courseName} (${credits} cr)
+                <br><small>${instructor} • ${courseType}</small>
+                ${additionalInfo}
+            </span>
+        </div>
+    `;
 }
 
 function createLegendItem(courseCode, courseInfo, color) {
@@ -889,6 +1027,9 @@ function enhanceTables() {
             }
         }
     });
+    
+    // Enhance time slot headers
+    enhanceTimeSlotHeaders();
     
     // Add enhanced hover effects for elective courses
     const electiveCells = document.querySelectorAll('.elective-slot');
@@ -1145,6 +1286,7 @@ function printTimetable(semester, section) {
                     th { background-color: #f5f5f5; font-weight: bold; }
                     .timetable-header { background: #4361ee; color: white; padding: 15px; text-align: center; }
                     .elective-slot { border: 2px dashed #7209b7 !important; background: #f8f8f8 !important; }
+                    .time-slot { background: #f5f5f5 !important; font-weight: bold; text-align: right !important; padding-right: 12px !important; }
                 </style>
             </head>
             <body>
@@ -1183,6 +1325,7 @@ function printAllTimetables() {
                 th { background-color: #f5f5f5; font-weight: bold; }
                 .timetable-section { margin-bottom: 40px; }
                 .elective-slot { border: 2px dashed #7209b7 !important; background: #f8f8f8 !important; }
+                .time-slot { background: #f5f5f5 !important; font-weight: bold; text-align: right !important; padding-right: 12px !important; }
                 @media print {
                     .timetable-section { page-break-after: always; }
                 }
@@ -1342,6 +1485,107 @@ function debugFileMatching() {
     });
     console.log('==========================');
 }
+
+// Add to your existing JavaScript
+function setupSettings() {
+    const settingsBtn = document.getElementById('settings-nav-btn');
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            showSettingsModal();
+        });
+    }
+}
+
+function showSettingsModal() {
+    // Create settings modal
+    const modalHtml = `
+        <div class="modal-overlay" id="settings-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+            <div class="modal-content" style="background: white; padding: 2rem; border-radius: 12px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;">
+                <div class="modal-header" style="display: flex; justify-content: between; align-items: center; margin-bottom: 1.5rem;">
+                    <h3 style="margin: 0;">
+                        <i class="fas fa-cog me-2"></i>
+                        Timetable Settings
+                    </h3>
+                    <button class="close-btn" onclick="closeSettingsModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                </div>
+                
+                <div class="settings-section" style="margin-bottom: 1.5rem;">
+                    <h4 style="color: var(--primary); margin-bottom: 1rem;">
+                        <i class="fas fa-user-graduate me-2"></i>
+                        Elective Course Settings
+                    </h4>
+                    
+                    <div class="setting-item" style="margin-bottom: 1rem;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Default LTPSC for Electives</label>
+                        <div style="background: var(--light); padding: 1rem; border-radius: 8px; border-left: 4px solid var(--secondary);">
+                            <strong style="color: var(--secondary);">2-1-0-0-2</strong>
+                            <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: var(--gray);">
+                                2 Lectures (1.5h each), 1 Tutorial (1h), 0 Practicals, 0 Study, 2 Credits
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="setting-item">
+                        <label style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Common Elective Slots</label>
+                        <div style="background: var(--light); padding: 1rem; border-radius: 8px;">
+                            <p style="margin: 0; font-size: 0.9rem;">
+                                Elective courses are scheduled in common time slots for both sections A and B to allow students from both sections to attend the same elective courses.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <h4 style="color: var(--primary); margin-bottom: 1rem;">
+                        <i class="fas fa-clock me-2"></i>
+                        Time Slot Configuration
+                    </h4>
+                    
+                    <div class="setting-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="setting-item">
+                            <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Lecture Duration</label>
+                            <div style="background: white; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; text-align: center;">
+                                1.5 hours
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Tutorial Duration</label>
+                            <div style="background: white; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; text-align: center;">
+                                1.0 hour
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 2rem;">
+                    <button class="btn btn-outline" onclick="closeSettingsModal()" style="padding: 0.75rem 1.5rem;">Close</button>
+                    <button class="btn btn-primary" onclick="saveSettings()" style="padding: 0.75rem 1.5rem;">
+                        <i class="fas fa-save me-2"></i>Save Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function closeSettingsModal() {
+    const modal = document.getElementById('settings-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+function saveSettings() {
+    showNotification('Settings saved successfully!', 'success');
+    closeSettingsModal();
+}
+
+// Initialize settings when the app loads
+// Add this to your initializeApp() function:
+// setupSettings();
 
 // Export functions for global access
 window.downloadTimetable = downloadTimetable;

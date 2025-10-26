@@ -247,6 +247,10 @@ def parse_ltpsc(ltpsc_string):
     except:
         return {'L': 3, 'T': 0, 'P': 0, 'S': 0, 'C': 3}
 
+def get_elective_ltpsc():
+    """Return default LTPSC for elective courses: 2-1-0-0-2"""
+    return {'L': 2, 'T': 1, 'P': 0, 'S': 0, 'C': 2}
+
 def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times):
     """Schedule core courses with proper LTPSC structure"""
     if core_courses.empty:
@@ -316,33 +320,78 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
 
 def get_common_elective_slots():
     """Define common elective slots that will be used for both sections"""
+    # Return slots for 2 lectures + 1 tutorial per elective
     return [
-        ('Thu', '15:30-17:00'),  # Common elective slot 1
-        ('Fri', '14:00-15:30'),   # Common elective slot 2
-        ('Wed', '15:30-17:00'),   # Common elective slot 3
-        ('Tue', '14:00-15:30')    # Common elective slot 4
+        # Monday slots
+        ('Mon', '09:00-10:30'), ('Mon', '10:30-12:00'), ('Mon', '13:00-14:30'), 
+        ('Mon', '14:30-15:30'), ('Mon', '15:30-17:00'), ('Mon', '17:00-18:00'),
+        # Tuesday slots
+        ('Tue', '09:00-10:30'), ('Tue', '10:30-12:00'), ('Tue', '13:00-14:30'),
+        ('Tue', '14:30-15:30'), ('Tue', '15:30-17:00'), ('Tue', '17:00-18:00'),
+        # Wednesday slots
+        ('Wed', '09:00-10:30'), ('Wed', '10:30-12:00'), ('Wed', '13:00-14:30'),
+        ('Wed', '14:30-15:30'), ('Wed', '15:30-17:00'), ('Wed', '17:00-18:00'),
+        # Thursday slots
+        ('Thu', '09:00-10:30'), ('Thu', '10:30-12:00'), ('Thu', '13:00-14:30'),
+        ('Thu', '14:30-15:30'), ('Thu', '15:30-17:00'), ('Thu', '17:00-18:00'),
+        # Friday slots
+        ('Fri', '09:00-10:30'), ('Fri', '10:30-12:00'), ('Fri', '13:00-14:30'),
+        ('Fri', '14:30-15:30'), ('Fri', '15:30-17:00'), ('Fri', '17:00-18:00')
     ]
 
-def allocate_electives_to_common_slots(elective_courses):
-    """Allocate elective courses to common time slots"""
+def allocate_electives_to_common_slots(elective_courses, semester_id):
+    """Allocate elective courses to common time slots for both sections - 2 lectures + 1 tutorial per elective"""
     common_slots = get_common_elective_slots()
     elective_allocations = {}
     
-    print("🎯 Allocating elective courses to common slots...")
+    print(f"🎯 Allocating elective courses to common slots for Semester {semester_id}...")
+    print(f"   Each elective will get 2 lectures and 1 tutorial (common for both sections)")
     
-    for i, (_, course) in enumerate(elective_courses.iterrows()):
+    # Separate lecture and tutorial slots
+    lecture_slots = [slot for slot in common_slots if any(time in slot[1] for time in ['09:00-10:30', '10:30-12:00', '13:00-14:30', '15:30-17:00'])]
+    tutorial_slots = [slot for slot in common_slots if any(time in slot[1] for time in ['14:30-15:30', '17:00-18:00'])]
+    
+    # Shuffle to get random allocation
+    random.shuffle(lecture_slots)
+    random.shuffle(tutorial_slots)
+    
+    lecture_idx = 0
+    tutorial_idx = 0
+    
+    for _, course in elective_courses.iterrows():
         course_code = course['Course Code']
         
-        if i < len(common_slots):
-            day, time_slot = common_slots[i]
-            elective_allocations[course_code] = {
-                'day': day,
-                'time_slot': time_slot,
-                'slot_name': f"Elective_Slot_{i + 1}"
-            }
-            print(f"   ✅ Allocated {course_code} to {day} {time_slot}")
+        # Allocate 2 lectures and 1 tutorial for each elective
+        lectures_allocated = []
+        tutorial_allocated = None
+        
+        # Allocate 2 lectures
+        for _ in range(2):
+            if lecture_idx < len(lecture_slots):
+                lectures_allocated.append(lecture_slots[lecture_idx])
+                lecture_idx += 1
+            else:
+                print(f"   ⚠️ Not enough lecture slots available for {course_code}")
+        
+        # Allocate 1 tutorial
+        if tutorial_idx < len(tutorial_slots):
+            tutorial_allocated = tutorial_slots[tutorial_idx]
+            tutorial_idx += 1
         else:
-            print(f"   ⚠️ No more common slots available for {course_code}")
+            print(f"   ⚠️ Not enough tutorial slots available for {course_code}")
+        
+        if len(lectures_allocated) == 2 and tutorial_allocated:
+            elective_allocations[course_code] = {
+                'lectures': lectures_allocated,
+                'tutorial': tutorial_allocated,
+                'for_both_sections': True
+            }
+            print(f"   ✅ Allocated {course_code}:")
+            for i, (day, time_slot) in enumerate(lectures_allocated, 1):
+                print(f"      Lecture {i}: {day} {time_slot}")
+            print(f"      Tutorial: {tutorial_allocated[0]} {tutorial_allocated[1]}")
+        else:
+            print(f"   ❌ Could not allocate all required slots for {course_code}")
             elective_allocations[course_code] = None
     
     return elective_allocations
@@ -353,22 +402,35 @@ def schedule_electives_in_common_slots(elective_allocations, schedule, used_slot
     
     for course_code, allocation in elective_allocations.items():
         if allocation is not None:
-            day = allocation['day']
-            time_slot = allocation['time_slot']
-            key = (day, time_slot)
+            # Schedule lectures
+            for day, time_slot in allocation['lectures']:
+                key = (day, time_slot)
+                
+                # Check if the slot is available
+                if schedule.loc[time_slot, day] == 'Free':
+                    schedule.loc[time_slot, day] = f"{course_code} (Elective)"
+                    used_slots.add(key)
+                    elective_scheduled += 1
+                    print(f"      ✅ Scheduled elective lecture {course_code} at {day} {time_slot} for Section {section}")
+                else:
+                    print(f"      ⚠️ Common slot occupied for {course_code} at {day} {time_slot}: {schedule.loc[time_slot, day]}")
             
-            # Check if the slot is available
-            if schedule.loc[time_slot, day] == 'Free':
-                schedule.loc[time_slot, day] = f"{course_code} (Elective)"
-                used_slots.add(key)
-                elective_scheduled += 1
-                print(f"      ✅ Scheduled elective {course_code} at {day} {time_slot} for Section {section}")
-            else:
-                print(f"      ⚠️ Common slot occupied for {course_code} at {day} {time_slot}: {schedule.loc[time_slot, day]}")
+            # Schedule tutorial
+            if allocation['tutorial']:
+                day, time_slot = allocation['tutorial']
+                key = (day, time_slot)
+                
+                if schedule.loc[time_slot, day] == 'Free':
+                    schedule.loc[time_slot, day] = f"{course_code} (Tutorial)"
+                    used_slots.add(key)
+                    elective_scheduled += 1
+                    print(f"      ✅ Scheduled elective tutorial {course_code} at {day} {time_slot} for Section {section}")
+                else:
+                    print(f"      ⚠️ Common slot occupied for {course_code} tutorial at {day} {time_slot}: {schedule.loc[time_slot, day]}")
         else:
             print(f"      ❌ No allocation found for elective {course_code}")
     
-    print(f"   ✅ Scheduled {elective_scheduled} elective courses for Section {section}")
+    print(f"   ✅ Scheduled {elective_scheduled} elective sessions for Section {section}")
     return used_slots
 
 def generate_section_schedule_with_electives(dfs, semester_id, section, elective_allocations):
@@ -386,17 +448,41 @@ def generate_section_schedule_with_electives(dfs, semester_id, section, elective
         elective_courses = course_baskets['elective_courses']
         
         days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-        # CORRECTED time slots: 
-        # Lectures: 1.5 hours (9:00-10:30, 10:30-12:00, 12:30-14:00, 14:00-15:30, 15:30-17:00, 17:00-18:30)
-        # Tutorials: 1 hour (12:00-13:00, 13:00-14:00, 15:30-16:30, 16:30-17:30, 17:30-18:30)
-        lecture_times = ['9:00-10:30', '10:30-12:00', '12:30-14:00', '14:00-15:30', '15:30-17:00', '17:00-18:30']
-        tutorial_times = ['12:00-13:00', '13:00-14:00', '15:30-16:30', '16:30-17:30', '17:30-18:30']
         
-        # Create schedule template with all time slots
-        all_slots = lecture_times + tutorial_times
+        # LOGICAL TIME SLOT STRUCTURE
+        # Morning Session
+        morning_slots = [
+            '09:00-10:30',  # 1.5-hour lecture
+            '10:30-12:00'   # 1.5-hour lecture
+        ]
+        
+        # Lunch Break
+        lunch_slots = [
+            '12:00-13:00'   # 1-hour lunch
+        ]
+        
+        # Afternoon Session
+        afternoon_slots = [
+            '13:00-14:30',  # 1.5-hour lecture
+            '14:30-15:30',  # 1-hour tutorial
+            '15:30-17:00',  # 1.5-hour lecture
+            '17:00-18:00'   # 1-hour tutorial
+        ]
+        
+        # All time slots in chronological order
+        all_slots = morning_slots + lunch_slots + afternoon_slots
+        
+        # Lecture slots (1.5 hours)
+        lecture_times = ['09:00-10:30', '10:30-12:00', '13:00-14:30', '15:30-17:00']
+        
+        # Tutorial slots (1 hour)
+        tutorial_times = ['14:30-15:30', '17:00-18:00']
+        
+        # Create schedule template
         schedule = pd.DataFrame(index=all_slots, columns=days, dtype=object).fillna('Free')
-        schedule.loc['12:30-14:00'] = 'LUNCH BREAK'
-        
+        # Mark lunch break
+        schedule.loc['12:00-13:00'] = 'LUNCH BREAK'
+
         used_slots = set()
 
         # Schedule elective courses FIRST to ensure they get common slots
@@ -422,19 +508,35 @@ def create_elective_summary(elective_allocations):
     
     for course_code, allocation in elective_allocations.items():
         if allocation:
-            summary_data.append({
-                'Elective Course': course_code,
-                'Day': allocation['day'],
-                'Time Slot': allocation['time_slot'],
-                'Slot Name': allocation['slot_name'],
-                'Sections': 'A & B (Common Slot)'
-            })
+            # Add lecture allocations
+            for i, (day, time_slot) in enumerate(allocation['lectures'], 1):
+                summary_data.append({
+                    'Elective Course': course_code,
+                    'Session Type': f'Lecture {i}',
+                    'Day': day,
+                    'Time Slot': time_slot,
+                    'Duration': '1.5 hours',
+                    'Sections': 'A & B (Common Slot)'
+                })
+            
+            # Add tutorial allocation
+            if allocation['tutorial']:
+                day, time_slot = allocation['tutorial']
+                summary_data.append({
+                    'Elective Course': course_code,
+                    'Session Type': 'Tutorial',
+                    'Day': day,
+                    'Time Slot': time_slot,
+                    'Duration': '1 hour',
+                    'Sections': 'A & B (Common Slot)'
+                })
         else:
             summary_data.append({
                 'Elective Course': course_code,
+                'Session Type': 'Not Scheduled',
                 'Day': 'Not Scheduled',
                 'Time Slot': 'Not Scheduled', 
-                'Slot Name': 'No Slot Available',
+                'Duration': 'N/A',
                 'Sections': 'None'
             })
     
@@ -452,8 +554,8 @@ def export_semester_timetable(dfs, semester):
         if not elective_courses.empty:
             print("   Elective courses:", elective_courses['Course Code'].tolist())
         
-        # Allocate elective courses to common slots
-        common_elective_allocations = allocate_electives_to_common_slots(elective_courses)
+        # Allocate elective courses to common slots (2 lectures + 1 tutorial each)
+        common_elective_allocations = allocate_electives_to_common_slots(elective_courses, semester)
         
         # Generate schedules for both sections with coordinated electives
         section_a = generate_section_schedule_with_electives(dfs, semester, 'A', common_elective_allocations)
@@ -529,7 +631,7 @@ def extract_unique_courses(df):
     for col in df.columns:
         for value in df[col]:
             if isinstance(value, str) and value not in ['Free', 'LUNCH BREAK']:
-                # Handle both regular courses and elective marked courses
+                # Handle both regular courses and elective/tutorial marked courses
                 clean_value = value.replace(' (Elective)', '').replace(' (Tutorial)', '')
                 course_code = extract_course_code(clean_value)
                 if course_code:
