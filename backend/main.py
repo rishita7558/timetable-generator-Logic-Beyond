@@ -29,6 +29,23 @@ def find_csv_file(filename):
     
     return None
 
+def parse_ltpsc(ltpsc_string):
+    """Parse L-T-P-S-C string and return components"""
+    try:
+        parts = ltpsc_string.split('-')
+        if len(parts) == 5:
+            return {
+                'L': int(parts[0]),  # Lectures per week
+                'T': int(parts[1]),  # Tutorials per week
+                'P': int(parts[2]),  # Practicals per week
+                'S': int(parts[3]),  # S credits
+                'C': int(parts[4])   # Total credits
+            }
+        else:
+            return {'L': 3, 'T': 0, 'P': 0, 'S': 0, 'C': 3}
+    except:
+        return {'L': 3, 'T': 0, 'P': 0, 'S': 0, 'C': 3}
+
 # --- Load CSVs ---
 def load_all_data():
     required_files = [
@@ -96,70 +113,79 @@ def generate_section_schedule(dfs, semester_id, section):
     print(f"   Found {len(sem_courses)} courses for semester {semester_id}")
 
     days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-    times = ['9:00-10:30', '10:30-12:00', '12:30-14:00', '14:00-15:30', '15:30-17:00', '17:00-18:30']
+    # CORRECTED time slots with 1-hour lunch break:
+    # Lectures: 1.5 hours (9:00-10:30, 10:30-12:00, 13:00-14:30, 14:30-16:00, 16:00-17:30)
+    # Tutorials: 1 hour (12:00-13:00, 14:30-15:30, 16:00-17:00, 17:00-18:00)
+    lecture_times = ['9:00-10:30', '10:30-12:00', '13:00-14:30', '14:30-16:00', '16:00-17:30']
+    tutorial_times = ['12:00-13:00', '14:30-15:30', '16:00-17:00', '17:00-18:00']
     
-    # Create schedule template
-    schedule = pd.DataFrame(index=times, columns=days, dtype=object).fillna('Free')
-    schedule.loc['12:30-14:00'] = 'LUNCH BREAK'
-
-    # Parse LTPSC if the column exists
-    if 'LTPSC' in sem_courses.columns:
-        try:
-            sem_courses[['L', 'T', 'P', 'S', 'C']] = sem_courses['LTPSC'].str.split('-', expand=True)
-            sem_courses[['L', 'T', 'P']] = sem_courses[['L', 'T', 'P']].apply(pd.to_numeric, errors='coerce').fillna(0).astype(int)
-        except Exception as e:
-            print(f"⚠️ Error parsing LTPSC: {e}")
-            # Set default values if parsing fails
-            sem_courses['L'] = 3  # Default 3 lectures per course
-            sem_courses['T'] = 0
-            sem_courses['P'] = 0
-    else:
-        print("⚠️ LTPSC column not found, using default values")
-        sem_courses['L'] = 3  # Default 3 lectures per course
-        sem_courses['T'] = 0
-        sem_courses['P'] = 0
+    # Create schedule template with all time slots
+    all_slots = lecture_times + tutorial_times
+    schedule = pd.DataFrame(index=all_slots, columns=days, dtype=object).fillna('Free')
+    # 1-hour lunch break at 12:00-13:00
+    schedule.loc['12:00-13:00'] = 'LUNCH BREAK'
 
     used_slots = set()
     course_day_usage = {}
 
-    # Schedule lectures
-    available_times = [t for t in times if t != '12:30-14:00']
-    
-    total_lectures_needed = sem_courses['L'].sum()
-    lectures_scheduled_total = 0
-    
+    # Schedule lectures and tutorials based on LTPSC
     for _, course in sem_courses.iterrows():
         course_code = course['Course Code']
-        lectures_needed = course['L']
-        course_day_usage[course_code] = set()
+        ltpsc = parse_ltpsc(course['LTPSC'])
+        lectures_needed = ltpsc['L']
+        tutorials_needed = ltpsc['T']
+        
+        course_day_usage[course_code] = {'lectures': set(), 'tutorials': set()}
+        
+        print(f"      Scheduling {lectures_needed} lectures and {tutorials_needed} tutorials for {course_code}...")
+        
+        # Schedule lectures (1.5 hours each)
         lectures_scheduled = 0
-        max_attempts = 100  # Increased attempts for better scheduling
+        max_lecture_attempts = 100
         
-        print(f"      Scheduling {lectures_needed} lectures for {course_code}...")
-        
-        while lectures_scheduled < lectures_needed and max_attempts > 0:
-            max_attempts -= 1
-            available_days = [d for d in days if d not in course_day_usage[course_code]]
+        while lectures_scheduled < lectures_needed and max_lecture_attempts > 0:
+            max_lecture_attempts -= 1
+            available_days = [d for d in days if d not in course_day_usage[course_code]['lectures']]
             if not available_days:
-                # Reset day usage if all days are used
-                course_day_usage[course_code] = set()
+                course_day_usage[course_code]['lectures'] = set()
                 available_days = days.copy()
             
             day = random.choice(available_days)
-            time_slot = random.choice(available_times)
+            time_slot = random.choice(lecture_times)
             key = (day, time_slot)
             
             if key not in used_slots and schedule.loc[time_slot, day] == 'Free':
                 schedule.loc[time_slot, day] = course_code
                 used_slots.add(key)
-                course_day_usage[course_code].add(day)
+                course_day_usage[course_code]['lectures'].add(day)
                 lectures_scheduled += 1
-                lectures_scheduled_total += 1
-
+        
+        # Schedule tutorials (1 hour each)
+        tutorials_scheduled = 0
+        max_tutorial_attempts = 50
+        
+        while tutorials_scheduled < tutorials_needed and max_tutorial_attempts > 0:
+            max_tutorial_attempts -= 1
+            available_days = [d for d in days if d not in course_day_usage[course_code]['tutorials']]
+            if not available_days:
+                course_day_usage[course_code]['tutorials'] = set()
+                available_days = days.copy()
+            
+            day = random.choice(available_days)
+            time_slot = random.choice(tutorial_times)
+            key = (day, time_slot)
+            
+            if key not in used_slots and schedule.loc[time_slot, day] == 'Free':
+                schedule.loc[time_slot, day] = f"{course_code} (Tutorial)"
+                used_slots.add(key)
+                course_day_usage[course_code]['tutorials'].add(day)
+                tutorials_scheduled += 1
+        
         if lectures_scheduled < lectures_needed:
             print(f"      ⚠️ Could only schedule {lectures_scheduled}/{lectures_needed} lectures for {course_code}")
+        if tutorials_scheduled < tutorials_needed:
+            print(f"      ⚠️ Could only schedule {tutorials_scheduled}/{tutorials_needed} tutorials for {course_code}")
 
-    print(f"   ✅ Scheduled {lectures_scheduled_total}/{total_lectures_needed} total lectures")
     return schedule
 
 # --- Export ---

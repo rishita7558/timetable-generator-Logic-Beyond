@@ -1,11 +1,11 @@
 Course Code,Course Name,Semester,Department,LTPSC,Credits,Instructor,Registered Students,Elective (Yes/No),Half Semester (Yes/No)
-MA101,Statistics,1,Math,2-0-0-0-2,2,Dr. Ramesh Adve,150,No,No
-DS101,Introduction to DS and AI,1,DS,2-0-0-0-2,2,Dr. Abdul Wahid,150,No,No
+MA101,Statistics,1,Math,2-0-0-0-2,2,Dr. Meera Nair,150,No,No
+DS101,Introduction to DS and AI,1,DS,2-0-0-0-2,2,Dr. Arjun Deshmukh,150,No,No
 MA102,Probability,1,Math,2-0-0-0-2,2,Dr. Chintamani,150,No,No
-EC101,Digital Design,1,ECE,3-0-0-2-5,5,Dr. Prakash Pawar,150,No,No
-CS101,Problem Solving through Programming,1,CSE,3-0-2-0-5,5,Dr. Sunil P V,150,No,No
+EC101,Digital Design,1,ECE,3-0-0-2-5,5,Dr. Kavita Bansal,150,No,No
+CS101,Problem Solving through Programming,1,CSE,3-0-2-0-5,5,Dr. Suresh Kulkarni,150,No,No
 HS101,English Language and Communication,1,HSS,3-0-0-0-3,3,Dr. Rajesh N S,150,No,No
-CS151,Introduction to Cybersecurity,1,CSE,2-0-0-0-2,2,Dr. Girish,45,Yes,No
+CS151,Introduction to Cybersecurity,1,CSE,2-0-0-0-2,2,Dr. Neel Patel,45,Yes,No
 MA261,Differential Equations,3,Math,2-0-0-0-2,2,Dr. Anand Barangi,120,No,No
 CS261,Operating System,3,CSE,3-0-0-4-2,5,Dr. Somes,120,No,No
 CS263,Design & Analysis of Algorithms,3,CSE,3-0-2-0-4,7,Dr. Prabhu Prasad,120,No,No
@@ -14,6 +14,6 @@ CS309,Statistics for Computer Science,5,CSE,3-1-0-0-4,4,Dr. Sunil C K,90,No,No
 CS303,Computer Networks,5,CSE,3-1-2-0-6,6,Dr. Animesh Roy,90,No,No
 CS304,Artificial Intelligence,5,CSE,3-1-0-0-4,4,Dr. Krishnendu,90,No,No
 CS461,Parallel computing,5,CSE,4-0-0-0-4,4,Dr. Pramod,30,Yes,No
-DS456,Cybersecurity Techniques,7,DS,4-0-0-0-4,4,Dr. Rajendra Hegadi,40,Yes,No
-EC456,Reinforcement Learning,7,ECE,4-0-0-0-4,4,Dr. Divyajyothi,40,Yes,No
-DS401,Health Care Data Analytics,7,DS,4-0-0-0-4,4,Dr. Girish G N,40,Yes,No
+DS456,Cybersecurity Techniques,7,DS,4-0-0-0-4,4,Dr. Raghav Menon,40,Yes,No
+EC456,Reinforcement Learning,7,ECE,4-0-0-0-4,4,Dr. Sneha Rao,40,Yes,No
+DS401,Health Care Data Analytics,7,DS,4-0-0-0-4,4,Dr. Neel Patel,40,Yes,No

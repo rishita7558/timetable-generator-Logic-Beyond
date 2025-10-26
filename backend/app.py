@@ -101,6 +101,7 @@ def load_all_data(force_reload=False):
         not files_changed and
         '_cached_data_frames' in globals() and 
         _cached_data_frames is not None):
+
         current_time = time.time()
         # Cache for 30 seconds max
         if current_time - _cached_timestamp < 30:
@@ -229,63 +230,88 @@ def separate_courses_by_type(dfs, semester_id):
         print(f"⚠️ Error separating courses by type: {e}")
         return {'core_courses': [], 'elective_courses': []}
 
-def schedule_core_courses(core_courses, schedule, used_slots, days, times):
-    """Schedule core courses with proper constraints"""
+def parse_ltpsc(ltpsc_string):
+    """Parse L-T-P-S-C string and return components"""
+    try:
+        parts = ltpsc_string.split('-')
+        if len(parts) == 5:
+            return {
+                'L': int(parts[0]),  # Lectures per week
+                'T': int(parts[1]),  # Tutorials per week
+                'P': int(parts[2]),  # Practicals per week
+                'S': int(parts[3]),  # S credits
+                'C': int(parts[4])   # Total credits
+            }
+        else:
+            return {'L': 3, 'T': 0, 'P': 0, 'S': 0, 'C': 3}
+    except:
+        return {'L': 3, 'T': 0, 'P': 0, 'S': 0, 'C': 3}
+
+def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times):
+    """Schedule core courses with proper LTPSC structure"""
     if core_courses.empty:
         return used_slots
     
-    available_times = [t for t in times if t != '12:30-14:00']
     course_day_usage = {}
     
     # Parse LTPSC for core courses
-    if 'LTPSC' in core_courses.columns:
-        try:
-            core_courses[['L', 'T', 'P', 'S', 'C']] = core_courses['LTPSC'].str.split('-', expand=True)
-            core_courses[['L', 'T', 'P']] = core_courses[['L', 'T', 'P']].apply(pd.to_numeric, errors='coerce').fillna(0).astype(int)
-        except Exception as e:
-            print(f"⚠️ Error parsing LTPSC for core courses: {e}")
-            core_courses['L'] = 3
-            core_courses['T'] = 0
-            core_courses['P'] = 0
-    else:
-        core_courses['L'] = 3
-        core_courses['T'] = 0
-        core_courses['P'] = 0
-
-    total_lectures_needed = core_courses['L'].sum()
-    lectures_scheduled_total = 0
-    
     for _, course in core_courses.iterrows():
         course_code = course['Course Code']
-        lectures_needed = course['L']
-        course_day_usage[course_code] = set()
+        ltpsc = parse_ltpsc(course['LTPSC'])
+        lectures_needed = ltpsc['L']
+        tutorials_needed = ltpsc['T']
+        
+        course_day_usage[course_code] = {'lectures': set(), 'tutorials': set()}
+        
+        print(f"      Scheduling {lectures_needed} lectures and {tutorials_needed} tutorials for {course_code}...")
+        
+        # Schedule lectures (1.5 hours each)
         lectures_scheduled = 0
-        max_attempts = 100
+        max_lecture_attempts = 100
         
-        print(f"      Scheduling {lectures_needed} core lectures for {course_code}...")
-        
-        while lectures_scheduled < lectures_needed and max_attempts > 0:
-            max_attempts -= 1
-            available_days = [d for d in days if d not in course_day_usage[course_code]]
+        while lectures_scheduled < lectures_needed and max_lecture_attempts > 0:
+            max_lecture_attempts -= 1
+            available_days = [d for d in days if d not in course_day_usage[course_code]['lectures']]
             if not available_days:
-                course_day_usage[course_code] = set()
+                course_day_usage[course_code]['lectures'] = set()
                 available_days = days.copy()
             
             day = random.choice(available_days)
-            time_slot = random.choice(available_times)
+            time_slot = random.choice(lecture_times)
             key = (day, time_slot)
             
             if key not in used_slots and schedule.loc[time_slot, day] == 'Free':
                 schedule.loc[time_slot, day] = course_code
                 used_slots.add(key)
-                course_day_usage[course_code].add(day)
+                course_day_usage[course_code]['lectures'].add(day)
                 lectures_scheduled += 1
-                lectures_scheduled_total += 1
-
+        
+        # Schedule tutorials (1 hour each)
+        tutorials_scheduled = 0
+        max_tutorial_attempts = 50
+        
+        while tutorials_scheduled < tutorials_needed and max_tutorial_attempts > 0:
+            max_tutorial_attempts -= 1
+            available_days = [d for d in days if d not in course_day_usage[course_code]['tutorials']]
+            if not available_days:
+                course_day_usage[course_code]['tutorials'] = set()
+                available_days = days.copy()
+            
+            day = random.choice(available_days)
+            time_slot = random.choice(tutorial_times)
+            key = (day, time_slot)
+            
+            if key not in used_slots and schedule.loc[time_slot, day] == 'Free':
+                schedule.loc[time_slot, day] = f"{course_code} (Tutorial)"
+                used_slots.add(key)
+                course_day_usage[course_code]['tutorials'].add(day)
+                tutorials_scheduled += 1
+        
         if lectures_scheduled < lectures_needed:
-            print(f"      ⚠️ Could only schedule {lectures_scheduled}/{lectures_needed} core lectures for {course_code}")
+            print(f"      ⚠️ Could only schedule {lectures_scheduled}/{lectures_needed} lectures for {course_code}")
+        if tutorials_scheduled < tutorials_needed:
+            print(f"      ⚠️ Could only schedule {tutorials_scheduled}/{tutorials_needed} tutorials for {course_code}")
 
-    print(f"   ✅ Scheduled {lectures_scheduled_total}/{total_lectures_needed} core lectures")
     return used_slots
 
 def get_common_elective_slots():
@@ -360,10 +386,15 @@ def generate_section_schedule_with_electives(dfs, semester_id, section, elective
         elective_courses = course_baskets['elective_courses']
         
         days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-        times = ['9:00-10:30', '10:30-12:00', '12:30-14:00', '14:00-15:30', '15:30-17:00', '17:00-18:30']
+        # CORRECTED time slots: 
+        # Lectures: 1.5 hours (9:00-10:30, 10:30-12:00, 12:30-14:00, 14:00-15:30, 15:30-17:00, 17:00-18:30)
+        # Tutorials: 1 hour (12:00-13:00, 13:00-14:00, 15:30-16:30, 16:30-17:30, 17:30-18:30)
+        lecture_times = ['9:00-10:30', '10:30-12:00', '12:30-14:00', '14:00-15:30', '15:30-17:00', '17:00-18:30']
+        tutorial_times = ['12:00-13:00', '13:00-14:00', '15:30-16:30', '16:30-17:30', '17:30-18:30']
         
-        # Create schedule template
-        schedule = pd.DataFrame(index=times, columns=days, dtype=object).fillna('Free')
+        # Create schedule template with all time slots
+        all_slots = lecture_times + tutorial_times
+        schedule = pd.DataFrame(index=all_slots, columns=days, dtype=object).fillna('Free')
         schedule.loc['12:30-14:00'] = 'LUNCH BREAK'
         
         used_slots = set()
@@ -376,10 +407,7 @@ def generate_section_schedule_with_electives(dfs, semester_id, section, elective
         # Schedule core courses after electives
         if not core_courses.empty:
             print(f"   📚 Scheduling {len(core_courses)} core courses for Section {section}...")
-            used_slots = schedule_core_courses(core_courses, schedule, used_slots, days, times)
-        
-        # Fill remaining slots with tutorials/labs if needed
-        schedule = fill_remaining_slots(schedule, used_slots, core_courses, elective_courses, days, times)
+            used_slots = schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times)
         
         return schedule
         
@@ -387,34 +415,6 @@ def generate_section_schedule_with_electives(dfs, semester_id, section, elective
         print(f"❌ Error generating coordinated schedule: {e}")
         traceback.print_exc()
         return None
-
-def fill_remaining_slots(schedule, used_slots, core_courses, elective_courses, days, times):
-    """Fill remaining slots with tutorials, labs, or free periods"""
-    available_times = [t for t in times if t != '12:30-14:00']
-    
-    # Schedule tutorials for courses that have them
-    all_courses = pd.concat([core_courses, elective_courses], ignore_index=True)
-    
-    for _, course in all_courses.iterrows():
-        course_code = course['Course Code']
-        tutorials_needed = course.get('T', 0)
-        
-        if tutorials_needed > 0:
-            tutorials_scheduled = 0
-            max_attempts = 50
-            
-            while tutorials_scheduled < tutorials_needed and max_attempts > 0:
-                max_attempts -= 1
-                day = random.choice(days)
-                time_slot = random.choice(available_times)
-                key = (day, time_slot)
-                
-                if key not in used_slots and schedule.loc[time_slot, day] == 'Free':
-                    schedule.loc[time_slot, day] = f"{course_code} (Tutorial)"
-                    used_slots.add(key)
-                    tutorials_scheduled += 1
-    
-    return schedule
 
 def create_elective_summary(elective_allocations):
     """Create a summary of elective course allocations"""
@@ -498,12 +498,19 @@ def create_course_summary(dfs, semester):
     if sem_courses.empty:
         return pd.DataFrame()
     
-    # Add course type classification
+    # Add course type classification and parse LTPSC
     sem_courses['Course Type'] = sem_courses['Elective (Yes/No)'].apply(
         lambda x: 'Elective' if str(x).upper() == 'YES' else 'Core'
     )
     
-    summary_columns = ['Course Code', 'Course Name', 'Course Type', 'LTPSC', 'Credits', 'Instructor']
+    # Parse LTPSC for detailed information
+    ltpsc_data = sem_courses['LTPSC'].apply(parse_ltpsc)
+    sem_courses['Lectures/Week'] = ltpsc_data.apply(lambda x: x['L'])
+    sem_courses['Tutorials/Week'] = ltpsc_data.apply(lambda x: x['T'])
+    sem_courses['Practicals/Week'] = ltpsc_data.apply(lambda x: x['P'])
+    sem_courses['Total Credits'] = ltpsc_data.apply(lambda x: x['C'])
+    
+    summary_columns = ['Course Code', 'Course Name', 'Course Type', 'LTPSC', 'Lectures/Week', 'Tutorials/Week', 'Total Credits', 'Instructor']
     available_columns = [col for col in summary_columns if col in sem_courses.columns]
     
     return sem_courses[available_columns]
