@@ -220,11 +220,14 @@ def separate_courses_by_type(dfs, semester_id, branch=None):
         if sem_courses.empty:
             return {'core_courses': pd.DataFrame(), 'elective_courses': pd.DataFrame()}
         
-        # NEW: Filter by department if specified - only include courses for the specific department
+        # ENHANCED: Filter by department if specified - only include courses for the specific department
         if branch and 'Department' in sem_courses.columns:
-            # Include courses that are either for this specific department OR are electives (common for all departments)
+            # Include courses that are either:
+            # 1. Department-specific core courses for this branch
+            # 2. Elective courses (common for all departments)
             sem_courses = sem_courses[
-                (sem_courses['Department'] == branch) | 
+                ((sem_courses['Department'] == branch) & 
+                 (sem_courses['Elective (Yes/No)'].str.upper() != 'YES')) |
                 (sem_courses['Elective (Yes/No)'].str.upper() == 'YES')
             ].copy()
         
@@ -244,10 +247,10 @@ def separate_courses_by_type(dfs, semester_id, branch=None):
         print(f"      Core courses: {len(core_courses)}")
         print(f"      Elective courses: {len(elective_courses)}")
         
-        # NEW: Debug info about department-specific courses
+        # ENHANCED: Debug info about department-specific courses
         if branch:
             dept_core_courses = core_courses[core_courses['Department'] == branch]
-            print(f"      Department-specific core courses: {len(dept_core_courses)}")
+            print(f"      Department-specific core courses for {branch}: {len(dept_core_courses)}")
             if not dept_core_courses.empty:
                 print(f"      Department core courses: {dept_core_courses['Course Code'].tolist()}")
         
@@ -285,10 +288,12 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
     
     course_day_usage = {}
     
-    # NEW: Filter core courses to only include department-specific ones
+    # ENHANCED: Filter core courses to only include department-specific ones
     if branch and 'Department' in core_courses.columns:
         dept_core_courses = core_courses[core_courses['Department'] == branch].copy()
         print(f"   📚 Scheduling {len(dept_core_courses)} department-specific core courses for {branch}...")
+        if not dept_core_courses.empty:
+            print(f"      Courses to schedule: {dept_core_courses['Course Code'].tolist()}")
     else:
         dept_core_courses = core_courses.copy()
         print(f"   📚 Scheduling {len(dept_core_courses)} core courses...")
@@ -514,9 +519,9 @@ def generate_section_schedule_with_electives(dfs, semester_id, section, elective
             print(f"   🎯 Scheduling {len(elective_courses)} elective courses for Section {section} (COMMON for ALL BRANCHES)...")
             used_slots = schedule_electives_in_common_slots(elective_allocations, schedule, used_slots, section)
         
-        # Schedule core courses after electives
+        # Schedule core courses after electives - these will be department-specific
         if not core_courses.empty:
-            print(f"   📚 Scheduling core courses for Section {section}, Branch {branch}...")
+            print(f"   📚 Scheduling {len(core_courses)} core courses for Section {section}, Branch {branch}...")
             used_slots = schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times, branch)
         
         return schedule
@@ -660,6 +665,7 @@ def export_semester_timetable(dfs, semester, branch=None):
     
     try:
         # First, identify all elective courses for this semester (common for all branches)
+        # ENHANCED: Get electives without branch filter to get ALL electives for the semester
         course_baskets_all = separate_courses_by_type(dfs, semester)
         elective_courses_all = course_baskets_all['elective_courses']
         
@@ -767,6 +773,7 @@ def create_branch_info_sheet(dfs, semester, branch):
         })
     
     return pd.DataFrame(summary_data)
+
 def create_course_summary(dfs, semester, branch=None):
     """Create a summary sheet showing core vs elective courses"""
     if 'course' not in dfs:
@@ -776,10 +783,11 @@ def create_course_summary(dfs, semester, branch=None):
         dfs['course']['Semester'].astype(str).str.strip() == str(semester)
     ].copy()
     
-    # Filter by branch if specified
-    if branch and 'Branch' in sem_courses.columns:
+    # ENHANCED: Filter by branch if specified - only include department-specific courses and electives
+    if branch and 'Department' in sem_courses.columns:
         sem_courses = sem_courses[
-            (sem_courses['Branch'] == branch) | 
+            ((sem_courses['Department'] == branch) & 
+             (sem_courses['Elective (Yes/No)'].str.upper() != 'YES')) |
             (sem_courses['Elective (Yes/No)'].str.upper() == 'YES')
         ]
     
@@ -791,9 +799,9 @@ def create_course_summary(dfs, semester, branch=None):
         lambda x: 'Elective' if str(x).upper() == 'YES' else 'Core'
     )
     
-    # NEW: Add branch specificity info
+    # ENHANCED: Add branch specificity info
     sem_courses['Branch Specificity'] = sem_courses.apply(
-        lambda row: 'Common for All Branches' if row['Course Type'] == 'Elective' else f"Branch: {row.get('Branch', 'General')}",
+        lambda row: 'Common for All Branches' if row['Course Type'] == 'Elective' else f"Department: {row.get('Department', 'General')}",
         axis=1
     )
     
@@ -804,7 +812,7 @@ def create_course_summary(dfs, semester, branch=None):
     sem_courses['Practicals/Week'] = ltpsc_data.apply(lambda x: x['P'])
     sem_courses['Total Credits'] = ltpsc_data.apply(lambda x: x['C'])
     
-    summary_columns = ['Course Code', 'Course Name', 'Course Type', 'Branch Specificity', 'LTPSC', 'Lectures/Week', 'Tutorials/Week', 'Total Credits', 'Instructor', 'Branch']
+    summary_columns = ['Course Code', 'Course Name', 'Course Type', 'Branch Specificity', 'LTPSC', 'Lectures/Week', 'Tutorials/Week', 'Total Credits', 'Instructor', 'Department']
     available_columns = [col for col in summary_columns if col in sem_courses.columns]
     
     return sem_courses[available_columns]
