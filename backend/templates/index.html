@@ -20,35 +20,109 @@
         
         <ul class="sidebar-nav">
             <li class="nav-item active">
-                <a href="#" data-semester="all">
+                <a href="#" data-semester="all" data-branch="all">
                     <i class="fas fa-th-large"></i>
                     <span>Dashboard</span>
                 </a>
             </li>
-            <li class="nav-item">
-                <a href="#" data-semester="1">
-                    <i class="fas fa-book"></i>
-                    <span>Semester 1</span>
+            
+            <!-- CSE Branch -->
+            <li class="nav-item branch-section">
+                <a href="#" class="branch-header">
+                    <i class="fas fa-laptop-code"></i>
+                    <span>Computer Science</span>
                 </a>
             </li>
             <li class="nav-item">
-                <a href="#" data-semester="3">
+                <a href="#" data-semester="1" data-branch="CSE">
                     <i class="fas fa-book"></i>
-                    <span>Semester 3</span>
+                    <span>Semester 1 - CSE</span>
                 </a>
             </li>
             <li class="nav-item">
-                <a href="#" data-semester="5">
+                <a href="#" data-semester="3" data-branch="CSE">
                     <i class="fas fa-book"></i>
-                    <span>Semester 5</span>
+                    <span>Semester 3 - CSE</span>
                 </a>
             </li>
             <li class="nav-item">
-                <a href="#" data-semester="7">
+                <a href="#" data-semester="5" data-branch="CSE">
                     <i class="fas fa-book"></i>
-                    <span>Semester 7</span>
+                    <span>Semester 5 - CSE</span>
                 </a>
             </li>
+            <li class="nav-item">
+                <a href="#" data-semester="7" data-branch="CSE">
+                    <i class="fas fa-book"></i>
+                    <span>Semester 7 - CSE</span>
+                </a>
+            </li>
+            
+            <!-- DSAI Branch -->
+            <li class="nav-item branch-section">
+                <a href="#" class="branch-header">
+                    <i class="fas fa-brain"></i>
+                    <span>Data Science & AI</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="#" data-semester="1" data-branch="DSAI">
+                    <i class="fas fa-book"></i>
+                    <span>Semester 1 - DSAI</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="#" data-semester="3" data-branch="DSAI">
+                    <i class="fas fa-book"></i>
+                    <span>Semester 3 - DSAI</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="#" data-semester="5" data-branch="DSAI">
+                    <i class="fas fa-book"></i>
+                    <span>Semester 5 - DSAI</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="#" data-semester="7" data-branch="DSAI">
+                    <i class="fas fa-book"></i>
+                    <span>Semester 7 - DSAI</span>
+                </a>
+            </li>
+            
+            <!-- ECE Branch -->
+            <li class="nav-item branch-section">
+                <a href="#" class="branch-header">
+                    <i class="fas fa-microchip"></i>
+                    <span>Electronics & Communication</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="#" data-semester="1" data-branch="ECE">
+                    <i class="fas fa-book"></i>
+                    <span>Semester 1 - ECE</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="#" data-semester="3" data-branch="ECE">
+                    <i class="fas fa-book"></i>
+                    <span>Semester 3 - ECE</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="#" data-semester="5" data-branch="ECE">
+                    <i class="fas fa-book"></i>
+                    <span>Semester 5 - ECE</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="#" data-semester="7" data-branch="ECE">
+                    <i class="fas fa-book"></i>
+                    <span>Semester 7 - ECE</span>
+                </a>
+            </li>
+            
+            <!-- Common Actions -->
             <li class="nav-item">
                 <a href="#upload" id="upload-nav-btn">
                     <i class="fas fa-cloud-upload-alt"></i>
@@ -211,6 +285,15 @@
         <!-- Controls Section -->
         <section class="controls-section">
             <div class="control-group">
+                <div class="control-item">
+                    <label for="branch-filter">Branch</label>
+                    <select id="branch-filter" class="control-select">
+                        <option value="all">All Branches</option>
+                        <option value="CSE">Computer Science</option>
+                        <option value="DSAI">Data Science & AI</option>
+                        <option value="ECE">Electronics & Communication</option>
+                    </select>
+                </div>
                 <div class="control-item">
                     <label for="semester-filter">Semester</label>
                     <select id="semester-filter" class="control-select">

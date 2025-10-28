@@ -3,6 +3,7 @@ let currentTimetables = [];
 let currentView = 'grid';
 let currentSemesterFilter = 'all';
 let currentSectionFilter = 'all';
+let currentBranchFilter = 'all';
 let uploadedFiles = [];
 let isUploadSectionVisible = false;
 
@@ -20,13 +21,8 @@ const loadingOverlay = document.getElementById('loading-overlay');
 const notificationContainer = document.getElementById('notification-container');
 const sectionTitle = document.getElementById('section-title');
 
-// Stats elements
-const totalTimetablesEl = document.getElementById('total-timetables');
-const totalCoursesEl = document.getElementById('total-courses');
-const totalFacultyEl = document.getElementById('total-faculty');
-const totalClassroomsEl = document.getElementById('total-classrooms');
-
 // Filter elements
+const branchFilter = document.getElementById('branch-filter');
 const semesterFilter = document.getElementById('semester-filter');
 const sectionFilter = document.getElementById('section-filter');
 const viewMode = document.getElementById('view-mode');
@@ -50,6 +46,12 @@ function initializeApp() {
     setupSettings();
     
     // Filter listeners
+    branchFilter.addEventListener('change', function() {
+        currentBranchFilter = this.value;
+        updateSectionTitle();
+        renderTimetables();
+    });
+    
     semesterFilter.addEventListener('change', function() {
         currentSemesterFilter = this.value;
         updateSectionTitle();
@@ -96,11 +98,6 @@ function initializeApp() {
     if (uploadFilesBtn) {
         uploadFilesBtn.addEventListener('click', showUploadSection);
     }
-    
-    // Debug button
-    window.debugApp = debugApp;
-    window.verifyDataLoad = verifyDataLoad;
-    window.clearCache = clearCache;
     
     // Load initial data
     loadStats();
@@ -499,14 +496,25 @@ function simulateUploadProgress(progressFill, progressText) {
 }
 
 // Debug Functions
+// Debug Functions
 async function verifyDataLoad() {
     try {
         const response = await fetch('/debug/current-data');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
         const data = await response.json();
         console.log('📊 Current loaded data:', data);
         return data;
     } catch (error) {
         console.error('Error verifying data:', error);
+        // Show user-friendly message
+        if (error.message.includes('404')) {
+            console.log('🔧 Debug endpoints not available - this is normal in production');
+            showNotification('🔧 Debug features not available', 'info');
+        } else {
+            showNotification('❌ Error verifying data: ' + error.message, 'error');
+        }
         return null;
     }
 }
@@ -514,13 +522,68 @@ async function verifyDataLoad() {
 async function clearCache() {
     try {
         const response = await fetch('/debug/clear-cache');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
         const result = await response.json();
         console.log('🗑️ Cache cleared:', result);
+        showNotification('✅ Cache cleared successfully', 'success');
         return result;
     } catch (error) {
         console.error('Error clearing cache:', error);
+        if (error.message.includes('404')) {
+            console.log('🔧 Debug endpoints not available - this is normal in production');
+            showNotification('🔧 Debug features not available', 'info');
+        } else {
+            showNotification('❌ Error clearing cache: ' + error.message, 'error');
+        }
         return null;
     }
+}
+
+async function debugFileMatching() {
+    try {
+        const response = await fetch('/debug/file-matching');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const result = await response.json();
+        console.log('🔍 File matching debug:', result);
+        return result;
+    } catch (error) {
+        console.error('Error debugging file matching:', error);
+        if (error.message.includes('404')) {
+            console.log('🔧 Debug endpoints not available');
+            // Fallback to client-side file matching debug
+            debugFileMatchingClient();
+        } else {
+            showNotification('❌ Error debugging file matching: ' + error.message, 'error');
+        }
+        return null;
+    }
+}
+
+function debugFileMatchingClient() {
+    console.log('=== CLIENT-SIDE FILE MATCHING DEBUG ===');
+    const requiredFiles = [
+        'course_data.csv',
+        'faculty_availability.csv', 
+        'classroom_data.csv',
+        'student_data.csv',
+        'exams_data.csv'
+    ];
+    
+    requiredFiles.forEach(requiredFile => {
+        const requiredFileClean = requiredFile.toLowerCase().replace(/[ _-]/g, '');
+        console.log(`Required: ${requiredFile} -> ${requiredFileClean}`);
+        
+        uploadedFiles.forEach(file => {
+            const fileNameClean = file.name.toLowerCase().replace(/[ _-]/g, '');
+            const matches = fileNameClean.includes(requiredFileClean) || requiredFileClean.includes(fileNameClean);
+            console.log(`  ${file.name} -> ${fileNameClean} : ${matches ? '✅ MATCH' : '❌ NO MATCH'}`);
+        });
+    });
+    console.log('==========================');
 }
 
 // Sidebar Navigation
@@ -539,14 +602,16 @@ function setupSidebarNavigation() {
             // Add active class to clicked item
             this.parentElement.classList.add('active');
             
-            // Get semester filter
+            // Get semester and branch filters
             const semester = this.getAttribute('data-semester');
-            currentSemesterFilter = semester;
+            const branch = this.getAttribute('data-branch');
             
-            // Update semester filter dropdown
-            if (semesterFilter) {
-                semesterFilter.value = semester;
-            }
+            currentSemesterFilter = semester;
+            currentBranchFilter = branch;
+            
+            // Update filter dropdowns
+            if (semesterFilter) semesterFilter.value = semester;
+            if (branchFilter) branchFilter.value = branch;
             
             // Hide upload section if visible
             if (isUploadSectionVisible) {
@@ -562,16 +627,28 @@ function setupSidebarNavigation() {
 
 function updateSectionTitle() {
     if (sectionTitle) {
-        if (currentSemesterFilter === 'all') {
-            sectionTitle.textContent = 'All Timetables';
+        let title = '';
+        
+        if (currentBranchFilter === 'all') {
+            title = 'All Timetables';
         } else {
-            sectionTitle.textContent = `Semester ${currentSemesterFilter} Timetables`;
+            const branchNames = {
+                'CSE': 'Computer Science',
+                'DSAI': 'Data Science & AI', 
+                'ECE': 'Electronics & Communication'
+            };
+            title = `${branchNames[currentBranchFilter]} Timetables`;
         }
         
-        // Add section info if filtered
-        if (currentSectionFilter !== 'all') {
-            sectionTitle.textContent += ` - Section ${currentSectionFilter}`;
+        if (currentSemesterFilter !== 'all') {
+            title += ` - Semester ${currentSemesterFilter}`;
         }
+        
+        if (currentSectionFilter !== 'all') {
+            title += ` - Section ${currentSectionFilter}`;
+        }
+        
+        sectionTitle.textContent = title;
     }
 }
 
@@ -599,13 +676,8 @@ async function generateTimetables() {
             await loadTimetables();
             await loadStats();
             
-            // If no files were generated, show debug info
-            if (result.generated_count === 0) {
-                showNotification('⚠️ No timetables were generated. Check the console for details.', 'warning');
-            }
         } else {
             showNotification(`❌ ${result.message}`, 'error');
-            console.error('Generation failed:', result.message);
         }
     } catch (error) {
         console.error('❌ Error generating timetables:', error);
@@ -633,18 +705,9 @@ async function loadTimetables() {
         // Update course database with server data
         if (timetables.length > 0 && timetables[0].course_info) {
             courseDatabase = timetables[0].course_info;
-            console.log('📚 Course database updated from server:', courseDatabase);
         }
         
         renderTimetables();
-        
-        // Show notification if no timetables
-        if (timetables.length === 0) {
-            console.log("ℹ️ No timetables available");
-            showNotification('No timetables found. Upload CSV files and click "Generate All Timetables" to create them.', 'info');
-        } else {
-            console.log("✅ Timetables loaded successfully");
-        }
         
     } catch (error) {
         console.error('❌ Error loading timetables:', error);
@@ -657,12 +720,17 @@ async function loadStats() {
         const response = await fetch('/stats');
         const stats = await response.json();
         
+        // Update stats elements
+        const totalTimetablesEl = document.getElementById('total-timetables');
+        const totalCoursesEl = document.getElementById('total-courses');
+        const totalFacultyEl = document.getElementById('total-faculty');
+        const totalClassroomsEl = document.getElementById('total-classrooms');
+        
         if (totalTimetablesEl) totalTimetablesEl.textContent = stats.total_timetables;
         if (totalCoursesEl) totalCoursesEl.textContent = stats.total_courses;
         if (totalFacultyEl) totalFacultyEl.textContent = stats.total_faculty;
         if (totalClassroomsEl) totalClassroomsEl.textContent = stats.total_classrooms;
         
-        console.log("📈 Stats loaded:", stats);
     } catch (error) {
         console.error('Error loading stats:', error);
     }
@@ -717,40 +785,7 @@ function enhanceTimeSlotHeaders() {
                 timeCell.innerHTML = `<div class="time-slot-content">${timeText}<span class="slot-duration">${duration}</span></div>`;
             }
         });
-        
-        // Add session group headers
-        addSessionGroupHeaders(table);
     });
-}
-
-function addSessionGroupHeaders(table) {
-    const tbody = table.querySelector('tbody');
-    if (!tbody) return;
-    
-    const rows = Array.from(tbody.querySelectorAll('tr'));
-    
-    // Find indices for different sessions
-    const morningStart = findRowIndex(rows, '09:00-10:30');
-    const lunchStart = findRowIndex(rows, '12:00-13:00');
-    const afternoonStart = findRowIndex(rows, '13:00-14:30');
-    const eveningStart = findRowIndex(rows, '17:00-18:00');
-    
-    // Insert session headers if needed
-    // You can customize this based on your preference
-}
-
-function findRowIndex(rows, timeText) {
-    return rows.findIndex(row => {
-        const timeCell = row.cells[0];
-        return timeCell && timeCell.textContent.includes(timeText);
-    });
-}
-
-function insertSessionHeader(tbody, beforeRow, headerText) {
-    const headerRow = document.createElement('tr');
-    headerRow.className = 'session-group-header';
-    headerRow.innerHTML = `<td colspan="6">${headerText}</td>`;
-    tbody.insertBefore(headerRow, beforeRow);
 }
 
 // Color Coding and Legend Functions
@@ -838,20 +873,94 @@ function extractCourseCode(text) {
     // Match common course code patterns like MA101, CS101, etc.
     // Handle both regular courses and elective/tutorial marked courses
     const cleanText = text.replace(' (Elective)', '').replace(' (Tutorial)', '');
-    const coursePattern = /[A-Z]{2,3}\d{3}/;
+    
+    // More robust course code pattern matching
+    const coursePattern = /[A-Z]{2,3}\d{3}[A-Z]?/; // Handles codes like CS101, MA101A
     const match = cleanText.match(coursePattern);
-    return match ? match[0] : cleanText;
+    
+    if (match) {
+        return match[0];
+    }
+    
+    // If no pattern match, return the original text but log for debugging
+    console.log('⚠️ No course code pattern found for:', text);
+    return cleanText;
+}
+
+function debugCourseDuplicates(timetable) {
+    console.log('🔍 Debugging course duplicates for:', {
+        semester: timetable.semester,
+        section: timetable.section,
+        branch: timetable.branch
+    });
+    
+    console.log('All courses:', timetable.courses);
+    console.log('Unique courses:', [...new Set(timetable.courses)]);
+    console.log('Core courses:', timetable.core_courses);
+    console.log('Elective courses:', timetable.elective_courses);
+    
+    // Check for duplicates
+    const duplicates = timetable.courses.filter((course, index) => 
+        timetable.courses.indexOf(course) !== index
+    );
+    
+    if (duplicates.length > 0) {
+        console.log('❌ Found duplicates:', duplicates);
+    } else {
+        console.log('✅ No duplicates found');
+    }
+}
+
+function getUniqueCourses(courses) {
+    if (!courses || !Array.isArray(courses)) return [];
+    
+    // Use Set for basic deduplication
+    const uniqueCourses = [...new Set(courses)];
+    
+    // Additional filtering to ensure no duplicates
+    const seen = new Set();
+    const result = [];
+    
+    uniqueCourses.forEach(course => {
+        if (course && !seen.has(course)) {
+            seen.add(course);
+            result.push(course);
+        }
+    });
+    
+    console.log(`🔄 Deduplicated courses: ${courses.length} -> ${result.length}`);
+    return result;
 }
 
 function createEnhancedLegend(semester, section, courses, courseColors, courseInfo, coreCourses = [], electiveCourses = []) {
     if (!courses || courses.length === 0) return '';
     
+    // Get unique courses with aggressive deduplication
+    const uniqueCourses = getUniqueCourses(courses);
+    
     // Separate courses into core and elective for better organization
-    const coreCourseList = coreCourses.filter(course => courses.includes(course));
-    const electiveCourseList = electiveCourses.filter(course => courses.includes(course));
-    const otherCourses = courses.filter(course => 
+    const uniqueCoreCourses = getUniqueCourses(coreCourses);
+    const uniqueElectiveCourses = getUniqueCourses(electiveCourses);
+    
+    // Filter to only include courses that actually exist in the timetable
+    const coreCourseList = uniqueCoreCourses.filter(course => uniqueCourses.includes(course));
+    const electiveCourseList = uniqueElectiveCourses.filter(course => uniqueCourses.includes(course));
+    const otherCourses = uniqueCourses.filter(course => 
         !coreCourseList.includes(course) && !electiveCourseList.includes(course)
     );
+    
+    console.log(`📊 Legend for Semester ${semester}, Section ${section}:`, {
+        allCourses: uniqueCourses,
+        coreCourses: coreCourseList,
+        electiveCourses: electiveCourseList,
+        otherCourses: otherCourses
+    });
+    
+    // If no courses to display, return empty
+    if (coreCourseList.length === 0 && electiveCourseList.length === 0 && otherCourses.length === 0) {
+        console.log('⚠️ No courses to display in legend');
+        return '';
+    }
     
     let legendHtml = `
         <div class="timetable-legend">
@@ -867,7 +976,7 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
             <div class="legend-section">
                 <div class="legend-section-title">
                     <i class="fas fa-book"></i>
-                    Core Courses
+                    Core Courses (${coreCourseList.length})
                 </div>
                 <div class="legend-grid">
         `;
@@ -890,7 +999,7 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
             <div class="legend-section elective">
                 <div class="legend-section-title elective">
                     <i class="fas fa-clipboard-list"></i>
-                    Elective Courses (Common for Both Sections)
+                    Elective Courses (${electiveCourseList.length}) - Common for Both Sections
                 </div>
                 <div class="legend-grid">
         `;
@@ -917,7 +1026,7 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
             <div class="legend-section">
                 <div class="legend-section-title">
                     <i class="fas fa-graduation-cap"></i>
-                    Other Courses
+                    Other Courses (${otherCourses.length})
                 </div>
                 <div class="legend-grid">
         `;
@@ -962,25 +1071,9 @@ function createLegendItem(courseCode, courseInfo, color, type = 'core') {
     `;
 }
 
-function createLegendItem(courseCode, courseInfo, color) {
-    const courseName = courseInfo ? courseInfo.name : 'Unknown Course';
-    const credits = courseInfo ? courseInfo.credits : '?';
-    const instructor = courseInfo ? courseInfo.instructor : 'Unknown';
-    const courseType = courseInfo ? courseInfo.type : 'Core';
-    
-    return `
-        <div class="legend-item ${courseType.toLowerCase()}">
-            <div class="legend-color" style="background: ${color};"></div>
-            <span class="legend-course-code">${courseCode}</span>
-            <span class="legend-course-name">
-                ${courseName} (${credits} cr)
-                <br><small>${instructor} • ${courseType}</small>
-            </span>
-        </div>
-    `;
-}
-
 function enhanceTables() {
+    console.log("🎨 Enhancing tables with color coding and time slots...");
+    
     document.querySelectorAll('.timetable-table').forEach(table => {
         // Find the parent timetable card and get course information
         const timetableCard = table.closest('.timetable-card') || table.closest('.timetable-item');
@@ -997,29 +1090,34 @@ function enhanceTables() {
                         t.semester === semester && t.section === section
                     );
                     
-                    if (timetable && timetable.course_colors) {
-                        // Apply dynamic color coding
-                        applyDynamicColorCoding(table, timetable.course_colors);
+                    if (timetable) {
+                        // Debug duplicates
+                        debugCourseDuplicates(timetable);
                         
-                        // Create enhanced legend with course type separation
-                        if (timetable.courses) {
-                            const legend = createEnhancedLegend(
-                                semester, 
-                                section, 
-                                timetable.courses, 
-                                timetable.course_colors, 
-                                timetable.course_info,
-                                timetable.core_courses || [],
-                                timetable.elective_courses || []
-                            );
-                            if (legend) {
-                                // Remove existing legend if any
-                                const existingLegend = timetableCard.querySelector('.timetable-legend');
-                                if (existingLegend) {
-                                    existingLegend.remove();
+                        if (timetable.course_colors) {
+                            // Apply dynamic color coding
+                            applyDynamicColorCoding(table, timetable.course_colors);
+                            
+                            // Create enhanced legend with course type separation
+                            if (timetable.courses) {
+                                const legend = createEnhancedLegend(
+                                    semester, 
+                                    section, 
+                                    timetable.courses, 
+                                    timetable.course_colors, 
+                                    timetable.course_info,
+                                    timetable.core_courses || [],
+                                    timetable.elective_courses || []
+                                );
+                                if (legend) {
+                                    // Remove existing legend if any
+                                    const existingLegend = timetableCard.querySelector('.timetable-legend');
+                                    if (existingLegend) {
+                                        existingLegend.remove();
+                                    }
+                                    // Add new legend
+                                    timetableCard.insertAdjacentHTML('beforeend', legend);
                                 }
-                                // Add new legend
-                                timetableCard.insertAdjacentHTML('beforeend', legend);
                             }
                         }
                     }
@@ -1031,7 +1129,7 @@ function enhanceTables() {
     // Enhance time slot headers
     enhanceTimeSlotHeaders();
     
-    // Add enhanced hover effects for elective courses
+    // Add enhanced hover effects
     const electiveCells = document.querySelectorAll('.elective-slot');
     electiveCells.forEach(cell => {
         cell.addEventListener('mouseenter', function() {
@@ -1084,6 +1182,7 @@ function enhanceTables() {
 // Rendering Functions
 function renderTimetables() {
     console.log(`🎨 Rendering ${currentTimetables.length} timetables with filters:`, {
+        branch: currentBranchFilter,
         semester: currentSemesterFilter,
         section: currentSectionFilter,
         view: currentView
@@ -1110,7 +1209,7 @@ function renderTimetables() {
                 </div>
                 <h3>No Timetables Found</h3>
                 <p>No timetables match the current filters. Try adjusting your selection.</p>
-                <button class="btn btn-outline" onclick="currentSemesterFilter='all'; currentSectionFilter='all'; semesterFilter.value='all'; sectionFilter.value='all'; updateSectionTitle(); renderTimetables();">
+                <button class="btn btn-outline" onclick="resetFilters()">
                     Show All Timetables
                 </button>
             </div>
@@ -1128,23 +1227,37 @@ function renderTimetables() {
     
     // Enhance tables with color coding and legends
     enhanceTables();
+}
+
+function resetFilters() {
+    currentBranchFilter = 'all';
+    currentSemesterFilter = 'all';
+    currentSectionFilter = 'all';
     
-    console.log("✅ Timetables rendered successfully");
+    if (branchFilter) branchFilter.value = 'all';
+    if (semesterFilter) semesterFilter.value = 'all';
+    if (sectionFilter) sectionFilter.value = 'all';
+    
+    updateSectionTitle();
+    renderTimetables();
 }
 
 function renderGridView(timetables) {
     let html = '<div class="timetables-grid">';
     
     timetables.forEach(timetable => {
+        const branchClass = `branch-${timetable.branch?.toLowerCase() || 'general'}`;
+        const branchBadge = timetable.branch ? `<span class="branch-badge ${timetable.branch.toLowerCase()}">${timetable.branch}</span>` : '';
+        
         html += `
-            <div class="timetable-card">
+            <div class="timetable-card ${branchClass}">
                 <div class="timetable-header">
-                    <h3>Semester ${timetable.semester} - Section ${timetable.section}</h3>
+                    <h3>Semester ${timetable.semester} - Section ${timetable.section} ${branchBadge}</h3>
                     <div class="timetable-actions">
                         <button class="action-btn" onclick="downloadTimetable('${timetable.filename}')" title="Download">
                             <i class="fas fa-download"></i>
                         </button>
-                        <button class="action-btn" onclick="printTimetable(${timetable.semester}, '${timetable.section}')" title="Print">
+                        <button class="action-btn" onclick="printTimetable(${timetable.semester}, '${timetable.section}', '${timetable.branch || ''}')" title="Print">
                             <i class="fas fa-print"></i>
                         </button>
                     </div>
@@ -1164,10 +1277,12 @@ function renderListView(timetables) {
     let html = '<div class="timetables-list">';
     
     timetables.forEach(timetable => {
+        const branchBadge = timetable.branch ? `<span class="branch-badge ${timetable.branch.toLowerCase()}">${timetable.branch}</span>` : '';
+        
         html += `
             <div class="timetable-item" style="background: white; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 1.5rem; overflow: hidden;">
                 <div class="timetable-header" style="background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: white; padding: 1.25rem; display: flex; justify-content: space-between; align-items: center;">
-                    <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Semester ${timetable.semester} - Section ${timetable.section}</h3>
+                    <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Semester ${timetable.semester} - Section ${timetable.section} ${branchBadge}</h3>
                     <div class="timetable-actions">
                         <button class="btn btn-outline" onclick="downloadTimetable('${timetable.filename}')" style="background: rgba(255, 255, 255, 0.2); color: white; border: 1px solid rgba(255, 255, 255, 0.5);">
                             <i class="fas fa-download"></i> Download
@@ -1189,10 +1304,12 @@ function renderCompactView(timetables) {
     let html = '<div class="timetables-compact">';
     
     timetables.forEach(timetable => {
+        const branchBadge = timetable.branch ? `<span class="branch-badge ${timetable.branch.toLowerCase()}">${timetable.branch}</span>` : '';
+        
         html += `
             <div class="compact-card" style="background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.5rem; margin-bottom: 1rem;">
                 <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 1rem;">
-                    <h4 style="margin: 0; color: var(--dark);">Semester ${timetable.semester} - Section ${timetable.section}</h4>
+                    <h4 style="margin: 0; color: var(--dark);">Semester ${timetable.semester} - Section ${timetable.section} ${branchBadge}</h4>
                     <div>
                         <button class="btn btn-outline btn-sm" onclick="downloadTimetable('${timetable.filename}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">
                             <i class="fas fa-download"></i>
@@ -1213,9 +1330,10 @@ function renderCompactView(timetables) {
 // Filtering Functions
 function filterTimetablesData() {
     return currentTimetables.filter(timetable => {
+        const branchMatch = currentBranchFilter === 'all' || timetable.branch === currentBranchFilter;
         const semesterMatch = currentSemesterFilter === 'all' || timetable.semester === parseInt(currentSemesterFilter);
         const sectionMatch = currentSectionFilter === 'all' || timetable.section === currentSectionFilter;
-        return semesterMatch && sectionMatch;
+        return branchMatch && semesterMatch && sectionMatch;
     });
 }
 
@@ -1225,6 +1343,7 @@ function changeViewMode() {
         renderTimetables();
     }
 }
+
 
 // Action Functions
 async function downloadAllTimetables() {
@@ -1596,3 +1715,5 @@ window.hideUploadSection = hideUploadSection;
 window.debugFileMatching = debugFileMatching;
 window.verifyDataLoad = verifyDataLoad;
 window.clearCache = clearCache;
+window.resetFilters = resetFilters;
+

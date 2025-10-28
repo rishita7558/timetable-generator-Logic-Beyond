@@ -153,7 +153,7 @@ def load_all_data(force_reload=False):
                 if 'course' in key:
                     print(f"   First 3 courses:")
                     for i, row in dfs[key].head(3).iterrows():
-                        print(f"     {i+1}. {row['Course Code'] if 'Course Code' in row else 'N/A'} - Semester: {row.get('Semester', 'N/A')}")
+                        print(f"     {i+1}. {row['Course Code'] if 'Course Code' in row else 'N/A'} - Semester: {row.get('Semester', 'N/A')} - Branch: {row.get('Branch', 'N/A')} - Elective: {row.get('Elective (Yes/No)', 'N/A')}")
                 
         except Exception as e:
             print(f"❌ Error loading {f}: {e}")
@@ -183,19 +183,31 @@ def get_course_info(dfs):
             course_code = course['Course Code']
             is_elective = course.get('Elective (Yes/No)', 'No').upper() == 'YES'
             course_type = 'Elective' if is_elective else 'Core'
+            department = course.get('Department', 'General')
             
             course_info[course_code] = {
                 'name': course.get('Course Name', 'Unknown Course'),
                 'credits': course.get('Credits', 0),
                 'type': course_type,
                 'instructor': course.get('Instructor', 'Unknown'),
-                'department': course.get('Department', 'Unknown'),
-                'is_elective': is_elective
+                'department': department,
+                'is_elective': is_elective,
+                'branch': department,  # Use department as branch for compatibility
+                'is_common_elective': is_elective
             }
     return course_info
 
-def separate_courses_by_type(dfs, semester_id):
-    """Separate courses into core and elective baskets for a given semester"""
+def get_departments_from_data(dfs):
+    """Extract unique departments from course data"""
+    if 'course' in dfs and 'Department' in dfs['course'].columns:
+        departments = dfs['course']['Department'].unique()
+        # Filter out None/NaN and return as list
+        return [dept for dept in departments if pd.notna(dept) and dept != '']
+    else:
+        return ['CSE', 'DSAI', 'ECE']  # fallback
+
+def separate_courses_by_type(dfs, semester_id, branch=None):
+    """Separate courses into core and elective baskets for a given semester and branch"""
     if 'course' not in dfs:
         return {'core_courses': [], 'elective_courses': []}
     
@@ -206,7 +218,18 @@ def separate_courses_by_type(dfs, semester_id):
         ].copy()
         
         if sem_courses.empty:
-            return {'core_courses': [], 'elective_courses': []}
+            return {'core_courses': pd.DataFrame(), 'elective_courses': pd.DataFrame()}
+        
+        # NEW: Filter by department if specified - only include courses for the specific department
+        if branch and 'Department' in sem_courses.columns:
+            # Include courses that are either for this specific department OR are electives (common for all departments)
+            sem_courses = sem_courses[
+                (sem_courses['Department'] == branch) | 
+                (sem_courses['Elective (Yes/No)'].str.upper() == 'YES')
+            ].copy()
+        
+        if sem_courses.empty:
+            return {'core_courses': pd.DataFrame(), 'elective_courses': pd.DataFrame()}
         
         # Separate core and elective courses
         core_courses = sem_courses[
@@ -217,9 +240,16 @@ def separate_courses_by_type(dfs, semester_id):
             sem_courses['Elective (Yes/No)'].str.upper() == 'YES'
         ].copy()
         
-        print(f"   📊 Course separation for Semester {semester_id}:")
+        print(f"   📊 Course separation for Semester {semester_id}, Department {branch or 'All'}:")
         print(f"      Core courses: {len(core_courses)}")
         print(f"      Elective courses: {len(elective_courses)}")
+        
+        # NEW: Debug info about department-specific courses
+        if branch:
+            dept_core_courses = core_courses[core_courses['Department'] == branch]
+            print(f"      Department-specific core courses: {len(dept_core_courses)}")
+            if not dept_core_courses.empty:
+                print(f"      Department core courses: {dept_core_courses['Course Code'].tolist()}")
         
         return {
             'core_courses': core_courses,
@@ -228,7 +258,8 @@ def separate_courses_by_type(dfs, semester_id):
         
     except Exception as e:
         print(f"⚠️ Error separating courses by type: {e}")
-        return {'core_courses': [], 'elective_courses': []}
+        traceback.print_exc()
+        return {'core_courses': pd.DataFrame(), 'elective_courses': pd.DataFrame()}
 
 def parse_ltpsc(ltpsc_string):
     """Parse L-T-P-S-C string and return components"""
@@ -247,19 +278,27 @@ def parse_ltpsc(ltpsc_string):
     except:
         return {'L': 3, 'T': 0, 'P': 0, 'S': 0, 'C': 3}
 
-def get_elective_ltpsc():
-    """Return default LTPSC for elective courses: 2-1-0-0-2"""
-    return {'L': 2, 'T': 1, 'P': 0, 'S': 0, 'C': 2}
-
-def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times):
-    """Schedule core courses with proper LTPSC structure"""
+def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times, branch=None):
+    """Schedule core courses with proper LTPSC structure - only department-specific courses"""
     if core_courses.empty:
         return used_slots
     
     course_day_usage = {}
     
+    # NEW: Filter core courses to only include department-specific ones
+    if branch and 'Department' in core_courses.columns:
+        dept_core_courses = core_courses[core_courses['Department'] == branch].copy()
+        print(f"   📚 Scheduling {len(dept_core_courses)} department-specific core courses for {branch}...")
+    else:
+        dept_core_courses = core_courses.copy()
+        print(f"   📚 Scheduling {len(dept_core_courses)} core courses...")
+    
+    if dept_core_courses.empty:
+        print(f"   ℹ️ No department-specific core courses found for {branch}")
+        return used_slots
+    
     # Parse LTPSC for core courses
-    for _, course in core_courses.iterrows():
+    for _, course in dept_core_courses.iterrows():
         course_code = course['Course Code']
         ltpsc = parse_ltpsc(course['LTPSC'])
         lectures_needed = ltpsc['L']
@@ -267,7 +306,7 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
         
         course_day_usage[course_code] = {'lectures': set(), 'tutorials': set()}
         
-        print(f"      Scheduling {lectures_needed} lectures and {tutorials_needed} tutorials for {course_code}...")
+        print(f"      Scheduling {lectures_needed} lectures and {tutorials_needed} tutorials for {course_code} (Department: {course.get('Department', 'General')})...")
         
         # Schedule lectures (1.5 hours each)
         lectures_scheduled = 0
@@ -339,13 +378,14 @@ def get_common_elective_slots():
         ('Fri', '14:30-15:30'), ('Fri', '15:30-17:00'), ('Fri', '17:00-18:00')
     ]
 
-def allocate_electives_to_common_slots(elective_courses, semester_id):
-    """Allocate elective courses to common time slots for both sections - 2 lectures + 1 tutorial per elective"""
+def allocate_electives_to_common_slots(elective_courses, semester_id, branch=None):
+    """Allocate elective courses to common time slots for all branches and sections - 2 lectures + 1 tutorial per elective"""
     common_slots = get_common_elective_slots()
     elective_allocations = {}
     
-    print(f"🎯 Allocating elective courses to common slots for Semester {semester_id}...")
-    print(f"   Each elective will get 2 lectures and 1 tutorial (common for both sections)")
+    branch_info = f" for Branch {branch}" if branch else ""
+    print(f"🎯 Allocating elective courses to COMMON SLOTS for ALL BRANCHES - Semester {semester_id}{branch_info}...")
+    print(f"   Each elective will get 2 lectures and 1 tutorial (common for ALL branches and sections)")
     
     # Separate lecture and tutorial slots
     lecture_slots = [slot for slot in common_slots if any(time in slot[1] for time in ['09:00-10:30', '10:30-12:00', '13:00-14:30', '15:30-17:00'])]
@@ -384,14 +424,15 @@ def allocate_electives_to_common_slots(elective_courses, semester_id):
             elective_allocations[course_code] = {
                 'lectures': lectures_allocated,
                 'tutorial': tutorial_allocated,
+                'for_all_branches': True,
                 'for_both_sections': True
             }
-            print(f"   ✅ Allocated {course_code}:")
+            print(f"   ✅ Allocated COMMON elective {course_code} for ALL BRANCHES:")
             for i, (day, time_slot) in enumerate(lectures_allocated, 1):
                 print(f"      Lecture {i}: {day} {time_slot}")
             print(f"      Tutorial: {tutorial_allocated[0]} {tutorial_allocated[1]}")
         else:
-            print(f"   ❌ Could not allocate all required slots for {course_code}")
+            print(f"   ❌ Could not allocate all required slots for elective {course_code}")
             elective_allocations[course_code] = None
     
     return elective_allocations
@@ -411,7 +452,7 @@ def schedule_electives_in_common_slots(elective_allocations, schedule, used_slot
                     schedule.loc[time_slot, day] = f"{course_code} (Elective)"
                     used_slots.add(key)
                     elective_scheduled += 1
-                    print(f"      ✅ Scheduled elective lecture {course_code} at {day} {time_slot} for Section {section}")
+                    print(f"      ✅ Scheduled COMMON elective lecture {course_code} at {day} {time_slot} for Section {section}")
                 else:
                     print(f"      ⚠️ Common slot occupied for {course_code} at {day} {time_slot}: {schedule.loc[time_slot, day]}")
             
@@ -424,18 +465,19 @@ def schedule_electives_in_common_slots(elective_allocations, schedule, used_slot
                     schedule.loc[time_slot, day] = f"{course_code} (Tutorial)"
                     used_slots.add(key)
                     elective_scheduled += 1
-                    print(f"      ✅ Scheduled elective tutorial {course_code} at {day} {time_slot} for Section {section}")
+                    print(f"      ✅ Scheduled COMMON elective tutorial {course_code} at {day} {time_slot} for Section {section}")
                 else:
                     print(f"      ⚠️ Common slot occupied for {course_code} tutorial at {day} {time_slot}: {schedule.loc[time_slot, day]}")
         else:
             print(f"      ❌ No allocation found for elective {course_code}")
     
-    print(f"   ✅ Scheduled {elective_scheduled} elective sessions for Section {section}")
+    print(f"   ✅ Scheduled {elective_scheduled} COMMON elective sessions for Section {section}")
     return used_slots
 
-def generate_section_schedule_with_electives(dfs, semester_id, section, elective_allocations):
-    """Generate schedule with pre-allocated elective slots"""
-    print(f"   Generating coordinated schedule for Semester {semester_id}, Section {section}...")
+def generate_section_schedule_with_electives(dfs, semester_id, section, elective_allocations, branch=None):
+    """Generate schedule with pre-allocated elective slots and branch-specific core courses"""
+    branch_info = f", Branch {branch}" if branch else ""
+    print(f"   Generating coordinated schedule for Semester {semester_id}, Section {section}{branch_info}...")
     
     if 'course' not in dfs:
         print("❌ Course data not available")
@@ -443,33 +485,16 @@ def generate_section_schedule_with_electives(dfs, semester_id, section, elective
     
     try:
         # Separate courses into core and elective baskets
-        course_baskets = separate_courses_by_type(dfs, semester_id)
+        course_baskets = separate_courses_by_type(dfs, semester_id, branch)
         core_courses = course_baskets['core_courses']
         elective_courses = course_baskets['elective_courses']
         
         days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
         
-        # LOGICAL TIME SLOT STRUCTURE
-        # Morning Session
-        morning_slots = [
-            '09:00-10:30',  # 1.5-hour lecture
-            '10:30-12:00'   # 1.5-hour lecture
-        ]
-        
-        # Lunch Break
-        lunch_slots = [
-            '12:00-13:00'   # 1-hour lunch
-        ]
-        
-        # Afternoon Session
-        afternoon_slots = [
-            '13:00-14:30',  # 1.5-hour lecture
-            '14:30-15:30',  # 1-hour tutorial
-            '15:30-17:00',  # 1.5-hour lecture
-            '17:00-18:00'   # 1-hour tutorial
-        ]
-        
-        # All time slots in chronological order
+        # Time slot structure
+        morning_slots = ['09:00-10:30', '10:30-12:00']
+        lunch_slots = ['12:00-13:00']
+        afternoon_slots = ['13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00']
         all_slots = morning_slots + lunch_slots + afternoon_slots
         
         # Lecture slots (1.5 hours)
@@ -480,20 +505,19 @@ def generate_section_schedule_with_electives(dfs, semester_id, section, elective
         
         # Create schedule template
         schedule = pd.DataFrame(index=all_slots, columns=days, dtype=object).fillna('Free')
-        # Mark lunch break
         schedule.loc['12:00-13:00'] = 'LUNCH BREAK'
 
         used_slots = set()
 
         # Schedule elective courses FIRST to ensure they get common slots
-        if not elective_courses.empty:
-            print(f"   🎯 Scheduling {len(elective_courses)} elective courses for Section {section}...")
+        if not elective_courses.empty and elective_allocations:
+            print(f"   🎯 Scheduling {len(elective_courses)} elective courses for Section {section} (COMMON for ALL BRANCHES)...")
             used_slots = schedule_electives_in_common_slots(elective_allocations, schedule, used_slots, section)
         
         # Schedule core courses after electives
         if not core_courses.empty:
-            print(f"   📚 Scheduling {len(core_courses)} core courses for Section {section}...")
-            used_slots = schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times)
+            print(f"   📚 Scheduling core courses for Section {section}, Branch {branch}...")
+            used_slots = schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times, branch)
         
         return schedule
         
@@ -516,7 +540,8 @@ def create_elective_summary(elective_allocations):
                     'Day': day,
                     'Time Slot': time_slot,
                     'Duration': '1.5 hours',
-                    'Sections': 'A & B (Common Slot)'
+                    'Sections': 'A & B (Common Slot)',
+                    'Branches': 'ALL (Common for All Branches)'  # NEW: Show common for all branches
                 })
             
             # Add tutorial allocation
@@ -528,7 +553,8 @@ def create_elective_summary(elective_allocations):
                     'Day': day,
                     'Time Slot': time_slot,
                     'Duration': '1 hour',
-                    'Sections': 'A & B (Common Slot)'
+                    'Sections': 'A & B (Common Slot)',
+                    'Branches': 'ALL (Common for All Branches)'  # NEW: Show common for all branches
                 })
         else:
             summary_data.append({
@@ -537,58 +563,13 @@ def create_elective_summary(elective_allocations):
                 'Day': 'Not Scheduled',
                 'Time Slot': 'Not Scheduled', 
                 'Duration': 'N/A',
-                'Sections': 'None'
+                'Sections': 'None',
+                'Branches': 'None'
             })
     
     return pd.DataFrame(summary_data)
 
-def export_semester_timetable(dfs, semester):
-    print(f"\n📊 Generating COORDINATED timetable for Semester {semester}...")
-    
-    try:
-        # First, identify all elective courses for this semester
-        course_baskets = separate_courses_by_type(dfs, semester)
-        elective_courses = course_baskets['elective_courses']
-        
-        print(f"🎯 Elective courses found for semester {semester}: {len(elective_courses)}")
-        if not elective_courses.empty:
-            print("   Elective courses:", elective_courses['Course Code'].tolist())
-        
-        # Allocate elective courses to common slots (2 lectures + 1 tutorial each)
-        common_elective_allocations = allocate_electives_to_common_slots(elective_courses, semester)
-        
-        # Generate schedules for both sections with coordinated electives
-        section_a = generate_section_schedule_with_electives(dfs, semester, 'A', common_elective_allocations)
-        section_b = generate_section_schedule_with_electives(dfs, semester, 'B', common_elective_allocations)
-        
-        if section_a is None or section_b is None:
-            print(f"❌ Failed to generate timetable for semester {semester}")
-            return False
-
-        filename = f"sem{semester}_timetable.xlsx"
-        filepath = os.path.join(OUTPUT_DIR, filename)
-        
-        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
-            section_a.to_excel(writer, sheet_name='Section_A')
-            section_b.to_excel(writer, sheet_name='Section_B')
-            
-            # Add course summary sheet
-            course_summary = create_course_summary(dfs, semester)
-            course_summary.to_excel(writer, sheet_name='Course_Summary', index=False)
-            
-            # Add elective coordination sheet
-            elective_summary = create_elective_summary(common_elective_allocations)
-            elective_summary.to_excel(writer, sheet_name='Elective_Coordination', index=False)
-            
-        print(f"✅ Coordinated timetable saved: {filename}")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Error generating timetable for semester {semester}: {e}")
-        traceback.print_exc()
-        return False
-
-def create_course_summary(dfs, semester):
+def create_course_summary(dfs, semester, branch=None):
     """Create a summary sheet showing core vs elective courses"""
     if 'course' not in dfs:
         return pd.DataFrame()
@@ -596,6 +577,13 @@ def create_course_summary(dfs, semester):
     sem_courses = dfs['course'][
         dfs['course']['Semester'].astype(str).str.strip() == str(semester)
     ].copy()
+    
+    # Filter by branch if specified
+    if branch and 'Department' in sem_courses.columns:
+        sem_courses = sem_courses[
+            (sem_courses['Department'] == branch) | 
+            (sem_courses['Elective (Yes/No)'].str.upper() == 'YES')
+        ]
     
     if sem_courses.empty:
         return pd.DataFrame()
@@ -605,6 +593,12 @@ def create_course_summary(dfs, semester):
         lambda x: 'Elective' if str(x).upper() == 'YES' else 'Core'
     )
     
+    # Add branch specificity info
+    sem_courses['Branch Specificity'] = sem_courses.apply(
+        lambda row: 'Common for All Branches' if row['Course Type'] == 'Elective' else f"Department: {row.get('Department', 'General')}",
+        axis=1
+    )
+    
     # Parse LTPSC for detailed information
     ltpsc_data = sem_courses['LTPSC'].apply(parse_ltpsc)
     sem_courses['Lectures/Week'] = ltpsc_data.apply(lambda x: x['L'])
@@ -612,7 +606,205 @@ def create_course_summary(dfs, semester):
     sem_courses['Practicals/Week'] = ltpsc_data.apply(lambda x: x['P'])
     sem_courses['Total Credits'] = ltpsc_data.apply(lambda x: x['C'])
     
-    summary_columns = ['Course Code', 'Course Name', 'Course Type', 'LTPSC', 'Lectures/Week', 'Tutorials/Week', 'Total Credits', 'Instructor']
+    summary_columns = ['Course Code', 'Course Name', 'Course Type', 'Branch Specificity', 'LTPSC', 'Lectures/Week', 'Tutorials/Week', 'Total Credits', 'Instructor', 'Department']
+    available_columns = [col for col in summary_columns if col in sem_courses.columns]
+    
+    return sem_courses[available_columns]
+
+def create_elective_summary(elective_allocations):
+    """Create a summary of elective course allocations"""
+    summary_data = []
+    
+    for course_code, allocation in elective_allocations.items():
+        if allocation:
+            # Add lecture allocations
+            for i, (day, time_slot) in enumerate(allocation['lectures'], 1):
+                summary_data.append({
+                    'Elective Course': course_code,
+                    'Session Type': f'Lecture {i}',
+                    'Day': day,
+                    'Time Slot': time_slot,
+                    'Duration': '1.5 hours',
+                    'Sections': 'A & B (Common Slot)',
+                    'Branches': 'ALL (Common for All Branches)'
+                })
+            
+            # Add tutorial allocation
+            if allocation['tutorial']:
+                day, time_slot = allocation['tutorial']
+                summary_data.append({
+                    'Elective Course': course_code,
+                    'Session Type': 'Tutorial',
+                    'Day': day,
+                    'Time Slot': time_slot,
+                    'Duration': '1 hour',
+                    'Sections': 'A & B (Common Slot)',
+                    'Branches': 'ALL (Common for All Branches)'
+                })
+        else:
+            summary_data.append({
+                'Elective Course': course_code,
+                'Session Type': 'Not Scheduled',
+                'Day': 'Not Scheduled',
+                'Time Slot': 'Not Scheduled', 
+                'Duration': 'N/A',
+                'Sections': 'None',
+                'Branches': 'None'
+            })
+    
+    return pd.DataFrame(summary_data)
+
+def export_semester_timetable(dfs, semester, branch=None):
+    branch_info = f", Branch {branch}" if branch else ""
+    print(f"\n📊 Generating COORDINATED timetable for Semester {semester}{branch_info}...")
+    
+    try:
+        # First, identify all elective courses for this semester (common for all branches)
+        course_baskets_all = separate_courses_by_type(dfs, semester)
+        elective_courses_all = course_baskets_all['elective_courses']
+        
+        print(f"🎯 Elective courses found for semester {semester} (COMMON for ALL branches): {len(elective_courses_all)}")
+        if not elective_courses_all.empty:
+            print("   Common elective courses:", elective_courses_all['Course Code'].tolist())
+        
+        # Allocate elective courses to common slots (2 lectures + 1 tutorial each) - COMMON FOR ALL BRANCHES
+        common_elective_allocations = {}
+        if not elective_courses_all.empty:
+            common_elective_allocations = allocate_electives_to_common_slots(elective_courses_all, semester, branch)
+        
+        # Generate schedules for both sections with coordinated electives and branch-specific cores
+        section_a = generate_section_schedule_with_electives(dfs, semester, 'A', common_elective_allocations, branch)
+        section_b = generate_section_schedule_with_electives(dfs, semester, 'B', common_elective_allocations, branch)
+        
+        if section_a is None or section_b is None:
+            print(f"❌ Failed to generate timetable for semester {semester}{branch_info}")
+            return False
+
+        # Create filename with branch information
+        if branch:
+            filename = f"sem{semester}_{branch}_timetable.xlsx"
+        else:
+            filename = f"sem{semester}_timetable.xlsx"
+            
+        filepath = os.path.join(OUTPUT_DIR, filename)
+        
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            section_a.to_excel(writer, sheet_name='Section_A')
+            section_b.to_excel(writer, sheet_name='Section_B')
+            
+            # Add course summary sheet
+            course_summary = create_course_summary(dfs, semester, branch)
+            if not course_summary.empty:
+                course_summary.to_excel(writer, sheet_name='Course_Summary', index=False)
+            
+            # Add elective coordination sheet
+            if common_elective_allocations:
+                elective_summary = create_elective_summary(common_elective_allocations)
+                elective_summary.to_excel(writer, sheet_name='Elective_Coordination', index=False)
+            
+            # Add branch-specific info sheet
+            branch_info_sheet = create_branch_info_sheet(dfs, semester, branch)
+            if not branch_info_sheet.empty:
+                branch_info_sheet.to_excel(writer, sheet_name='Branch_Info', index=False)
+            
+        print(f"✅ Coordinated timetable saved: {filename}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error generating timetable for semester {semester}{branch_info}: {e}")
+        traceback.print_exc()
+        return False
+    
+
+def create_branch_info_sheet(dfs, semester, branch):
+    """Create a sheet showing department-specific course information"""
+    if 'course' not in dfs:
+        return pd.DataFrame()
+    
+    # Get all courses for the semester
+    sem_courses = dfs['course'][
+        dfs['course']['Semester'].astype(str).str.strip() == str(semester)
+    ].copy()
+    
+    if sem_courses.empty:
+        return pd.DataFrame()
+    
+    # Separate department-specific and common courses
+    dept_specific_courses = sem_courses[
+        (sem_courses['Department'] == branch) & 
+        (sem_courses['Elective (Yes/No)'].str.upper() != 'YES')
+    ].copy()
+    
+    common_elective_courses = sem_courses[
+        sem_courses['Elective (Yes/No)'].str.upper() == 'YES'
+    ].copy()
+    
+    # Create summary
+    summary_data = []
+    
+    # Add department-specific courses
+    for _, course in dept_specific_courses.iterrows():
+        summary_data.append({
+            'Course Type': 'Department-Specific Core',
+            'Course Code': course['Course Code'],
+            'Course Name': course.get('Course Name', 'Unknown'),
+            'Department': course.get('Department', 'Unknown'),
+            'LTPSC': course.get('LTPSC', 'N/A'),
+            'Credits': course.get('Credits', 'N/A'),
+            'Instructor': course.get('Instructor', 'Unknown')
+        })
+    
+    # Add common elective courses
+    for _, course in common_elective_courses.iterrows():
+        summary_data.append({
+            'Course Type': 'Common Elective',
+            'Course Code': course['Course Code'],
+            'Course Name': course.get('Course Name', 'Unknown'),
+            'Department': 'ALL (Common)',
+            'LTPSC': course.get('LTPSC', 'N/A'),
+            'Credits': course.get('Credits', 'N/A'),
+            'Instructor': course.get('Instructor', 'Unknown')
+        })
+    
+    return pd.DataFrame(summary_data)
+def create_course_summary(dfs, semester, branch=None):
+    """Create a summary sheet showing core vs elective courses"""
+    if 'course' not in dfs:
+        return pd.DataFrame()
+    
+    sem_courses = dfs['course'][
+        dfs['course']['Semester'].astype(str).str.strip() == str(semester)
+    ].copy()
+    
+    # Filter by branch if specified
+    if branch and 'Branch' in sem_courses.columns:
+        sem_courses = sem_courses[
+            (sem_courses['Branch'] == branch) | 
+            (sem_courses['Elective (Yes/No)'].str.upper() == 'YES')
+        ]
+    
+    if sem_courses.empty:
+        return pd.DataFrame()
+    
+    # Add course type classification and parse LTPSC
+    sem_courses['Course Type'] = sem_courses['Elective (Yes/No)'].apply(
+        lambda x: 'Elective' if str(x).upper() == 'YES' else 'Core'
+    )
+    
+    # NEW: Add branch specificity info
+    sem_courses['Branch Specificity'] = sem_courses.apply(
+        lambda row: 'Common for All Branches' if row['Course Type'] == 'Elective' else f"Branch: {row.get('Branch', 'General')}",
+        axis=1
+    )
+    
+    # Parse LTPSC for detailed information
+    ltpsc_data = sem_courses['LTPSC'].apply(parse_ltpsc)
+    sem_courses['Lectures/Week'] = ltpsc_data.apply(lambda x: x['L'])
+    sem_courses['Tutorials/Week'] = ltpsc_data.apply(lambda x: x['T'])
+    sem_courses['Practicals/Week'] = ltpsc_data.apply(lambda x: x['P'])
+    sem_courses['Total Credits'] = ltpsc_data.apply(lambda x: x['C'])
+    
+    summary_columns = ['Course Code', 'Course Name', 'Course Type', 'Branch Specificity', 'LTPSC', 'Lectures/Week', 'Tutorials/Week', 'Total Credits', 'Instructor', 'Branch']
     available_columns = [col for col in summary_columns if col in sem_courses.columns]
     
     return sem_courses[available_columns]
@@ -683,6 +875,125 @@ def generate_course_colors(courses, course_info):
     
     return course_colors
 
+# Debug endpoints
+@app.route('/debug/current-data')
+def debug_current_data():
+    """Debug endpoint to show currently loaded data"""
+    try:
+        data_frames = load_all_data()
+        if data_frames is None:
+            return jsonify({
+                'success': False,
+                'message': 'No data loaded'
+            })
+        
+        debug_info = {
+            'success': True,
+            'loaded_files': list(data_frames.keys()),
+            'file_sizes': {},
+            'sample_data': {}
+        }
+        
+        for key, df in data_frames.items():
+            debug_info['file_sizes'][key] = {
+                'rows': len(df),
+                'columns': list(df.columns),
+                'memory_usage': df.memory_usage(deep=True).sum()
+            }
+            
+            # Add sample data (first 3 rows)
+            if not df.empty:
+                debug_info['sample_data'][key] = df.head(3).to_dict('records')
+        
+        # Add timetable info
+        excel_files = glob.glob(os.path.join(OUTPUT_DIR, "*.xlsx"))
+        debug_info['generated_timetables'] = {
+            'count': len(excel_files),
+            'files': [os.path.basename(f) for f in excel_files]
+        }
+        
+        return jsonify(debug_info)
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+@app.route('/debug/clear-cache')
+def debug_clear_cache():
+    """Debug endpoint to clear cached data"""
+    global _cached_data_frames, _cached_timestamp, _file_hashes
+    
+    _cached_data_frames = None
+    _cached_timestamp = 0
+    _file_hashes = {}
+    
+    # Clear input directory
+    if os.path.exists(INPUT_DIR):
+        try:
+            shutil.rmtree(INPUT_DIR)
+            os.makedirs(INPUT_DIR, exist_ok=True)
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'Error clearing input directory: {str(e)}'
+            })
+    
+    return jsonify({
+        'success': True,
+        'message': 'Cache cleared successfully',
+        'cache_cleared': True,
+        'input_dir_cleared': True
+    })
+
+@app.route('/debug/file-matching')
+def debug_file_matching():
+    """Debug endpoint to check file matching"""
+    available_files = os.listdir(INPUT_DIR) if os.path.exists(INPUT_DIR) else []
+    required_files = [
+        "course_data.csv",
+        "faculty_availability.csv",
+        "classroom_data.csv",
+        "student_data.csv",
+        "exams_data.csv"
+    ]
+    
+    matching_results = {}
+    
+    for required_file in required_files:
+        required_clean = required_file.lower().replace(' ', '').replace('_', '').replace('-', '')
+        matches = []
+        
+        for uploaded_file in available_files:
+            uploaded_clean = uploaded_file.lower().replace(' ', '').replace('_', '').replace('-', '')
+            is_match = (
+                required_clean in uploaded_clean or 
+                uploaded_clean in required_clean or
+                any(part in uploaded_clean for part in required_file.split('_'))
+            )
+            
+            matches.append({
+                'uploaded_file': uploaded_file,
+                'uploaded_clean': uploaded_clean,
+                'is_match': is_match,
+                'match_type': 'exact' if uploaded_clean == required_clean else 'partial' if is_match else 'none'
+            })
+        
+        matching_results[required_file] = {
+            'required_clean': required_clean,
+            'matches': matches,
+            'has_match': any(match['is_match'] for match in matches)
+        }
+    
+    return jsonify({
+        'available_files': available_files,
+        'required_files': required_files,
+        'matching_results': matching_results,
+        'all_files_matched': all(result['has_match'] for result in matching_results.values())
+    })
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -707,27 +1018,32 @@ def generate_timetables():
         if data_frames is None:
             return jsonify({'success': False, 'message': 'Failed to load CSV data'})
 
-        # Generate timetables for semesters 1,3,5,7
+        # Generate timetables for all branches and semesters
+        departments = get_departments_from_data(data_frames)
+        print(f"📋 Generating timetables for departments: {departments}")
+        
+        branches = departments
         target_semesters = [1, 3, 5, 7]
         success_count = 0
         generated_files = []
         
-        for sem in target_semesters:
-            try:
-                print(f"🔄 Generating timetable for semester {sem}...")
-                success = export_semester_timetable(data_frames, sem)
-                filename = f"sem{sem}_timetable.xlsx"
-                filepath = os.path.join(OUTPUT_DIR, filename)
-                
-                if success and os.path.exists(filepath):
-                    success_count += 1
-                    generated_files.append(filename)
-                    print(f"✅ Successfully generated: {filename}")
-                else:
-                    print(f"❌ File not created: {filename}")
+        for branch in branches:
+            for sem in target_semesters:
+                try:
+                    print(f"🔄 Generating timetable for {branch} Semester {sem}...")
+                    success = export_semester_timetable(data_frames, sem, branch)
+                    filename = f"sem{sem}_{branch}_timetable.xlsx"
+                    filepath = os.path.join(OUTPUT_DIR, filename)
                     
-            except Exception as e:
-                print(f"❌ Error generating timetable for semester {sem}: {e}")
+                    if success and os.path.exists(filepath):
+                        success_count += 1
+                        generated_files.append(filename)
+                        print(f"✅ Successfully generated: {filename}")
+                    else:
+                        print(f"❌ File not created: {filename}")
+                        
+                except Exception as e:
+                    print(f"❌ Error generating timetable for {branch} semester {sem}: {e}")
 
         return jsonify({
             'success': True, 
@@ -764,10 +1080,20 @@ def get_timetables():
             filename = os.path.basename(file_path)
             if 'sem' in filename and 'timetable' in filename:
                 try:
-                    sem_part = filename.split('sem')[1].split('_')[0]
-                    sem = int(sem_part)
+                    # Extract semester and branch from filename
+                    if '_' in filename and filename.count('_') >= 2:
+                        # Format: semX_BRANCH_timetable.xlsx
+                        parts = filename.split('_')
+                        sem_part = parts[0].replace('sem', '')
+                        branch = parts[1]
+                        sem = int(sem_part)
+                    else:
+                        # Legacy format: semX_timetable.xlsx
+                        sem_part = filename.split('sem')[1].split('_')[0]
+                        sem = int(sem_part)
+                        branch = None
                     
-                    print(f"📖 Reading timetable file: {filename}")
+                    print(f"📖 Reading timetable file: {filename} (Branch: {branch})")
                     
                     # Read both sections from the Excel file
                     df_a = pd.read_excel(file_path, sheet_name='Section_A')
@@ -779,14 +1105,14 @@ def get_timetables():
                         index=False, 
                         escape=False,
                         border=0,
-                        table_id=f"sem{sem}_A"
+                        table_id=f"sem{sem}_{branch}_A" if branch else f"sem{sem}_A"
                     )
                     html_b = df_b.to_html(
                         classes='timetable-table', 
                         index=False, 
                         escape=False,
                         border=0,
-                        table_id=f"sem{sem}_B"
+                        table_id=f"sem{sem}_{branch}_B" if branch else f"sem{sem}_B"
                     )
                     
                     # Clean up the HTML tables
@@ -797,12 +1123,14 @@ def get_timetables():
                     unique_courses_a = extract_unique_courses(df_a)
                     unique_courses_b = extract_unique_courses(df_b)
                     
-                    # Get course basket information for this semester
-                    course_baskets = separate_courses_by_type(data_frames, sem) if data_frames else {'core_courses': [], 'elective_courses': []}
+                    # Get course basket information for this semester and branch
+                    course_baskets = separate_courses_by_type(data_frames, sem, branch) if data_frames else {'core_courses': [], 'elective_courses': []}
                     
+                    # Add timetable for Section A
                     timetables.append({
                         'semester': sem,
                         'section': 'A',
+                        'branch': branch,
                         'filename': filename,
                         'html': html_a,
                         'courses': unique_courses_a,
@@ -812,9 +1140,11 @@ def get_timetables():
                         'elective_courses': course_baskets['elective_courses']['Course Code'].tolist() if not course_baskets['elective_courses'].empty else []
                     })
                     
+                    # Add timetable for Section B
                     timetables.append({
                         'semester': sem,
                         'section': 'B',
+                        'branch': branch,
                         'filename': filename,
                         'html': html_b,
                         'courses': unique_courses_b,
@@ -1001,28 +1331,30 @@ def upload_files():
             except Exception as e:
                 print(f"⚠️ Could not remove {file}: {e}")
         
-        # Generate timetables for semesters 1,3,5,7
+        # Generate timetables for all branches and semesters
+        branches = ['CSE', 'DSAI', 'ECE']
         target_semesters = [1, 3, 5, 7]
         success_count = 0
         generated_files = []
         
-        for sem in target_semesters:
-            try:
-                print(f"🔄 Generating timetable for semester {sem}...")
-                success = export_semester_timetable(data_frames, sem)
-                filename = f"sem{sem}_timetable.xlsx"
-                filepath = os.path.join(OUTPUT_DIR, filename)
-                
-                if success and os.path.exists(filepath):
-                    success_count += 1
-                    generated_files.append(filename)
-                    print(f"✅ Successfully generated: {filename}")
-                else:
-                    print(f"❌ File not created: {filename}")
+        for branch in branches:
+            for sem in target_semesters:
+                try:
+                    print(f"🔄 Generating timetable for {branch} Semester {sem}...")
+                    success = export_semester_timetable(data_frames, sem, branch)
+                    filename = f"sem{sem}_{branch}_timetable.xlsx"
+                    filepath = os.path.join(OUTPUT_DIR, filename)
                     
-            except Exception as e:
-                print(f"❌ Error generating timetable for semester {sem}: {e}")
-                traceback.print_exc()
+                    if success and os.path.exists(filepath):
+                        success_count += 1
+                        generated_files.append(filename)
+                        print(f"✅ Successfully generated: {filename}")
+                    else:
+                        print(f"❌ File not created: {filename}")
+                        
+                except Exception as e:
+                    print(f"❌ Error generating timetable for {branch} semester {sem}: {e}")
+                    traceback.print_exc()
 
         print("=" * 50)
         print("✅ UPLOAD AND GENERATION COMPLETED")

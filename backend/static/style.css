@@ -1351,3 +1351,215 @@ body {
 .time-slot.lunch-break:hover {
     box-shadow: 0 2px 8px rgba(245, 124, 0, 0.3);
 }
+
+/* Branch-specific styles */
+.branch-section {
+    margin-top: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 0.5rem;
+}
+
+.branch-header {
+    color: var(--primary-light) !important;
+    font-weight: 600 !important;
+    font-size: 0.9rem !important;
+    pointer-events: none;
+    opacity: 0.8;
+}
+
+.branch-header:hover {
+    background: transparent !important;
+    border-left-color: transparent !important;
+}
+
+/* Branch color coding */
+.branch-cse {
+    border-left: 4px solid #4361ee !important;
+}
+
+.branch-dsai {
+    border-left: 4px solid #7209b7 !important;
+}
+
+.branch-ece {
+    border-left: 4px solid #4cc9f0 !important;
+}
+
+/* Branch badges */
+.branch-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-left: 0.5rem;
+}
+
+.branch-badge.cse {
+    background: rgba(67, 97, 238, 0.1);
+    color: #4361ee;
+    border: 1px solid #4361ee;
+}
+
+.branch-badge.dsai {
+    background: rgba(114, 9, 183, 0.1);
+    color: #7209b7;
+    border: 1px solid #7209b7;
+}
+
+.branch-badge.ece {
+    background: rgba(76, 201, 240, 0.1);
+    color: #4cc9f0;
+    border: 1px solid #4cc9f0;
+}
+
+/* Enhanced Time Slot Styling - Unified Colors */
+.time-slot {
+    position: relative;
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-align: right !important;
+    padding-right: 12px !important;
+    width: 120px;
+}
+
+/* All 1.5-hour lecture slots - Same color */
+.time-slot.lecture-slot {
+    background: linear-gradient(135deg, #e3f2fd, #bbdefb) !important;
+    border-left: 4px solid #1976d2 !important;
+    color: #1565c0;
+}
+
+/* All 1-hour tutorial slots - Same color */
+.time-slot.tutorial-slot {
+    background: linear-gradient(135deg, #e8f5e8, #c8e6c9) !important;
+    border-left: 4px solid #388e3c !important;
+    color: #2e7d32;
+}
+
+/* Lunch break - Separate color */
+.time-slot.lunch-break {
+    background: linear-gradient(135deg, #fff3e0, #ffe0b2) !important;
+    border-left: 4px solid #f57c00 !important;
+    color: #ef6c00;
+    font-weight: 700 !important;
+    font-style: italic;
+}
+
+.slot-duration {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    font-size: 0.6rem;
+    background: rgba(0,0,0,0.1);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-weight: 500;
+    color: rgba(0,0,0,0.7);
+}
+
+.time-slot-content {
+    position: relative;
+    padding-right: 25px;
+}
+
+/* Hover effects for better interactivity */
+.time-slot:hover {
+    transform: scale(1.02);
+    transition: transform 0.2s ease;
+    z-index: 1;
+}
+
+.time-slot.lecture-slot:hover {
+    box-shadow: 0 2px 8px rgba(25, 118, 210, 0.3);
+}
+
+.time-slot.tutorial-slot:hover {
+    box-shadow: 0 2px 8px rgba(56, 142, 60, 0.3);
+}
+
+.time-slot.lunch-break:hover {
+    box-shadow: 0 2px 8px rgba(245, 124, 0, 0.3);
+}
+
+/* Alternative: Entire sidebar scrolls */
+.sidebar {
+    width: var(--sidebar-width);
+    background: linear-gradient(180deg, var(--dark) 0%, #1a1b23 100%);
+    color: white;
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    height: 100vh;
+    left: 0;
+    top: 0;
+    z-index: 1000;
+    box-shadow: var(--shadow-lg);
+    overflow-y: auto; /* Entire sidebar scrolls */
+    overflow-x: hidden;
+}
+
+/* Custom scrollbar for entire sidebar */
+.sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+.sidebar-header {
+    padding: 2rem 1.5rem 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-nav {
+    flex: 1;
+    padding: 1.5rem 0;
+}
+
+.sidebar-footer {
+    padding: 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Rest of the styles remain the same */
+.branch-section {
+    margin-top: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 0.5rem;
+}
+
+.branch-header {
+    color: var(--primary-light) !important;
+    font-weight: 600 !important;
+    font-size: 0.9rem !important;
+    pointer-events: none;
+    opacity: 0.8;
+}
+
+.nav-item {
+    margin-bottom: 0.25rem;
+}
+
+.nav-item a {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1.5rem;
+    color: rgba(255, 255, 255, 0.8);
+    text-decoration: none;
+    transition: all 0.3s ease;
+    border-left: 3px solid transparent;
+    font-size: 0.9rem;
+}
