@@ -135,6 +135,12 @@
                     <span>Settings</span>
                 </a>
             </li>
+            <li class="nav-item">
+                <a href="#" id="help-nav-btn">
+                    <i class="fas fa-question-circle"></i>
+                    <span>Help & Support</span>
+                </a>
+            </li>
         </ul>
         
         <div class="sidebar-footer">
@@ -429,6 +435,391 @@
 
     <!-- Notification System -->
     <div class="notification-container" id="notification-container"></div>
+
+    <!-- Enhanced Settings Modal -->
+    <div class="modal-overlay" id="settings-modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>
+                    <i class="fas fa-cog me-2"></i>
+                    Timetable Settings & Configuration
+                </h3>
+                <button class="close-btn" onclick="closeSettingsModal()">&times;</button>
+            </div>
+            
+            <div class="settings-content">
+                <!-- General Settings -->
+                <div class="settings-section">
+                    <h4>
+                        <i class="fas fa-sliders-h me-2"></i>
+                        General Settings
+                    </h4>
+                    <div class="settings-grid">
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <i class="fas fa-eye me-2"></i>
+                                Default View Mode
+                            </label>
+                            <select class="setting-control" id="default-view">
+                                <option value="grid">Grid View</option>
+                                <option value="list">List View</option>
+                                <option value="compact">Compact View</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <i class="fas fa-palette me-2"></i>
+                                Color Theme
+                            </label>
+                            <select class="setting-control" id="color-theme">
+                                <option value="default">Default Blue</option>
+                                <option value="dark">Dark Mode</option>
+                                <option value="green">Green Theme</option>
+                                <option value="purple">Purple Theme</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <i class="fas fa-bell me-2"></i>
+                                Notifications
+                            </label>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="notifications-toggle" checked>
+                                <label for="notifications-toggle" class="toggle-slider"></label>
+                                <span class="toggle-text">Enable notifications</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Timetable Configuration -->
+                <div class="settings-section">
+                    <h4>
+                        <i class="fas fa-clock me-2"></i>
+                        Timetable Configuration
+                    </h4>
+                    <div class="settings-grid">
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <i class="fas fa-chalkboard-teacher me-2"></i>
+                                Lecture Duration
+                            </label>
+                            <div class="setting-value-display">
+                                <span class="value">1.5 hours</span>
+                                <span class="badge badge-primary">Fixed</span>
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <i class="fas fa-user-friends me-2"></i>
+                                Tutorial Duration
+                            </label>
+                            <div class="setting-value-display">
+                                <span class="value">1.0 hour</span>
+                                <span class="badge badge-primary">Fixed</span>
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <i class="fas fa-utensils me-2"></i>
+                                Lunch Break
+                            </label>
+                            <div class="setting-value-display">
+                                <span class="value">12:00 - 13:00</span>
+                                <span class="badge badge-success">1 hour</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Elective Course Settings -->
+                <div class="settings-section">
+                    <h4>
+                        <i class="fas fa-clipboard-list me-2"></i>
+                        Elective Course Settings
+                    </h4>
+                    
+                    <div class="setting-card highlight">
+                        <div class="setting-card-header">
+                            <i class="fas fa-crown me-2"></i>
+                            Common Elective Configuration
+                        </div>
+                        <div class="setting-card-content">
+                            <div class="ltpsc-display">
+                                <div class="ltpsc-badge">
+                                    <span class="ltpsc-value">2</span>
+                                    <span class="ltpsc-label">Lectures</span>
+                                </div>
+                                <div class="ltpsc-badge">
+                                    <span class="ltpsc-value">1</span>
+                                    <span class="ltpsc-label">Tutorial</span>
+                                </div>
+                                <div class="ltpsc-badge">
+                                    <span class="ltpsc-value">0</span>
+                                    <span class="ltpsc-label">Practicals</span>
+                                </div>
+                                <div class="ltpsc-badge">
+                                    <span class="ltpsc-value">0</span>
+                                    <span class="ltpsc-label">Study</span>
+                                </div>
+                                <div class="ltpsc-badge highlight">
+                                    <span class="ltpsc-value">2</span>
+                                    <span class="ltpsc-label">Credits</span>
+                                </div>
+                            </div>
+                            <p class="setting-description">
+                                Each elective course requires 2 lectures (1.5h each) and 1 tutorial (1h) per week. 
+                                These are scheduled in common time slots for all departments and sections.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="setting-item">
+                        <label class="setting-label">
+                            <i class="fas fa-sync-alt me-2"></i>
+                            Elective Allocation Strategy
+                        </label>
+                        <select class="setting-control" id="elective-strategy">
+                            <option value="common">Common Slots (Recommended)</option>
+                            <option value="department">Department Specific</option>
+                            <option value="mixed">Mixed Approach</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Department Settings -->
+                <div class="settings-section">
+                    <h4>
+                        <i class="fas fa-university me-2"></i>
+                        Department Configuration
+                    </h4>
+                    <div class="departments-list">
+                        <div class="department-item">
+                            <i class="fas fa-laptop-code me-2"></i>
+                            <span>Computer Science (CSE)</span>
+                            <span class="badge badge-active">Active</span>
+                        </div>
+                        <div class="department-item">
+                            <i class="fas fa-brain me-2"></i>
+                            <span>Data Science & AI (DSAI)</span>
+                            <span class="badge badge-active">Active</span>
+                        </div>
+                        <div class="department-item">
+                            <i class="fas fa-microchip me-2"></i>
+                            <span>Electronics & Communication (ECE)</span>
+                            <span class="badge badge-active">Active</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export & Backup -->
+                <div class="settings-section">
+                    <h4>
+                        <i class="fas fa-download me-2"></i>
+                        Export & Backup
+                    </h4>
+                    <div class="action-buttons">
+                        <button class="btn btn-outline" onclick="exportConfiguration()">
+                            <i class="fas fa-file-export me-2"></i>
+                            Export Settings
+                        </button>
+                        <button class="btn btn-outline" onclick="backupData()">
+                            <i class="fas fa-database me-2"></i>
+                            Backup Data
+                        </button>
+                        <button class="btn btn-outline" onclick="resetToDefaults()">
+                            <i class="fas fa-undo me-2"></i>
+                            Reset to Defaults
+                        </button>
+                    </div>
+                </div>
+
+                <!-- System Information -->
+                <div class="settings-section">
+                    <h4>
+                        <i class="fas fa-info-circle me-2"></i>
+                        System Information
+                    </h4>
+                    <div class="system-info">
+                        <div class="info-item">
+                            <span class="info-label">App Version:</span>
+                            <span class="info-value">2.1.0</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Last Updated:</span>
+                            <span class="info-value" id="last-updated">Loading...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Timetables Generated:</span>
+                            <span class="info-value" id="settings-timetable-count">0</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Courses Loaded:</span>
+                            <span class="info-value" id="settings-course-count">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-outline" onclick="closeSettingsModal()">
+                    <i class="fas fa-times me-2"></i>
+                    Cancel
+                </button>
+                <button class="btn btn-primary" onclick="saveSettings()">
+                    <i class="fas fa-save me-2"></i>
+                    Save Settings
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help & Support Modal -->
+    <div class="modal-overlay" id="help-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+        <div class="modal-content" style="background: white; padding: 2rem; border-radius: 12px; max-width: 800px; width: 90%; max-height: 80vh; overflow-y: auto;">
+            <div class="modal-header" style="display: flex; justify-content: between; align-items: center; margin-bottom: 1.5rem;">
+                <h3 style="margin: 0;">
+                    <i class="fas fa-question-circle me-2"></i>
+                    Help & Support Center
+                </h3>
+                <button class="close-btn" onclick="closeHelpModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
+            </div>
+            
+            <div class="help-content">
+                <!-- Quick Start Guide -->
+                <div class="help-section" style="margin-bottom: 2rem;">
+                    <h4 style="color: var(--primary); margin-bottom: 1rem;">
+                        <i class="fas fa-rocket me-2"></i>
+                        Quick Start Guide
+                    </h4>
+                    <div class="help-steps" style="display: grid; gap: 1rem;">
+                        <div class="step" style="display: flex; gap: 1rem; padding: 1rem; background: var(--light); border-radius: 8px;">
+                            <div class="step-number" style="background: var(--primary); color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">1</div>
+                            <div>
+                                <strong>Upload Required CSV Files</strong>
+                                <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Upload course_data.csv, faculty_availability.csv, classroom_data.csv, student_data.csv, and exams_data.csv</p>
+                            </div>
+                        </div>
+                        <div class="step" style="display: flex; gap: 1rem; padding: 1rem; background: var(--light); border-radius: 8px;">
+                            <div class="step-number" style="background: var(--primary); color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">2</div>
+                            <div>
+                                <strong>Generate Timetables</strong>
+                                <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Click "Generate All Timetables" to create schedules for all semesters and departments</p>
+                            </div>
+                        </div>
+                        <div class="step" style="display: flex; gap: 1rem; padding: 1rem; background: var(--light); border-radius: 8px;">
+                            <div class="step-number" style="background: var(--primary); color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">3</div>
+                            <div>
+                                <strong>View & Download</strong>
+                                <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Use filters to view specific timetables and download individual or all schedules</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- File Format Guide -->
+                <div class="help-section" style="margin-bottom: 2rem;">
+                    <h4 style="color: var(--primary); margin-bottom: 1rem;">
+                        <i class="fas fa-file-csv me-2"></i>
+                        CSV File Requirements
+                    </h4>
+                    <div class="file-requirements" style="display: grid; gap: 1rem;">
+                        <div class="file-item" style="padding: 1rem; background: rgba(67, 97, 238, 0.05); border-radius: 8px; border-left: 4px solid var(--primary);">
+                            <strong>course_data.csv</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">
+                                Required columns: Course Code, Course Name, Semester, Department, LTPSC, Credits, Instructor, Elective (Yes/No)
+                            </p>
+                        </div>
+                        <div class="file-item" style="padding: 1rem; background: rgba(67, 97, 238, 0.05); border-radius: 8px; border-left: 4px solid var(--primary);">
+                            <strong>faculty_availability.csv</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">
+                                Required columns: faculty name, Available Days, Unavailable Time Slots
+                            </p>
+                        </div>
+                        <div class="file-item" style="padding: 1rem; background: rgba(67, 97, 238, 0.05); border-radius: 8px; border-left: 4px solid var(--primary);">
+                            <strong>Other Files</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">
+                                classroom_data.csv, student_data.csv, exams_data.csv with appropriate columns
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Features Guide -->
+                <div class="help-section" style="margin-bottom: 2rem;">
+                    <h4 style="color: var(--primary); margin-bottom: 1rem;">
+                        <i class="fas fa-star me-2"></i>
+                        Key Features
+                    </h4>
+                    <div class="features-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+                        <div class="feature" style="padding: 1rem; background: var(--light); border-radius: 8px;">
+                            <i class="fas fa-palette" style="color: var(--primary); margin-bottom: 0.5rem;"></i>
+                            <strong>Color Coding</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">Courses are color-coded for easy identification</p>
+                        </div>
+                        <div class="feature" style="padding: 1rem; background: var(--light); border-radius: 8px;">
+                            <i class="fas fa-users" style="color: var(--primary); margin-bottom: 0.5rem;"></i>
+                            <strong>Common Electives</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">Elective courses scheduled in common slots for all departments</p>
+                        </div>
+                        <div class="feature" style="padding: 1rem; background: var(--light); border-radius: 8px;">
+                            <i class="fas fa-filter" style="color: var(--primary); margin-bottom: 0.5rem;"></i>
+                            <strong>Smart Filtering</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">Filter by department, semester, and section</p>
+                        </div>
+                        <div class="feature" style="padding: 1rem; background: var(--light); border-radius: 8px;">
+                            <i class="fas fa-download" style="color: var(--primary); margin-bottom: 0.5rem;"></i>
+                            <strong>Bulk Export</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">Download all timetables as a single ZIP file</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Troubleshooting -->
+                <div class="help-section" style="margin-bottom: 2rem;">
+                    <h4 style="color: var(--warning); margin-bottom: 1rem;">
+                        <i class="fas fa-tools me-2"></i>
+                        Troubleshooting
+                    </h4>
+                    <div class="troubleshooting" style="background: rgba(247, 37, 133, 0.05); padding: 1.5rem; border-radius: 8px; border-left: 4px solid var(--warning);">
+                        <div class="issue" style="margin-bottom: 1rem;">
+                            <strong>❌ No timetables generated?</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Check that all required CSV files are uploaded and have the correct format</p>
+                        </div>
+                        <div class="issue" style="margin-bottom: 1rem;">
+                            <strong>⚠️ Elective courses not showing?</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Ensure elective courses are marked "Yes" in the Elective column</p>
+                        </div>
+                        <div class="issue">
+                            <strong>🔧 Debugging tools</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Use the debug endpoints to check loaded data and file matching</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Support Contact -->
+                <div class="help-section">
+                    <h4 style="color: var(--success); margin-bottom: 1rem;">
+                        <i class="fas fa-life-ring me-2"></i>
+                        Get Help
+                    </h4>
+                    <div class="support-contact" style="background: rgba(76, 201, 240, 0.05); padding: 1.5rem; border-radius: 8px; border-left: 4px solid var(--success);">
+                        <p style="margin: 0 0 1rem 0; color: var(--dark);">
+                            Need additional help? Contact the development team or refer to the documentation.
+                        </p>
+                        <div class="contact-actions" style="display: flex; gap: 1rem;">
+                            <button class="btn btn-primary" onclick="showDebugInfo()" style="padding: 0.5rem 1rem;">
+                                <i class="fas fa-bug me-2"></i>Debug Info
+                            </button>
+                            <button class="btn btn-outline" onclick="clearCacheAndReload()" style="padding: 0.5rem 1rem;">
+                                <i class="fas fa-sync me-2"></i>Clear Cache
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="/static/script.js"></script>
 </body>

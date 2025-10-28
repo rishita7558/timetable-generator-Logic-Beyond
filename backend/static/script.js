@@ -32,6 +32,27 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeApp();
 });
 
+// Settings Initialization Function
+function setupSettings() {
+    const settingsBtn = document.getElementById('settings-nav-btn');
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            showSettingsModal();
+        });
+    }
+
+    // Also make the quick action settings button work
+    const settingsActionCard = document.querySelector('.action-card[data-action="settings"]');
+    if (settingsActionCard) {
+        settingsActionCard.addEventListener('click', function() {
+            showSettingsModal();
+        });
+    }
+
+    console.log("✅ Settings system initialized");
+}
+
 function initializeApp() {
     console.log("🚀 Initializing Timetable Application...");
     
@@ -41,9 +62,10 @@ function initializeApp() {
     downloadAllBtn.addEventListener('click', downloadAllTimetables);
     emptyGenerateBtn.addEventListener('click', generateTimetables);
     
-    // New upload-related event listeners
+    // Initialize all systems in correct order
     setupFileUpload();
-    setupSettings();
+    setupSettings(); // This should work now
+    setupHelpSupport(); // Make sure this exists too
     
     // Filter listeners
     branchFilter.addEventListener('change', function() {
@@ -98,6 +120,9 @@ function initializeApp() {
     if (uploadFilesBtn) {
         uploadFilesBtn.addEventListener('click', showUploadSection);
     }
+    
+    // Apply saved settings
+    initializeSettings();
     
     // Load initial data
     loadStats();
@@ -1485,13 +1510,13 @@ function handleQuickAction(action) {
             downloadAllTimetables();
             break;
         case 'settings':
-            showNotification('Settings panel would open here', 'info');
+            showSettingsModal(); // Now opens settings modal directly
             break;
         case 'help':
-            showNotification('Help and support information', 'info');
+            showHelpModal(); // Now opens help modal directly
             break;
         case 'feedback':
-            showNotification('Feedback form would open here', 'info');
+            showFeedbackModal();
             break;
     }
 }
@@ -1605,106 +1630,205 @@ function debugFileMatching() {
     console.log('==========================');
 }
 
-// Add to your existing JavaScript
-function setupSettings() {
-    const settingsBtn = document.getElementById('settings-nav-btn');
-    if (settingsBtn) {
-        settingsBtn.addEventListener('click', function(e) {
+// Enhanced Settings Functions
+function showSettingsModal() {
+    const settingsModal = document.getElementById('settings-modal');
+    if (settingsModal) {
+        settingsModal.style.display = 'flex';
+        loadCurrentSettings();
+        updateSettingsStats();
+    }
+}
+
+function closeSettingsModal() {
+    const settingsModal = document.getElementById('settings-modal');
+    if (settingsModal) {
+        settingsModal.style.display = 'none';
+    }
+}
+
+function loadCurrentSettings() {
+    // Load saved settings from localStorage or use defaults
+    const defaultView = localStorage.getItem('defaultView') || 'grid';
+    const colorTheme = localStorage.getItem('colorTheme') || 'default';
+    const notifications = localStorage.getItem('notifications') !== 'false';
+    
+    document.getElementById('default-view').value = defaultView;
+    document.getElementById('color-theme').value = colorTheme;
+    document.getElementById('notifications-toggle').checked = notifications;
+    
+    // Update last updated timestamp
+    document.getElementById('last-updated').textContent = new Date().toLocaleString();
+}
+
+function updateSettingsStats() {
+    // Update statistics in settings modal
+    const timetableCount = currentTimetables.length;
+    const courseCount = Object.keys(courseDatabase).length;
+    
+    document.getElementById('settings-timetable-count').textContent = timetableCount;
+    document.getElementById('settings-course-count').textContent = courseCount;
+}
+
+function saveSettings() {
+    const defaultView = document.getElementById('default-view').value;
+    const colorTheme = document.getElementById('color-theme').value;
+    const notifications = document.getElementById('notifications-toggle').checked;
+    const electiveStrategy = document.getElementById('elective-strategy').value;
+    
+    // Save to localStorage
+    localStorage.setItem('defaultView', defaultView);
+    localStorage.setItem('colorTheme', colorTheme);
+    localStorage.setItem('notifications', notifications);
+    localStorage.setItem('electiveStrategy', electiveStrategy);
+    
+    // Apply settings
+    applySettings();
+    
+    showNotification('✅ Settings saved successfully!', 'success');
+    closeSettingsModal();
+}
+
+function applySettings() {
+    const defaultView = localStorage.getItem('defaultView') || 'grid';
+    const colorTheme = localStorage.getItem('colorTheme') || 'default';
+    
+    // Apply view mode
+    if (viewMode) {
+        viewMode.value = defaultView;
+        currentView = defaultView;
+        renderTimetables();
+    }
+    
+    // Apply theme (simplified - you can expand this)
+    document.body.setAttribute('data-theme', colorTheme);
+}
+
+function exportConfiguration() {
+    const settings = {
+        defaultView: localStorage.getItem('defaultView') || 'grid',
+        colorTheme: localStorage.getItem('colorTheme') || 'default',
+        notifications: localStorage.getItem('notifications') !== 'false',
+        electiveStrategy: localStorage.getItem('electiveStrategy') || 'common',
+        exportDate: new Date().toISOString()
+    };
+    
+    const dataStr = JSON.stringify(settings, null, 2);
+    const dataBlob = new Blob([dataStr], {type: 'application/json'});
+    
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'timetable-settings.json';
+    link.click();
+    
+    URL.revokeObjectURL(url);
+    showNotification('📁 Settings exported successfully!', 'success');
+}
+
+function backupData() {
+    const backupData = {
+        timetables: currentTimetables,
+        courseDatabase: courseDatabase,
+        settings: {
+            defaultView: localStorage.getItem('defaultView'),
+            colorTheme: localStorage.getItem('colorTheme'),
+            notifications: localStorage.getItem('notifications')
+        },
+        backupDate: new Date().toISOString()
+    };
+    
+    const dataStr = JSON.stringify(backupData, null, 2);
+    const dataBlob = new Blob([dataStr], {type: 'application/json'});
+    
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `timetable-backup-${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    
+    URL.revokeObjectURL(url);
+    showNotification('💾 Data backup created successfully!', 'success');
+}
+
+function resetToDefaults() {
+    if (confirm('Are you sure you want to reset all settings to defaults? This action cannot be undone.')) {
+        localStorage.clear();
+        applySettings();
+        showNotification('🔄 Settings reset to defaults!', 'info');
+        closeSettingsModal();
+    }
+}
+
+// Initialize settings when app loads
+function initializeSettings() {
+    applySettings();
+}
+// Initialize settings when the app loads
+// Add this to your initializeApp() function:
+// setupSettings();
+// Help & Support Functions
+function setupHelpSupport() {
+    const helpNavBtn = document.getElementById('help-nav-btn');
+    if (helpNavBtn) {
+        helpNavBtn.addEventListener('click', function(e) {
             e.preventDefault();
-            showSettingsModal();
+            showHelpModal();
+        });
+    }
+
+    // Also make the quick action help button work
+    const helpActionCard = document.querySelector('.action-card[data-action="help"]');
+    if (helpActionCard) {
+        helpActionCard.addEventListener('click', function() {
+            showHelpModal();
         });
     }
 }
 
-function showSettingsModal() {
-    // Create settings modal
-    const modalHtml = `
-        <div class="modal-overlay" id="settings-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
-            <div class="modal-content" style="background: white; padding: 2rem; border-radius: 12px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;">
-                <div class="modal-header" style="display: flex; justify-content: between; align-items: center; margin-bottom: 1.5rem;">
-                    <h3 style="margin: 0;">
-                        <i class="fas fa-cog me-2"></i>
-                        Timetable Settings
-                    </h3>
-                    <button class="close-btn" onclick="closeSettingsModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
-                </div>
-                
-                <div class="settings-section" style="margin-bottom: 1.5rem;">
-                    <h4 style="color: var(--primary); margin-bottom: 1rem;">
-                        <i class="fas fa-user-graduate me-2"></i>
-                        Elective Course Settings
-                    </h4>
-                    
-                    <div class="setting-item" style="margin-bottom: 1rem;">
-                        <label style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Default LTPSC for Electives</label>
-                        <div style="background: var(--light); padding: 1rem; border-radius: 8px; border-left: 4px solid var(--secondary);">
-                            <strong style="color: var(--secondary);">2-1-0-0-2</strong>
-                            <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: var(--gray);">
-                                2 Lectures (1.5h each), 1 Tutorial (1h), 0 Practicals, 0 Study, 2 Credits
-                            </p>
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <label style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Common Elective Slots</label>
-                        <div style="background: var(--light); padding: 1rem; border-radius: 8px;">
-                            <p style="margin: 0; font-size: 0.9rem;">
-                                Elective courses are scheduled in common time slots for both sections A and B to allow students from both sections to attend the same elective courses.
-                            </p>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="settings-section">
-                    <h4 style="color: var(--primary); margin-bottom: 1rem;">
-                        <i class="fas fa-clock me-2"></i>
-                        Time Slot Configuration
-                    </h4>
-                    
-                    <div class="setting-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                        <div class="setting-item">
-                            <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Lecture Duration</label>
-                            <div style="background: white; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; text-align: center;">
-                                1.5 hours
-                            </div>
-                        </div>
-                        <div class="setting-item">
-                            <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Tutorial Duration</label>
-                            <div style="background: white; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; text-align: center;">
-                                1.0 hour
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 2rem;">
-                    <button class="btn btn-outline" onclick="closeSettingsModal()" style="padding: 0.75rem 1.5rem;">Close</button>
-                    <button class="btn btn-primary" onclick="saveSettings()" style="padding: 0.75rem 1.5rem;">
-                        <i class="fas fa-save me-2"></i>Save Settings
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-}
-
-function closeSettingsModal() {
-    const modal = document.getElementById('settings-modal');
-    if (modal) {
-        modal.remove();
+function showHelpModal() {
+    const helpModal = document.getElementById('help-modal');
+    if (helpModal) {
+        helpModal.style.display = 'flex';
     }
 }
 
-function saveSettings() {
-    showNotification('Settings saved successfully!', 'success');
-    closeSettingsModal();
+function closeHelpModal() {
+    const helpModal = document.getElementById('help-modal');
+    if (helpModal) {
+        helpModal.style.display = 'none';
+    }
 }
 
-// Initialize settings when the app loads
+function showDebugInfo() {
+    debugApp();
+    verifyDataLoad();
+    showNotification('🔧 Debug information logged to console', 'info');
+}
+
+function clearCacheAndReload() {
+    showNotification('🔄 Clearing cache and reloading...', 'info');
+    
+    clearCache().then(() => {
+        setTimeout(() => {
+            loadTimetables();
+            loadStats();
+            showNotification('✅ Cache cleared and data reloaded', 'success');
+        }, 1000);
+    });
+}
+
+// Add keyboard shortcut for help (F1)
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'F1') {
+        e.preventDefault();
+        showHelpModal();
+    }
+});
+
+// Initialize help system when app loads
 // Add this to your initializeApp() function:
-// setupSettings();
+// setupHelpSupport();
 
 // Export functions for global access
 window.downloadTimetable = downloadTimetable;
