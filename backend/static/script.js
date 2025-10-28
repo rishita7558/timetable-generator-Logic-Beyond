@@ -813,7 +813,124 @@ function enhanceTimeSlotHeaders() {
     });
 }
 
+function setupEnhancedTooltips() {
+    // Create tooltip element
+    let tooltip = document.getElementById('enhanced-tooltip');
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = 'enhanced-tooltip';
+        tooltip.className = 'enhanced-tooltip';
+        document.body.appendChild(tooltip);
+    }
+
+    // Add event listeners to all colored cells
+    document.addEventListener('mouseover', function(e) {
+        const cell = e.target.closest('.colored-cell');
+        if (cell && cell.hasAttribute('data-course-code')) {
+            showEnhancedTooltip(cell, e.clientX, e.clientY);
+        }
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        const tooltip = document.getElementById('enhanced-tooltip');
+        if (tooltip.style.display === 'block') {
+            tooltip.style.left = (e.clientX + 15) + 'px';
+            tooltip.style.top = (e.clientY + 15) + 'px';
+        }
+    });
+
+    document.addEventListener('mouseout', function(e) {
+        const cell = e.target.closest('.colored-cell');
+        if (cell) {
+            hideEnhancedTooltip();
+        }
+    });
+}
+
+function showEnhancedTooltip(cell, x, y) {
+    const tooltip = document.getElementById('enhanced-tooltip');
+    if (!tooltip) return;
+
+    const courseCode = cell.getAttribute('data-course-code');
+    const courseName = cell.getAttribute('data-course-name');
+    const sessionType = cell.getAttribute('data-session-type');
+    const credits = cell.getAttribute('data-credits');
+    const instructor = cell.getAttribute('data-instructor');
+    const department = cell.getAttribute('data-department');
+    const courseType = cell.getAttribute('data-course-type');
+    const isCommon = cell.getAttribute('data-is-common') === 'true';
+
+    // Determine session icon and color
+    let sessionIcon = '📚'; // Default lecture icon
+    let sessionColor = '#4361ee'; // Default blue
+    
+    if (sessionType.includes('Tutorial')) {
+        sessionIcon = '👨‍🏫';
+        sessionColor = '#4cc9f0'; // Cyan for tutorials
+    } else if (sessionType.includes('Elective')) {
+        sessionIcon = '⭐';
+        sessionColor = '#7209b7'; // Purple for electives
+    }
+
+    const isElective = courseType === 'Elective' || sessionType.includes('Elective');
+
+    tooltip.innerHTML = `
+        <div class="tooltip-header" style="border-left: 4px solid ${sessionColor}">
+            <div class="tooltip-title">
+                <span class="session-icon">${sessionIcon}</span>
+                <div>
+                    <div class="course-code">${courseCode}</div>
+                    <div class="session-type">${sessionType}</div>
+                </div>
+            </div>
+            ${isCommon ? '<div class="common-badge">COMMON SLOT</div>' : ''}
+        </div>
+        <div class="tooltip-body">
+            <div class="course-name">${courseName}</div>
+            <div class="tooltip-details">
+                <div class="detail-item">
+                    <i class="fas fa-user-graduate"></i>
+                    <span>${instructor}</span>
+                </div>
+                <div class="detail-item">
+                    <i class="fas fa-university"></i>
+                    <span>${department}</span>
+                </div>
+                <div class="detail-item">
+                    <i class="fas fa-star"></i>
+                    <span>${credits} Credits • ${courseType}</span>
+                </div>
+                ${isElective ? `
+                <div class="detail-item highlight">
+                    <i class="fas fa-users"></i>
+                    <span>Common for all branches & sections</span>
+                </div>
+                ` : ''}
+            </div>
+        </div>
+        <div class="tooltip-footer">
+            <small>Click for more details</small>
+        </div>
+    `;
+
+    tooltip.style.left = (x + 15) + 'px';
+    tooltip.style.top = (y + 15) + 'px';
+    tooltip.style.display = 'block';
+    tooltip.style.opacity = '1';
+}
+
+function hideEnhancedTooltip() {
+    const tooltip = document.getElementById('enhanced-tooltip');
+    if (tooltip) {
+        tooltip.style.opacity = '0';
+        setTimeout(() => {
+            tooltip.style.display = 'none';
+        }, 200);
+    }
+}
+
 // Color Coding and Legend Functions
+// Update the applyDynamicColorCoding function
 function applyDynamicColorCoding(tableElement, courseColors) {
     const cells = tableElement.querySelectorAll('td');
     
@@ -834,31 +951,51 @@ function applyDynamicColorCoding(tableElement, courseColors) {
             // Remove "(Tutorial)" suffix but keep the same course code
             const baseCourseCode = text.replace(' (Tutorial)', '');
             courseCode = extractCourseCode(baseCourseCode) || courseCode;
-            cell.classList.add('tutorial'); // Add tutorial class for styling
+            cell.classList.add('tutorial-session'); // Add tutorial class for styling
         }
         
         // For elective lectures, use the base course code without "(Elective)"
         if (text.includes('(Elective)') && courseCode) {
             const baseCourseCode = text.replace(' (Elective)', '');
             courseCode = extractCourseCode(baseCourseCode) || courseCode;
+            cell.classList.add('elective-session'); // Add elective class for styling
+        }
+
+        // For regular tutorials, use the base course code
+        if (text.includes('(Tutorial)') && courseCode && !text.includes('(Elective)')) {
+            const baseCourseCode = text.replace(' (Tutorial)', '');
+            courseCode = extractCourseCode(baseCourseCode) || courseCode;
+            cell.classList.add('tutorial-session');
         }
         
         if (courseCode && courseColors[courseCode]) {
-            // Apply dynamic color
+            // Apply dynamic color - SAME COLOR for all sessions of the course
             const color = courseColors[courseCode];
             cell.style.background = color;
             cell.style.color = getContrastColor(color);
             cell.style.fontWeight = '600';
             cell.style.border = '2px solid white';
             
-            // Add tooltip with course info
+            // Add enhanced tooltip with course info
             const courseInfo = courseDatabase[courseCode];
             if (courseInfo) {
                 let sessionType = 'Lecture';
                 if (text.includes('(Tutorial)')) sessionType = 'Tutorial';
                 if (text.includes('(Elective)')) sessionType = 'Elective Lecture';
                 
-                cell.title = `${courseCode}: ${courseInfo.name} (${sessionType})\n${courseInfo.credits} credits - ${courseInfo.instructor}`;
+                // Enhanced tooltip data attributes
+                cell.setAttribute('data-course-code', courseCode);
+                cell.setAttribute('data-course-name', courseInfo.name);
+                cell.setAttribute('data-session-type', sessionType);
+                cell.setAttribute('data-credits', courseInfo.credits);
+                cell.setAttribute('data-instructor', courseInfo.instructor);
+                cell.setAttribute('data-department', courseInfo.department);
+                cell.setAttribute('data-course-type', courseInfo.type);
+                
+                // Add common elective info
+                if (text.includes('(Elective)') || text.includes('(Tutorial)')) {
+                    cell.setAttribute('data-is-common', 'true');
+                }
             }
             
             // Make cell clickable for more info
@@ -866,13 +1003,8 @@ function applyDynamicColorCoding(tableElement, courseColors) {
             cell.classList.add('colored-cell');
             
             // Add elective indicator for both lectures and tutorials
-            if (text.includes('(Elective)') || text.includes('(Tutorial)')) {
+            if (text.includes('(Elective)') || (text.includes('(Tutorial)') && courseInfo && courseInfo.is_elective)) {
                 cell.classList.add('elective-slot');
-                if (text.includes('(Elective)')) {
-                    cell.title += "\n⚡ Common Elective Slot (Same for both sections)";
-                } else if (text.includes('(Tutorial)')) {
-                    cell.title += "\n⚡ Common Tutorial Slot (Same for both sections)";
-                }
             }
         }
     });
@@ -1153,6 +1285,7 @@ function enhanceTables() {
     
     // Enhance time slot headers
     enhanceTimeSlotHeaders();
+    setupEnhancedTooltips();
     
     // Add enhanced hover effects
     const electiveCells = document.querySelectorAll('.elective-slot');

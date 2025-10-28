@@ -1997,3 +1997,164 @@ body {
         flex-direction: column;
     }
 }
+
+/* Enhanced Tooltip Styles */
+.enhanced-tooltip {
+    position: fixed;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    padding: 0;
+    z-index: 10000;
+    max-width: 320px;
+    display: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    border: 1px solid #e9ecef;
+    font-family: 'Inter', sans-serif;
+    pointer-events: none;
+}
+
+.tooltip-header {
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+    padding: 1rem 1.25rem;
+    border-radius: 12px 12px 0 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.tooltip-title {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    flex: 1;
+}
+
+.session-icon {
+    font-size: 1.5rem;
+    margin-top: 0.125rem;
+}
+
+.course-code {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--dark);
+    line-height: 1.2;
+}
+
+.session-type {
+    font-size: 0.85rem;
+    color: var(--gray);
+    font-weight: 500;
+    margin-top: 0.125rem;
+}
+
+.common-badge {
+    background: linear-gradient(135deg, var(--secondary), #8b37c9);
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.tooltip-body {
+    padding: 1.25rem;
+}
+
+.course-name {
+    font-weight: 600;
+    color: var(--dark);
+    font-size: 0.95rem;
+    line-height: 1.4;
+    margin-bottom: 1rem;
+}
+
+.tooltip-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.detail-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.85rem;
+    color: var(--gray);
+}
+
+.detail-item i {
+    width: 16px;
+    text-align: center;
+    color: var(--primary);
+}
+
+.detail-item.highlight {
+    color: var(--secondary);
+    font-weight: 500;
+}
+
+.detail-item.highlight i {
+    color: var(--secondary);
+}
+
+.tooltip-footer {
+    padding: 0.75rem 1.25rem;
+    background: var(--light);
+    border-radius: 0 0 12px 12px;
+    text-align: center;
+    border-top: 1px solid var(--border);
+}
+
+.tooltip-footer small {
+    color: var(--gray-light);
+    font-size: 0.75rem;
+}
+
+/* Enhanced session type styling */
+.tutorial-session {
+    position: relative;
+    font-style: italic;
+}
+
+.tutorial-session::after {
+    content: 'T';
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    font-size: 0.6rem;
+    background: rgba(255, 255, 255, 0.3);
+    padding: 1px 3px;
+    border-radius: 2px;
+    font-weight: bold;
+    font-style: normal;
+}
+
+.elective-session::after {
+    content: 'E';
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    font-size: 0.6rem;
+    background: rgba(255, 255, 255, 0.3);
+    padding: 1px 3px;
+    border-radius: 2px;
+    font-weight: bold;
+}
+
+/* Ensure consistent hover effects */
+.colored-cell:hover {
+    transform: scale(1.05) !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2) !important;
+    z-index: 10 !important;
+}
+
+.elective-slot:hover {
+    transform: scale(1.08) !important;
+    box-shadow: 0 6px 20px rgba(114, 9, 183, 0.3) !important;
+    z-index: 11 !important;
+}
