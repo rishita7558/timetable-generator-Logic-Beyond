@@ -5,24 +5,254 @@
     box-sizing: border-box;
 }
 
+/* Pastel Theme System Variables */
 :root {
-    --primary: #4361ee;
-    --primary-dark: #3a56d4;
-    --primary-light: #4895ef;
-    --secondary: #7209b7;
-    --success: #4cc9f0;
-    --warning: #f72585;
-    --info: #4895ef;
-    --dark: #2b2d42;
-    --light: #f8f9fa;
-    --gray: #6c757d;
-    --gray-light: #adb5bd;
-    --border: #e9ecef;
-    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    /* Default Pastel Blue Theme */
+    --primary: #6C8DFF;
+    --primary-dark: #5A7AE8;
+    --primary-light: #8BA3FF;
+    --secondary: #B399FF;
+    --success: #6CD4FF;
+    --warning: #FF8FA3;
+    --info: #7DC9FF;
+    --dark: #2D3748;
+    --light: #F7FAFC;
+    --gray: #718096;
+    --gray-light: #A0AEC0;
+    --border: #E2E8F0;
+    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.03);
     --radius: 12px;
     --radius-sm: 8px;
     --sidebar-width: 280px;
+    
+    /* Background gradients - Subtle pastels */
+    --bg-gradient: linear-gradient(135deg, #F0F4FF 0%, #E6F0FF 100%);
+    --sidebar-gradient: linear-gradient(180deg, #4A5568 0%, #2D3748 100%);
+    --card-gradient: linear-gradient(135deg, var(--primary), var(--primary-light));
+    
+    /* Surface colors */
+    --surface-primary: #FFFFFF;
+    --surface-secondary: #F8FAFC;
+    --surface-tertiary: #F1F5F9;
+}
+
+/* Pastel Sage Theme */
+[data-theme="sage"] {
+    --primary: #7C9B8E;
+    --primary-dark: #6A897C;
+    --primary-light: #8EAC9F;
+    --secondary: #A8C3B5;
+    --success: #88C9BF;
+    --warning: #E8B4B4;
+    --info: #9BC5D4;
+    --bg-gradient: linear-gradient(135deg, #F0F7F4 0%, #E8F2EE 100%);
+    --sidebar-gradient: linear-gradient(180deg, #5A7168 0%, #475A52 100%);
+}
+
+/* Pastel Lavender Theme */
+[data-theme="lavender"] {
+    --primary: #9F8BFF;
+    --primary-dark: #8D79ED;
+    --primary-light: #B19DFF;
+    --secondary: #C8B6FF;
+    --success: #A3C4F3;
+    --warning: #FFB3C6;
+    --info: #B5C6E0;
+    --bg-gradient: linear-gradient(135deg, #F8F7FF 0%, #F0EEFF 100%);
+    --sidebar-gradient: linear-gradient(180deg, #7B6CD9 0%, #6A5BC9 100%);
+}
+
+/* Pastel Sand Theme */
+[data-theme="sand"] {
+    --primary: #D4A574;
+    --primary-dark: #C29362;
+    --primary-light: #E6B786;
+    --secondary: #E8C8A5;
+    --success: #C4D4A3;
+    --warning: #E8B4B4;
+    --info: #D4C4A5;
+    --bg-gradient: linear-gradient(135deg, #FDF6F0 0%, #FAF1E6 100%);
+    --sidebar-gradient: linear-gradient(180deg, #A88C6D 0%, #8C735A 100%);
+}
+
+/* Pastel Slate Theme */
+[data-theme="slate"] {
+    --primary: #7B8C9D;
+    --primary-dark: #697A8B;
+    --primary-light: #8D9EAF;
+    --secondary: #A3B4C5;
+    --success: #8CA3B8;
+    --warning: #C4A3A3;
+    --info: #9CB3C8;
+    --bg-gradient: linear-gradient(135deg, #F5F7FA 0%, #EDF2F7 100%);
+    --sidebar-gradient: linear-gradient(180deg, #5A6778 0%, #4A5768 100%);
+}
+
+/* Pastel Rose Theme */
+[data-theme="rose"] {
+    --primary: #FF9AA2;
+    --primary-dark: #ED8890;
+    --primary-light: #FFACB4;
+    --secondary: #FFB7C5;
+    --success: #A3D4C8;
+    --warning: #FFB3C6;
+    --info: #D4A3C8;
+    --bg-gradient: linear-gradient(135deg, #FFF5F5 0%, #FFE8E8 100%);
+    --sidebar-gradient: linear-gradient(180deg, #D4878F 0%, #C2757D 100%);
+}
+
+/* Enhanced body styling for pastel themes */
+body {
+    background: var(--bg-gradient);
+    color: var(--dark);
+    font-family: 'Inter', sans-serif;
+    transition: all 0.3s ease;
+}
+
+/* Refined component styling for pastel themes */
+.stat-card {
+    background: var(--surface-primary);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+}
+
+.stat-card:hover {
+    box-shadow: var(--shadow-lg);
+    border-color: var(--primary-light);
+}
+
+.timetable-card {
+    background: var(--surface-primary);
+    border: 1px solid var(--border);
+}
+
+.controls-section {
+    background: var(--surface-primary);
+    border: 1px solid var(--border);
+}
+
+.quick-actions {
+    background: var(--surface-primary);
+    border: 1px solid var(--border);
+}
+
+/* Enhanced sidebar for pastel themes */
+.sidebar {
+    background: var(--sidebar-gradient);
+    border-right: 1px solid var(--border);
+}
+
+/* Refined buttons for pastel themes */
+.btn-primary {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    border: 1px solid var(--primary-dark);
+    color: white;
+    font-weight: 500;
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+    transform: translateY(-1px);
+}
+
+.btn-outline {
+    background: transparent;
+    border: 1px solid var(--primary);
+    color: var(--primary);
+    font-weight: 500;
+}
+
+.btn-outline:hover {
+    background: var(--primary);
+    color: white;
+}
+
+/* Enhanced table styling */
+.timetable-table {
+    background: var(--surface-primary);
+}
+
+.timetable-table th {
+    background: var(--surface-secondary);
+    color: var(--dark);
+    font-weight: 600;
+    border-bottom: 2px solid var(--border);
+}
+
+.timetable-table td {
+    border-color: var(--border);
+    background: var(--surface-primary);
+}
+
+/* Theme preview styles */
+.theme-preview-color {
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+}
+
+.theme-option[data-theme="default"] .theme-preview-color {
+    background: linear-gradient(135deg, #F0F4FF 0%, #E6F0FF 100%);
+}
+
+.theme-option[data-theme="sage"] .theme-preview-color {
+    background: linear-gradient(135deg, #F0F7F4 0%, #E8F2EE 100%);
+}
+
+.theme-option[data-theme="lavender"] .theme-preview-color {
+    background: linear-gradient(135deg, #F8F7FF 0%, #F0EEFF 100%);
+}
+
+.theme-option[data-theme="sand"] .theme-preview-color {
+    background: linear-gradient(135deg, #FDF6F0 0%, #FAF1E6 100%);
+}
+
+.theme-option[data-theme="slate"] .theme-preview-color {
+    background: linear-gradient(135deg, #F5F7FA 0%, #EDF2F7 100%);
+}
+
+.theme-option[data-theme="rose"] .theme-preview-color {
+    background: linear-gradient(135deg, #FFF5F5 0%, #FFE8E8 100%);
+}
+
+/* Enhanced tooltip for pastel themes */
+.enhanced-tooltip {
+    background: var(--surface-primary);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+}
+
+.tooltip-header {
+    background: var(--surface-secondary);
+    border-bottom: 1px solid var(--border);
+}
+
+.tooltip-footer {
+    background: var(--surface-secondary);
+    border-top: 1px solid var(--border);
+}
+
+/* Notification styling */
+.notification {
+    background: var(--surface-primary);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+}
+
+/* Modal enhancements */
+.modal-content {
+    background: var(--surface-primary);
+    border: 1px solid var(--border);
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--border);
+}
+
+/* Loading overlay refinement */
+.loading-content {
+    background: var(--surface-primary);
+    border: 1px solid var(--border);
 }
 
 body {
@@ -2157,4 +2387,127 @@ body {
     transform: scale(1.08) !important;
     box-shadow: 0 6px 20px rgba(114, 9, 183, 0.3) !important;
     z-index: 11 !important;
+}
+
+/* Compact Mode */
+.compact-mode .stat-card {
+    padding: 1rem;
+}
+
+.compact-mode .timetable-card {
+    margin-bottom: 1rem;
+}
+
+.compact-mode .controls-section {
+    padding: 1rem;
+}
+
+.compact-mode .btn {
+    padding: 0.5rem 1rem;
+}
+
+/* No Animations */
+.no-animations * {
+    transition: none !important;
+    animation: none !important;
+}
+
+/* Sidebar Collapsed */
+.sidebar-collapsed .sidebar {
+    width: 70px;
+}
+
+.sidebar-collapsed .sidebar-nav span,
+.sidebar-collapsed .logo h2,
+.sidebar-collapsed .user-info {
+    display: none;
+}
+
+.sidebar-collapsed .main-content {
+    margin-left: 70px;
+}
+
+.sidebar-collapsed .sidebar-nav a {
+    justify-content: center;
+    padding: 0.875rem;
+}
+
+/* High Contrast */
+.high-contrast {
+    --primary: #000000;
+    --primary-dark: #000000;
+    --primary-light: #333333;
+    --secondary: #666666;
+    --border: #000000;
+}
+
+.high-contrast .colored-cell {
+    border: 2px solid #000000 !important;
+}
+
+.high-contrast .timetable-table th {
+    background: #000000 !important;
+    color: white !important;
+}
+
+/* Font Sizes */
+.font-small {
+    font-size: 14px;
+}
+
+.font-small .timetable-table {
+    font-size: 0.75rem;
+}
+
+.font-medium {
+    font-size: 16px;
+}
+
+.font-large {
+    font-size: 18px;
+}
+
+.font-large .timetable-table {
+    font-size: 0.9rem;
+}
+
+.font-xlarge {
+    font-size: 20px;
+}
+
+.font-xlarge .timetable-table {
+    font-size: 1rem;
+}
+
+/* Density Settings */
+.density-compact .stat-card {
+    padding: 1rem;
+}
+
+.density-compact .timetable-card {
+    margin-bottom: 1rem;
+}
+
+.density-compact .btn {
+    padding: 0.5rem 1rem;
+}
+
+.density-comfortable {
+    /* Default spacing */
+}
+
+.density-spacious .stat-card {
+    padding: 2rem;
+}
+
+.density-spacious .timetable-card {
+    margin-bottom: 2rem;
+}
+
+.density-spacious .btn {
+    padding: 1rem 2rem;
+}
+
+.density-spacious .controls-section {
+    padding: 2rem;
 }

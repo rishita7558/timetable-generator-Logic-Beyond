@@ -66,6 +66,8 @@ function initializeApp() {
     setupFileUpload();
     setupSettings(); // This should work now
     setupHelpSupport(); // Make sure this exists too
+    themeConfig.init();
+    uiConfig.init();
     
     // Filter listeners
     branchFilter.addEventListener('change', function() {
@@ -1962,6 +1964,235 @@ document.addEventListener('keydown', function(e) {
 // Initialize help system when app loads
 // Add this to your initializeApp() function:
 // setupHelpSupport();
+
+// Pastel Theme Management System
+const themeConfig = {
+    currentTheme: 'default',
+    themes: ['default', 'sage', 'lavender', 'sand', 'slate', 'rose'],
+    
+    init() {
+        this.loadTheme();
+        this.setupThemeSelector();
+        this.applyTheme(this.currentTheme);
+    },
+    
+    loadTheme() {
+        this.currentTheme = localStorage.getItem('selectedTheme') || 'default';
+    },
+    
+    saveTheme(theme) {
+        localStorage.setItem('selectedTheme', theme);
+        this.currentTheme = theme;
+    },
+    
+    applyTheme(theme) {
+        document.body.setAttribute('data-theme', theme);
+        this.updateThemeDependentElements(theme);
+        this.saveTheme(theme);
+    },
+    
+    setupThemeSelector() {
+        const themeContainer = document.getElementById('theme-selector');
+        if (!themeContainer) return;
+        
+        themeContainer.innerHTML = `
+            <div class="theme-preview">
+                ${this.themes.map(theme => `
+                    <div class="theme-option ${theme === this.currentTheme ? 'active' : ''}" 
+                         data-theme="${theme}" onclick="themeConfig.selectTheme('${theme}')">
+                        <div class="theme-preview-color"></div>
+                        <div class="theme-name">${this.getThemeDisplayName(theme)}</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    },
+    
+    selectTheme(theme) {
+        this.applyTheme(theme);
+        this.setupThemeSelector(); // Refresh selector
+        showNotification(`🎨 Switched to ${this.getThemeDisplayName(theme)} theme`, 'success');
+    },
+    
+    getThemeDisplayName(theme) {
+        const names = {
+            'default': 'Pastel Blue',
+            'sage': 'Sage Green',
+            'lavender': 'Soft Lavender', 
+            'sand': 'Warm Sand',
+            'slate': 'Cool Slate',
+            'rose': 'Blush Rose'
+        };
+        return names[theme] || theme;
+    },
+    
+    updateThemeDependentElements(theme) {
+        // Update any theme-dependent elements here
+        const statsCards = document.querySelectorAll('.stat-card');
+        statsCards.forEach(card => {
+            card.style.borderLeftColor = `var(--primary)`;
+        });
+        
+        // Update timetable card borders
+        const timetableCards = document.querySelectorAll('.timetable-card');
+        timetableCards.forEach(card => {
+            card.style.borderLeftColor = `var(--primary)`;
+        });
+    }
+};
+
+// UI Configuration System
+const uiConfig = {
+    settings: {
+        compactMode: false,
+        animations: true,
+        sidebarCollapsed: false,
+        highContrast: false,
+        fontSize: 'medium',
+        density: 'comfortable'
+    },
+    
+    init() {
+        this.loadSettings();
+        this.applyAllSettings();
+    },
+    
+    loadSettings() {
+        const saved = localStorage.getItem('uiSettings');
+        if (saved) {
+            this.settings = { ...this.settings, ...JSON.parse(saved) };
+        }
+    },
+    
+    saveSettings() {
+        localStorage.setItem('uiSettings', JSON.stringify(this.settings));
+    },
+    
+    applyAllSettings() {
+        this.applyCompactMode();
+        this.applyAnimations();
+        this.applySidebarState();
+        this.applyHighContrast();
+        this.applyFontSize();
+        this.applyDensity();
+    },
+    
+    // Compact Mode
+    applyCompactMode() {
+        if (this.settings.compactMode) {
+            document.body.classList.add('compact-mode');
+        } else {
+            document.body.classList.remove('compact-mode');
+        }
+    },
+    
+    toggleCompactMode() {
+        this.settings.compactMode = !this.settings.compactMode;
+        this.applyCompactMode();
+        this.saveSettings();
+    },
+    
+    // Animations
+    applyAnimations() {
+        if (!this.settings.animations) {
+            document.body.classList.add('no-animations');
+        } else {
+            document.body.classList.remove('no-animations');
+        }
+    },
+    
+    toggleAnimations() {
+        this.settings.animations = !this.settings.animations;
+        this.applyAnimations();
+        this.saveSettings();
+    },
+    
+    // Sidebar
+    applySidebarState() {
+        if (this.settings.sidebarCollapsed) {
+            document.body.classList.add('sidebar-collapsed');
+        } else {
+            document.body.classList.remove('sidebar-collapsed');
+        }
+    },
+    
+    toggleSidebar() {
+        this.settings.sidebarCollapsed = !this.settings.sidebarCollapsed;
+        this.applySidebarState();
+        this.saveSettings();
+    },
+    
+    // High Contrast
+    applyHighContrast() {
+        if (this.settings.highContrast) {
+            document.body.classList.add('high-contrast');
+        } else {
+            document.body.classList.remove('high-contrast');
+        }
+    },
+    
+    toggleHighContrast() {
+        this.settings.highContrast = !this.settings.highContrast;
+        this.applyHighContrast();
+        this.saveSettings();
+    },
+    
+    // Font Size
+    applyFontSize() {
+        document.body.className = document.body.className.replace(/\bfont-\w+\b/g, '');
+        document.body.classList.add(`font-${this.settings.fontSize}`);
+    },
+    
+    setFontSize(size) {
+        this.settings.fontSize = size;
+        this.applyFontSize();
+        this.saveSettings();
+    },
+    
+    // Density
+    applyDensity() {
+        document.body.className = document.body.className.replace(/\bdensity-\w+\b/g, '');
+        document.body.classList.add(`density-${this.settings.density}`);
+    },
+    
+    setDensity(density) {
+        this.settings.density = density;
+        this.applyDensity();
+        this.saveSettings();
+    }
+};
+
+function resetUISettings() {
+    if (confirm('Reset all UI settings to defaults?')) {
+        localStorage.removeItem('selectedTheme');
+        localStorage.removeItem('uiSettings');
+        themeConfig.init();
+        uiConfig.init();
+        showNotification('🔄 UI settings reset to defaults', 'success');
+    }
+}
+
+// Update loadCurrentSettings function
+function loadCurrentSettings() {
+    // Load saved settings from localStorage or use defaults
+    const defaultView = localStorage.getItem('defaultView') || 'grid';
+    const notifications = localStorage.getItem('notifications') !== 'false';
+    
+    // Update UI controls
+    document.getElementById('default-view').value = defaultView;
+    document.getElementById('notifications-toggle').checked = notifications;
+    
+    // Update theme and UI controls
+    document.getElementById('font-size').value = uiConfig.settings.fontSize;
+    document.getElementById('density').value = uiConfig.settings.density;
+    document.getElementById('high-contrast-toggle').checked = uiConfig.settings.highContrast;
+    document.getElementById('animations-toggle').checked = uiConfig.settings.animations;
+    document.getElementById('compact-toggle').checked = uiConfig.settings.compactMode;
+    document.getElementById('sidebar-toggle').checked = uiConfig.settings.sidebarCollapsed;
+    
+    // Update last updated timestamp
+    document.getElementById('last-updated').textContent = new Date().toLocaleString();
+}
 
 // Export functions for global access
 window.downloadTimetable = downloadTimetable;

@@ -440,240 +440,104 @@
     <div class="modal-overlay" id="settings-modal" style="display: none;">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>
-                    <i class="fas fa-cog me-2"></i>
-                    Timetable Settings & Configuration
-                </h3>
+                <h3><i class="fas fa-cog me-2"></i>UI & Theme Settings</h3>
                 <button class="close-btn" onclick="closeSettingsModal()">&times;</button>
             </div>
             
             <div class="settings-content">
-                <!-- General Settings -->
+                <!-- Theme Selection -->
+                <!-- Update the theme section in settings modal -->
                 <div class="settings-section">
-                    <h4>
-                        <i class="fas fa-sliders-h me-2"></i>
-                        General Settings
-                    </h4>
+                    <h4><i class="fas fa-palette me-2"></i>Color Theme</h4>
+                    <p class="setting-description" style="margin-bottom: 1rem; color: var(--gray); font-size: 0.9rem;">
+                        Choose from our collection of professional pastel themes designed for comfort and elegance.
+                    </p>
+                    <div id="theme-selector">
+                        <!-- Theme options will be dynamically inserted here -->
+                    </div>
+                </div>
+
+                <!-- Appearance Settings -->
+                <div class="settings-section">
+                    <h4><i class="fas fa-eye me-2"></i>Appearance</h4>
                     <div class="settings-grid">
                         <div class="setting-item">
-                            <label class="setting-label">
-                                <i class="fas fa-eye me-2"></i>
-                                Default View Mode
-                            </label>
-                            <select class="setting-control" id="default-view">
-                                <option value="grid">Grid View</option>
-                                <option value="list">List View</option>
-                                <option value="compact">Compact View</option>
+                            <label class="setting-label">Font Size</label>
+                            <select class="setting-control" id="font-size" onchange="uiConfig.setFontSize(this.value)">
+                                <option value="small">Small</option>
+                                <option value="medium" selected>Medium</option>
+                                <option value="large">Large</option>
+                                <option value="xlarge">Extra Large</option>
                             </select>
                         </div>
                         <div class="setting-item">
-                            <label class="setting-label">
-                                <i class="fas fa-palette me-2"></i>
-                                Color Theme
-                            </label>
-                            <select class="setting-control" id="color-theme">
-                                <option value="default">Default Blue</option>
-                                <option value="dark">Dark Mode</option>
-                                <option value="green">Green Theme</option>
-                                <option value="purple">Purple Theme</option>
+                            <label class="setting-label">Density</label>
+                            <select class="setting-control" id="density" onchange="uiConfig.setDensity(this.value)">
+                                <option value="compact">Compact</option>
+                                <option value="comfortable" selected>Comfortable</option>
+                                <option value="spacious">Spacious</option>
                             </select>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Accessibility -->
+                <div class="settings-section">
+                    <h4><i class="fas fa-universal-access me-2"></i>Accessibility</h4>
+                    <div class="settings-grid">
                         <div class="setting-item">
-                            <label class="setting-label">
-                                <i class="fas fa-bell me-2"></i>
-                                Notifications
-                            </label>
+                            <label class="setting-label">High Contrast Mode</label>
                             <div class="toggle-switch">
-                                <input type="checkbox" id="notifications-toggle" checked>
-                                <label for="notifications-toggle" class="toggle-slider"></label>
-                                <span class="toggle-text">Enable notifications</span>
+                                <input type="checkbox" id="high-contrast-toggle" onchange="uiConfig.toggleHighContrast()">
+                                <label for="high-contrast-toggle" class="toggle-slider"></label>
+                                <span class="toggle-text">Enhanced visibility</span>
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">Reduce Animations</label>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="animations-toggle" onchange="uiConfig.toggleAnimations()">
+                                <label for="animations-toggle" class="toggle-slider"></label>
+                                <span class="toggle-text">Better performance</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Timetable Configuration -->
+                <!-- Layout Options -->
                 <div class="settings-section">
-                    <h4>
-                        <i class="fas fa-clock me-2"></i>
-                        Timetable Configuration
-                    </h4>
+                    <h4><i class="fas fa-layer-group me-2"></i>Layout</h4>
                     <div class="settings-grid">
                         <div class="setting-item">
-                            <label class="setting-label">
-                                <i class="fas fa-chalkboard-teacher me-2"></i>
-                                Lecture Duration
-                            </label>
-                            <div class="setting-value-display">
-                                <span class="value">1.5 hours</span>
-                                <span class="badge badge-primary">Fixed</span>
+                            <label class="setting-label">Compact Mode</label>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="compact-toggle" onchange="uiConfig.toggleCompactMode()">
+                                <label for="compact-toggle" class="toggle-slider"></label>
+                                <span class="toggle-text">Save space</span>
                             </div>
                         </div>
                         <div class="setting-item">
-                            <label class="setting-label">
-                                <i class="fas fa-user-friends me-2"></i>
-                                Tutorial Duration
-                            </label>
-                            <div class="setting-value-display">
-                                <span class="value">1.0 hour</span>
-                                <span class="badge badge-primary">Fixed</span>
+                            <label class="setting-label">Collapse Sidebar</label>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="sidebar-toggle" onchange="uiConfig.toggleSidebar()">
+                                <label for="sidebar-toggle" class="toggle-slider"></label>
+                                <span class="toggle-text">More workspace</span>
                             </div>
-                        </div>
-                        <div class="setting-item">
-                            <label class="setting-label">
-                                <i class="fas fa-utensils me-2"></i>
-                                Lunch Break
-                            </label>
-                            <div class="setting-value-display">
-                                <span class="value">12:00 - 13:00</span>
-                                <span class="badge badge-success">1 hour</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Elective Course Settings -->
-                <div class="settings-section">
-                    <h4>
-                        <i class="fas fa-clipboard-list me-2"></i>
-                        Elective Course Settings
-                    </h4>
-                    
-                    <div class="setting-card highlight">
-                        <div class="setting-card-header">
-                            <i class="fas fa-crown me-2"></i>
-                            Common Elective Configuration
-                        </div>
-                        <div class="setting-card-content">
-                            <div class="ltpsc-display">
-                                <div class="ltpsc-badge">
-                                    <span class="ltpsc-value">2</span>
-                                    <span class="ltpsc-label">Lectures</span>
-                                </div>
-                                <div class="ltpsc-badge">
-                                    <span class="ltpsc-value">1</span>
-                                    <span class="ltpsc-label">Tutorial</span>
-                                </div>
-                                <div class="ltpsc-badge">
-                                    <span class="ltpsc-value">0</span>
-                                    <span class="ltpsc-label">Practicals</span>
-                                </div>
-                                <div class="ltpsc-badge">
-                                    <span class="ltpsc-value">0</span>
-                                    <span class="ltpsc-label">Study</span>
-                                </div>
-                                <div class="ltpsc-badge highlight">
-                                    <span class="ltpsc-value">2</span>
-                                    <span class="ltpsc-label">Credits</span>
-                                </div>
-                            </div>
-                            <p class="setting-description">
-                                Each elective course requires 2 lectures (1.5h each) and 1 tutorial (1h) per week. 
-                                These are scheduled in common time slots for all departments and sections.
-                            </p>
-                        </div>
-                    </div>
-
-                    <div class="setting-item">
-                        <label class="setting-label">
-                            <i class="fas fa-sync-alt me-2"></i>
-                            Elective Allocation Strategy
-                        </label>
-                        <select class="setting-control" id="elective-strategy">
-                            <option value="common">Common Slots (Recommended)</option>
-                            <option value="department">Department Specific</option>
-                            <option value="mixed">Mixed Approach</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- Department Settings -->
-                <div class="settings-section">
-                    <h4>
-                        <i class="fas fa-university me-2"></i>
-                        Department Configuration
-                    </h4>
-                    <div class="departments-list">
-                        <div class="department-item">
-                            <i class="fas fa-laptop-code me-2"></i>
-                            <span>Computer Science (CSE)</span>
-                            <span class="badge badge-active">Active</span>
-                        </div>
-                        <div class="department-item">
-                            <i class="fas fa-brain me-2"></i>
-                            <span>Data Science & AI (DSAI)</span>
-                            <span class="badge badge-active">Active</span>
-                        </div>
-                        <div class="department-item">
-                            <i class="fas fa-microchip me-2"></i>
-                            <span>Electronics & Communication (ECE)</span>
-                            <span class="badge badge-active">Active</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Export & Backup -->
-                <div class="settings-section">
-                    <h4>
-                        <i class="fas fa-download me-2"></i>
-                        Export & Backup
-                    </h4>
-                    <div class="action-buttons">
-                        <button class="btn btn-outline" onclick="exportConfiguration()">
-                            <i class="fas fa-file-export me-2"></i>
-                            Export Settings
-                        </button>
-                        <button class="btn btn-outline" onclick="backupData()">
-                            <i class="fas fa-database me-2"></i>
-                            Backup Data
-                        </button>
-                        <button class="btn btn-outline" onclick="resetToDefaults()">
-                            <i class="fas fa-undo me-2"></i>
-                            Reset to Defaults
-                        </button>
-                    </div>
-                </div>
-
-                <!-- System Information -->
-                <div class="settings-section">
-                    <h4>
-                        <i class="fas fa-info-circle me-2"></i>
-                        System Information
-                    </h4>
-                    <div class="system-info">
-                        <div class="info-item">
-                            <span class="info-label">App Version:</span>
-                            <span class="info-value">2.1.0</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">Last Updated:</span>
-                            <span class="info-value" id="last-updated">Loading...</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">Timetables Generated:</span>
-                            <span class="info-value" id="settings-timetable-count">0</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">Courses Loaded:</span>
-                            <span class="info-value" id="settings-course-count">0</span>
                         </div>
                     </div>
                 </div>
             </div>
             
             <div class="modal-actions">
-                <button class="btn btn-outline" onclick="closeSettingsModal()">
-                    <i class="fas fa-times me-2"></i>
-                    Cancel
+                <button class="btn btn-outline" onclick="resetUISettings()">
+                    <i class="fas fa-undo me-2"></i>Reset to Defaults
                 </button>
-                <button class="btn btn-primary" onclick="saveSettings()">
-                    <i class="fas fa-save me-2"></i>
-                    Save Settings
+                <button class="btn btn-primary" onclick="closeSettingsModal()">
+                    <i class="fas fa-check me-2"></i>Apply Changes
                 </button>
             </div>
         </div>
     </div>
-
     <!-- Help & Support Modal -->
     <div class="modal-overlay" id="help-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
         <div class="modal-content" style="background: white; padding: 2rem; border-radius: 12px; max-width: 800px; width: 90%; max-height: 80vh; overflow-y: auto;">
