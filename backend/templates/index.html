@@ -122,6 +122,25 @@
                 </a>
             </li>
             
+            <!-- Add to sidebar in index.html -->
+            <li class="nav-item branch-section">
+                <a href="#" class="branch-header">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Exam Timetables</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="#" data-section="exam-generate">
+                    <i class="fas fa-calendar-plus"></i>
+                    <span>Generate Exam Schedule</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="#" data-section="exam-view">
+                    <i class="fas fa-list-alt"></i>
+                    <span>View Exam Schedules</span>
+                </a>
+            </li>
             <!-- Common Actions -->
             <li class="nav-item">
                 <a href="#upload" id="upload-nav-btn">
@@ -375,6 +394,290 @@
             </div>
         </section>
 
+        <!-- Exam Schedule Generation Section -->
+<!-- Exam Schedule Generation Section -->
+<section class="exam-section" id="exam-generate-section" style="display: none;">
+    <div class="section-header">
+        <h2>Generate Exam Schedule</h2>
+        <p>Create conflict-free exam timetable with intelligent scheduling</p>
+    </div>
+    
+    <!-- Configuration Form - Full Width -->
+    <div class="exam-configuration">
+        <div class="form-card full-width">
+            <div class="config-header">
+                <h3><i class="fas fa-cog"></i> Exam Schedule Configuration</h3>
+                <div class="config-actions">
+                    <button class="btn btn-sm btn-outline" id="save-config-btn">
+                        <i class="fas fa-save"></i>
+                        Save Settings
+                    </button>
+                    <button class="btn btn-sm btn-outline" id="reset-config-btn">
+                        <i class="fas fa-undo"></i>
+                        Reset to Defaults
+                    </button>
+                </div>
+            </div>
+            
+            <div class="config-tabs">
+                <div class="tab-buttons">
+                    <button class="tab-btn active" data-tab="basic">Basic Settings</button>
+                    <button class="tab-btn" data-tab="advanced">Advanced Settings</button>
+                    <button class="tab-btn" data-tab="constraints">Constraints</button>
+                </div>
+                
+                <div class="tab-content">
+                    <!-- Basic Settings Tab -->
+                    <div class="tab-pane active" id="basic-tab">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="exam-period-start">Exam Period Start Date *</label>
+                                <input type="text" id="exam-period-start" placeholder="DD/MM/YYYY" 
+                                       class="form-control date-input" required>
+                                <small>Format: DD/MM/YYYY (e.g., 15/12/2024)</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="exam-period-end">Exam Period End Date *</label>
+                                <input type="text" id="exam-period-end" placeholder="DD/MM/YYYY" 
+                                       class="form-control date-input" required>
+                                <small>Format: DD/MM/YYYY (e.g., 30/12/2024)</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="max-exams-per-day">Maximum Exams Per Day</label>
+                                <select id="max-exams-per-day" class="form-control">
+                                    <option value="1">1 Exam</option>
+                                    <option value="2" selected>2 Exams</option>
+                                    <option value="3">3 Exams</option>
+                                    <option value="4">4 Exams</option>
+                                </select>
+                                <small>Maximum number of exams scheduled per day</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="session-duration">Session Duration</label>
+                                <select id="session-duration" class="form-control">
+                                    <option value="180">3 hours (Standard)</option>
+                                    <option value="120">2 hours (Short)</option>
+                                    <option value="240">4 hours (Extended)</option>
+                                </select>
+                                <small>Duration for each exam session</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Advanced Settings Tab -->
+                    <div class="tab-pane" id="advanced-tab">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="include-weekends">Include Weekends</label>
+                                <select id="include-weekends" class="form-control">
+                                    <option value="true">Yes</option>
+                                    <option value="false" selected>No</option>
+                                </select>
+                                <small>Schedule exams on Saturdays and Sundays</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="department-conflict">Department Conflict Strictness</label>
+                                <select id="department-conflict" class="form-control">
+                                    <option value="strict">Strict - No same department on same day</option>
+                                    <option value="moderate" selected>Moderate - Allow 1 same department per day</option>
+                                    <option value="lenient">Lenient - Allow multiple same departments</option>
+                                </select>
+                                <small>How strictly to enforce department conflicts</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="preference-weight">Date Preference Weight</label>
+                                <select id="preference-weight" class="form-control">
+                                    <option value="high">High - Strongly prefer requested dates</option>
+                                    <option value="medium" selected>Medium - Balance preferences and optimization</option>
+                                    <option value="low">Low - Focus on optimal scheduling</option>
+                                </select>
+                                <small>How much to prioritize preferred dates</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="session-balance">Session Balance</label>
+                                <select id="session-balance" class="form-control">
+                                    <option value="strict" selected>Strict - Equal morning/afternoon sessions</option>
+                                    <option value="flexible">Flexible - Allow imbalance if needed</option>
+                                    <option value="none">None - No session balancing</option>
+                                </select>
+                                <small>How to balance morning vs afternoon sessions</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Constraints Tab -->
+                    <div class="tab-pane" id="constraints-tab">
+                        <div class="constraints-config">
+                            <div class="constraint-group">
+                                <h4>Department Constraints</h4>
+                                <div class="constraint-options">
+                                    <div class="constraint-option">
+                                        <input type="checkbox" id="constraint-cse" checked>
+                                        <label for="constraint-cse">Computer Science (CSE)</label>
+                                    </div>
+                                    <div class="constraint-option">
+                                        <input type="checkbox" id="constraint-dsai" checked>
+                                        <label for="constraint-dsai">Data Science & AI (DSAI)</label>
+                                    </div>
+                                    <div class="constraint-option">
+                                        <input type="checkbox" id="constraint-ece" checked>
+                                        <label for="constraint-ece">Electronics (ECE)</label>
+                                    </div>
+                                    <div class="constraint-option">
+                                        <input type="checkbox" id="constraint-math" checked>
+                                        <label for="constraint-math">Mathematics</label>
+                                    </div>
+                                    <div class="constraint-option">
+                                        <input type="checkbox" id="constraint-physics" checked>
+                                        <label for="constraint-physics">Physics</label>
+                                    </div>
+                                    <div class="constraint-option">
+                                        <input type="checkbox" id="constraint-humanities" checked>
+                                        <label for="constraint-humanities">Humanities</label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="constraint-group">
+                                <h4>Exam Type Constraints</h4>
+                                <div class="constraint-options">
+                                    <div class="constraint-option">
+                                        <input type="checkbox" id="constraint-theory" checked>
+                                        <label for="constraint-theory">Theory Exams</label>
+                                    </div>
+                                    <div class="constraint-option">
+                                        <input type="checkbox" id="constraint-lab" checked>
+                                        <label for="constraint-lab">Lab Exams</label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="constraint-group">
+                                <h4>Additional Rules</h4>
+                                <div class="constraint-options">
+                                    <div class="constraint-option">
+                                        <input type="checkbox" id="rule-gap-days" checked>
+                                        <label for="rule-gap-days">Ensure gap days between heavy exams</label>
+                                    </div>
+                                    <div class="constraint-option">
+                                        <input type="checkbox" id="rule-session-limit" checked>
+                                        <label for="rule-session-limit">Limit sessions per department per day</label>
+                                    </div>
+                                    <div class="constraint-option">
+                                        <input type="checkbox" id="rule-prefer-morning" checked>
+                                        <label for="rule-prefer-morning">Prefer morning slots for long exams</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="config-status" id="config-status">
+                <i class="fas fa-info-circle"></i>
+                <span>Using default configuration settings</span>
+            </div>
+            
+            <div class="form-actions">
+                <button class="btn btn-outline" id="exam-cancel-btn">
+                    <i class="fas fa-times"></i>
+                    Cancel
+                </button>
+                <button class="btn btn-primary" id="generate-exam-schedule-btn">
+                    <i class="fas fa-magic"></i>
+                    Generate Exam Schedule
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Preview Section - Full Width Below Configuration -->
+    <div class="exam-preview-full" id="exam-preview">
+        <div class="preview-header">
+            <h3><i class="fas fa-eye"></i> Schedule Preview</h3>
+            <div class="preview-actions">
+                <button class="btn btn-sm btn-outline active" id="toggle-daily-view">
+                    <i class="fas fa-calendar-day"></i>
+                    Daily View
+                </button>
+                <button class="btn btn-sm btn-outline" id="toggle-list-view">
+                    <i class="fas fa-list"></i>
+                    List View
+                </button>
+                <button class="btn btn-sm btn-success" id="download-preview-btn" style="display: none;">
+                    <i class="fas fa-download"></i>
+                    Download Schedule
+                </button>
+            </div>
+        </div>
+        <div class="preview-content-full" id="exam-preview-content">
+            <div class="empty-preview">
+                <i class="fas fa-calendar-alt"></i>
+                <h4>No Schedule Generated Yet</h4>
+                <p>Configure the settings above and click "Generate Exam Schedule" to create your exam timetable</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+        <!-- Exam Timetables View Section -->
+        <section class="exam-section" id="exam-view-section" style="display: none;">
+            <div class="section-header">
+                <h2>Exam Schedules</h2>
+                <p>View and manage generated exam timetables</p>
+            </div>
+            
+            <div class="exam-controls">
+                <div class="control-group">
+                    <div class="control-item">
+                        <label for="exam-period-filter">Exam Period</label>
+                        <select id="exam-period-filter" class="control-select">
+                            <option value="all">All Periods</option>
+                        </select>
+                    </div>
+                    <div class="control-item">
+                        <label for="exam-dept-filter">Department</label>
+                        <select id="exam-dept-filter" class="control-select">
+                            <option value="all">All Departments</option>
+                            <option value="CSE">Computer Science</option>
+                            <option value="DSAI">Data Science & AI</option>
+                            <option value="ECE">Electronics & Communication</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="control-actions">
+                    <button class="btn btn-outline" id="refresh-exam-btn">
+                        <i class="fas fa-sync-alt"></i>
+                        Refresh
+                    </button>
+                    <button class="btn btn-success" id="download-all-exam-btn">
+                        <i class="fas fa-download"></i>
+                        Download All
+                    </button>
+                </div>
+            </div>
+            
+            <div class="exam-timetables-container" id="exam-timetables-container">
+                <div class="empty-state" id="exam-empty-state">
+                    <div class="empty-icon">
+                        <i class="fas fa-file-alt"></i>
+                    </div>
+                    <h3>No Exam Schedules Generated</h3>
+                    <p>Generate your first exam schedule to get started</p>
+                    <button class="btn btn-primary" id="exam-empty-generate-btn">
+                        <i class="fas fa-calendar-plus"></i>
+                        Generate Exam Schedule
+                    </button>
+                </div>
+            </div>
+        </section>
         <!-- Quick Actions Panel -->
         <section class="quick-actions">
             <h3>Quick Actions</h3>

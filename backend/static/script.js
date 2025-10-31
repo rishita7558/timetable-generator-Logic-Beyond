@@ -6,6 +6,8 @@ let currentSectionFilter = 'all';
 let currentBranchFilter = 'all';
 let uploadedFiles = [];
 let isUploadSectionVisible = false;
+let currentExamTimetables = [];
+let isExamSectionVisible = false;
 
 // Course information database - will be populated from server data
 let courseDatabase = {};
@@ -130,6 +132,8 @@ function initializeApp() {
     loadStats();
     loadTimetables();
     
+    initializeExamSystem();
+
     console.log("✅ Application initialized successfully");
 }
 
@@ -2194,6 +2198,931 @@ function loadCurrentSettings() {
     document.getElementById('last-updated').textContent = new Date().toLocaleString();
 }
 
+function initializeExamSystem() {
+    console.log("📝 Initializing exam system...");
+    
+    // Exam navigation
+    setupExamNavigation();
+    
+    // Event listeners for exam section
+    document.getElementById('generate-exam-schedule-btn')?.addEventListener('click', generateExamSchedule);
+    document.getElementById('exam-cancel-btn')?.addEventListener('click', hideExamSection);
+    document.getElementById('refresh-exam-btn')?.addEventListener('click', loadExamTimetables);
+    document.getElementById('download-all-exam-btn')?.addEventListener('click', downloadAllExamTimetables);
+    document.getElementById('exam-empty-generate-btn')?.addEventListener('click', showExamGenerateSection);
+    
+    // Date input formatting
+    setupDateInputs();
+    
+    console.log("✅ Exam system initialized");
+}
+
+function setupExamNavigation() {
+    const examNavItems = document.querySelectorAll('a[data-section^="exam-"]');
+    
+    examNavItems.forEach(item => {
+        item.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            const section = this.getAttribute('data-section');
+            
+            // Hide all exam sections first
+            document.querySelectorAll('.exam-section').forEach(sec => {
+                sec.style.display = 'none';
+            });
+            
+            // Hide other main sections
+            document.querySelector('.timetables-section').style.display = 'none';
+            document.querySelector('.controls-section').style.display = 'none';
+            document.querySelector('.quick-actions').style.display = 'none';
+            if (document.getElementById('upload-section')) {
+                document.getElementById('upload-section').style.display = 'none';
+            }
+            
+            // Show selected exam section
+            if (section === 'exam-generate') {
+                document.getElementById('exam-generate-section').style.display = 'block';
+                showExamGenerateSection();
+            } else if (section === 'exam-view') {
+                document.getElementById('exam-view-section').style.display = 'block';
+                loadExamTimetables();
+            }
+            
+            isExamSectionVisible = true;
+            
+            // Update navigation
+            document.querySelectorAll('.nav-item').forEach(navItem => {
+                navItem.classList.remove('active');
+            });
+            this.parentElement.classList.add('active');
+        });
+    });
+}
+
+function showExamGenerateSection() {
+    if (document.getElementById('exam-generate-section')) {
+        document.getElementById('exam-generate-section').style.display = 'block';
+    }
+    if (document.getElementById('exam-view-section')) {
+        document.getElementById('exam-view-section').style.display = 'none';
+    }
+    
+    // Hide other sections
+    document.querySelector('.timetables-section').style.display = 'none';
+    document.querySelector('.controls-section').style.display = 'none';
+    document.querySelector('.quick-actions').style.display = 'none';
+}
+
+function hideExamSection() {
+    document.querySelectorAll('.exam-section').forEach(section => {
+        section.style.display = 'none';
+    });
+    
+    // Show main sections
+    document.querySelector('.timetables-section').style.display = 'block';
+    document.querySelector('.controls-section').style.display = 'flex';
+    document.querySelector('.quick-actions').style.display = 'block';
+    
+    isExamSectionVisible = false;
+    
+    // Reset to dashboard
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('active');
+    });
+    const dashboardNav = document.querySelector('[data-semester="all"]');
+    if (dashboardNav) {
+        dashboardNav.parentElement.classList.add('active');
+    }
+}
+
+function setupDateInputs() {
+    // Add date validation and formatting
+    const dateInputs = document.querySelectorAll('.date-input');
+    dateInputs.forEach(input => {
+        input.addEventListener('blur', function() {
+            const value = this.value.trim();
+            if (value && isValidDate(value)) {
+                this.classList.remove('error');
+                this.classList.add('success');
+            } else if (value) {
+                this.classList.add('error');
+                this.classList.remove('success');
+            }
+        });
+    });
+}
+
+function isValidDate(dateString) {
+    // DD/MM/YYYY format validation
+    const regex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+    if (!regex.test(dateString)) return false;
+    
+    const parts = dateString.split('/');
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
+    const year = parseInt(parts[2], 10);
+    
+    if (month < 1 || month > 12) return false;
+    if (day < 1 || day > 31) return false;
+    
+    const date = new Date(year, month - 1, day);
+    return date.getDate() === day && date.getMonth() === month - 1 && date.getFullYear() === year;
+}
+
+async function generateExamSchedule() {
+    const startDateInput = document.getElementById('exam-period-start');
+    const endDateInput = document.getElementById('exam-period-end');
+    
+    if (!startDateInput || !endDateInput) {
+        showNotification('❌ Exam scheduling form not loaded properly', 'error');
+        return;
+    }
+    
+    const startDate = startDateInput.value;
+    const endDate = endDateInput.value;
+    
+    // Ensure configuration is initialized
+    if (!examConfig.current) {
+        examConfig.loadConfig();
+    }
+    
+    // Update configuration from UI
+    examConfig.updateConfigFromUI();
+    
+    // Validate configuration
+    const validationErrors = examConfig.validateConfig();
+    if (validationErrors.length > 0) {
+        showNotification(`❌ Configuration errors: ${validationErrors.join(', ')}`, 'error');
+        return;
+    }
+    
+    showLoading(true);
+    
+    try {
+        const config = examConfig.getConfigForAPI();
+        
+        const response = await fetch('/exam-schedule', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                start_date: startDate,
+                end_date: endDate,
+                config: config
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification(`✅ ${result.message}`, 'success');
+            console.log('📊 Exam schedule generated with config:', config);
+            
+            // Update preview with configuration info
+            updateExamPreview(result.schedule, config);
+            
+            // Reload exam timetables
+            await loadExamTimetables();
+            
+        } else {
+            showNotification(`❌ ${result.message}`, 'error');
+        }
+    } catch (error) {
+        console.error('❌ Error generating exam schedule:', error);
+        showNotification('❌ Error generating exam schedule: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+function updateExamPreview(schedule) {
+    const previewContent = document.getElementById('exam-preview-content');
+    const downloadBtn = document.getElementById('download-preview-btn');
+    
+    if (!previewContent) return;
+    
+    if (!schedule || schedule.length === 0) {
+        previewContent.innerHTML = `
+            <div class="empty-preview">
+                <i class="fas fa-calendar-alt"></i>
+                <h4>No Schedule Generated Yet</h4>
+                <p>Configure the settings above and click "Generate Exam Schedule" to create your exam timetable</p>
+            </div>
+        `;
+        if (downloadBtn) downloadBtn.style.display = 'none';
+        return;
+    }
+    
+    const scheduledExams = schedule.filter(e => e.status === 'Scheduled');
+    const totalDays = [...new Set(schedule.map(e => e.date))].length;
+    const daysWithExams = [...new Set(scheduledExams.map(e => e.date))].length;
+    const freeDays = totalDays - daysWithExams;
+    
+    // Show download button
+    if (downloadBtn) downloadBtn.style.display = 'inline-flex';
+    
+    // Enhanced statistics with beautiful summary
+    let html = `
+        <div class="preview-summary">
+            <div class="summary-grid">
+                <div class="summary-stat">
+                    <div class="summary-number">${scheduledExams.length}</div>
+                    <div class="summary-label">Total Exams</div>
+                </div>
+                <div class="summary-stat">
+                    <div class="summary-number">${daysWithExams}</div>
+                    <div class="summary-label">Exam Days</div>
+                </div>
+                <div class="summary-stat">
+                    <div class="summary-number">${freeDays}</div>
+                    <div class="summary-label">Free Days</div>
+                </div>
+                <div class="summary-stat">
+                    <div class="summary-number">${scheduledExams.filter(e => e.session === 'Morning').length}</div>
+                    <div class="summary-label">Morning Sessions</div>
+                </div>
+                <div class="summary-stat">
+                    <div class="summary-number">${scheduledExams.filter(e => e.session === 'Afternoon').length}</div>
+                    <div class="summary-label">Afternoon Sessions</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="daily-schedule-full" id="daily-schedule-view">
+    `;
+    
+    // Group exams by date
+    const examsByDate = {};
+    scheduledExams.forEach(exam => {
+        if (!examsByDate[exam.date]) {
+            examsByDate[exam.date] = [];
+        }
+        examsByDate[exam.date].push(exam);
+    });
+    
+    // Create daily schedule view
+    Object.keys(examsByDate).sort().forEach(date => {
+        const dayExams = examsByDate[date];
+        const dayName = dayExams[0].day;
+        
+        // Group exams by session
+        const morningExams = dayExams.filter(e => e.session === 'Morning');
+        const afternoonExams = dayExams.filter(e => e.session === 'Afternoon');
+        
+        html += `
+            <div class="day-slot-full">
+                <div class="day-header-full">
+                    <div>
+                        <h4>${dayName}</h4>
+                        <div class="day-date-full">${date}</div>
+                    </div>
+                    <div class="day-stats-full">
+                        <span class="session-badge morning">${morningExams.length} Morning</span>
+                        <span class="session-badge afternoon">${afternoonExams.length} Afternoon</span>
+                    </div>
+                </div>
+                <div class="day-content-full">
+        `;
+        
+        // Morning session
+        if (morningExams.length > 0) {
+            html += `
+                <div class="session-group-full session-morning-full">
+                    <div class="session-header-full">
+                        <i class="fas fa-sun" style="color: #1976d2; font-size: 1.5rem;"></i>
+                        <span class="session-title-full">Morning Session</span>
+                        <span class="session-time-full">09:00 - 12:00</span>
+                    </div>
+                    <div class="exam-cards-full">
+            `;
+            
+            morningExams.forEach(exam => {
+                html += createExamCardFull(exam);
+            });
+            
+            html += `
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Afternoon session
+        if (afternoonExams.length > 0) {
+            html += `
+                <div class="session-group-full session-afternoon-full">
+                    <div class="session-header-full">
+                        <i class="fas fa-cloud-sun" style="color: #f57c00; font-size: 1.5rem;"></i>
+                        <span class="session-title-full">Afternoon Session</span>
+                        <span class="session-time-full">14:00 - 17:00</span>
+                    </div>
+                    <div class="exam-cards-full">
+            `;
+            
+            afternoonExams.forEach(exam => {
+                html += createExamCardFull(exam);
+            });
+            
+            html += `
+                    </div>
+                </div>
+            `;
+        }
+        
+        // No exams message
+        if (morningExams.length === 0 && afternoonExams.length === 0) {
+            html += `
+                <div class="empty-day">
+                    <i class="fas fa-calendar-times" style="font-size: 3rem;"></i>
+                    <h4>No Exams Scheduled</h4>
+                    <p>This day is free of exams</p>
+                </div>
+            `;
+        }
+        
+        html += `
+                </div>
+            </div>
+        `;
+    });
+    
+    html += `</div>`;
+    
+    previewContent.innerHTML = html;
+    
+    // Add download functionality
+    if (downloadBtn) {
+        downloadBtn.onclick = function() {
+            // You can implement download functionality here
+            showNotification('📥 Preparing exam schedule download...', 'info');
+        };
+    }
+    
+    // Add view toggle functionality
+    setupViewToggle();
+}
+
+
+function createExamCardFull(exam) {
+    const deptClass = `dept-${exam.department.toLowerCase().replace(' ', '-')}`;
+    
+    return `
+        <div class="exam-card-full ${deptClass}">
+            <div class="exam-card-header-full">
+                <div class="exam-code-full">${exam.course_code}</div>
+                <div class="exam-type-full">${exam.exam_type}</div>
+            </div>
+            <div class="exam-details-full">
+                <div class="exam-name-full">${exam.course_name}</div>
+                <div class="exam-meta-full">
+                    <span class="meta-item-full">
+                        <i class="fas fa-clock"></i>
+                        ${exam.duration}
+                    </span>
+                    <span class="meta-item-full">
+                        <i class="fas fa-building"></i>
+                        ${exam.department}
+                    </span>
+                    <span class="meta-item-full">
+                        <i class="fas fa-graduation-cap"></i>
+                        Sem ${exam.semester}
+                    </span>
+                    <span class="meta-item-full">
+                        <i class="fas fa-calendar-check"></i>
+                        Preferred: ${exam.original_preferred}
+                    </span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function createExamCard(exam) {
+    const deptClass = `dept-${exam.department.toLowerCase().replace(' ', '-')}`;
+    
+    return `
+        <div class="exam-card ${deptClass}">
+            <div class="exam-card-header">
+                <div class="exam-code">${exam.course_code}</div>
+                <div class="exam-type">${exam.exam_type}</div>
+            </div>
+            <div class="exam-details">
+                <div class="exam-name">${exam.course_name}</div>
+                <div class="exam-meta">
+                    <span class="meta-item">
+                        <i class="fas fa-clock"></i>
+                        ${exam.duration}
+                    </span>
+                    <span class="meta-item">
+                        <i class="fas fa-building"></i>
+                        ${exam.department}
+                    </span>
+                    <span class="meta-item">
+                        <i class="fas fa-graduation-cap"></i>
+                        Sem ${exam.semester}
+                    </span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function setupViewToggle() {
+    const dailyViewBtn = document.getElementById('toggle-daily-view');
+    const listViewBtn = document.getElementById('toggle-list-view');
+    const dailyView = document.getElementById('daily-schedule-view');
+    
+    if (!dailyViewBtn || !listViewBtn || !dailyView) return;
+    
+    dailyViewBtn.addEventListener('click', function() {
+        this.classList.add('active');
+        listViewBtn.classList.remove('active');
+        dailyView.style.display = 'block';
+    });
+    
+    listViewBtn.addEventListener('click', function() {
+        this.classList.add('active');
+        dailyViewBtn.classList.remove('active');
+        dailyView.style.display = 'none';
+        // You can implement list view here if needed
+    });
+    
+    // Set default active state
+    dailyViewBtn.classList.add('active');
+}
+
+async function loadExamTimetables() {
+    try {
+        const response = await fetch('/exam-timetables');
+        const examTimetables = await response.json();
+        
+        currentExamTimetables = examTimetables;
+        renderExamTimetables();
+        
+    } catch (error) {
+        console.error('❌ Error loading exam timetables:', error);
+        showNotification('❌ Error loading exam timetables: ' + error.message, 'error');
+    }
+}
+
+function renderExamTimetables() {
+    const container = document.getElementById('exam-timetables-container');
+    const emptyState = document.getElementById('exam-empty-state');
+    
+    if (!container) return;
+    
+    if (currentExamTimetables.length === 0) {
+        if (emptyState) emptyState.style.display = 'block';
+        container.innerHTML = '';
+        return;
+    }
+    
+    if (emptyState) emptyState.style.display = 'none';
+    
+    let html = '<div class="exam-timetables-grid">';
+    
+    currentExamTimetables.forEach(timetable => {
+        const scheduledCount = timetable.schedule_data ? 
+            timetable.schedule_data.filter(e => e.status === 'Scheduled').length : 0;
+        
+        html += `
+            <div class="exam-timetable-card">
+                <div class="exam-timetable-header">
+                    <h3>Exam Schedule - ${timetable.period}</h3>
+                    <div class="exam-actions">
+                        <button class="action-btn" onclick="downloadExamTimetable('${timetable.filename}')" title="Download">
+                            <i class="fas fa-download"></i>
+                        </button>
+                        <button class="action-btn" onclick="printExamTimetable('${timetable.filename}')" title="Print">
+                            <i class="fas fa-print"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="exam-timetable-content">
+                    ${timetable.html}
+                </div>
+                <div class="exam-timetable-footer">
+                    <div class="exam-stats">
+                        <span class="stat">
+                            <i class="fas fa-calendar-alt"></i>
+                            ${scheduledCount} exams
+                        </span>
+                        <span class="stat">
+                            <i class="fas fa-clock"></i>
+                            ${timetable.period}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    container.innerHTML = html;
+    
+    // Enhance exam tables
+    enhanceExamTables();
+}
+
+function enhanceExamTables() {
+    document.querySelectorAll('.exam-timetable-table').forEach(table => {
+        const rows = table.querySelectorAll('tr');
+        
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            cells.forEach(cell => {
+                const text = cell.textContent.trim();
+                
+                if (text === 'Morning') {
+                    cell.classList.add('session-morning');
+                } else if (text === 'Afternoon') {
+                    cell.classList.add('session-afternoon');
+                } else if (text === 'No Exam') {
+                    cell.classList.add('no-exam');
+                }
+                
+                // Add department colors
+                if (text === 'CSE') {
+                    cell.classList.add('dept-cse');
+                } else if (text === 'DSAI') {
+                    cell.classList.add('dept-dsai');
+                } else if (text === 'ECE') {
+                    cell.classList.add('dept-ece');
+                }
+            });
+        });
+    });
+}
+
+function downloadExamTimetable(filename) {
+    window.open(`/download/${filename}`, '_blank');
+    showNotification(`📥 Downloading ${filename}...`, 'info');
+}
+
+function downloadAllExamTimetables() {
+    if (currentExamTimetables.length === 0) {
+        showNotification('❌ No exam timetables available to download', 'error');
+        return;
+    }
+    
+    showNotification('📦 Preparing exam timetable download...', 'info');
+    
+    // Download each exam timetable individually
+    currentExamTimetables.forEach(timetable => {
+        downloadExamTimetable(timetable.filename);
+    });
+}
+
+function printExamTimetable(filename) {
+    showNotification(`🖨️ Preparing ${filename} for printing...`, 'info');
+    // For now, just download - printing can be implemented later
+    downloadExamTimetable(filename);
+}
+
+// Configuration Management System
+const examConfig = {
+    defaults: {
+        maxExamsPerDay: 2,
+        sessionDuration: 180,
+        includeWeekends: false,
+        departmentConflict: 'moderate',
+        preferenceWeight: 'medium',
+        sessionBalance: 'strict',
+        constraints: {
+            departments: ['CSE', 'DSAI', 'ECE', 'Mathematics', 'Physics', 'Humanities'],
+            examTypes: ['Theory', 'Lab'],
+            rules: ['gapDays', 'sessionLimit', 'preferMorning']
+        }
+    },
+    
+    current: null,
+    
+    init() {
+        this.loadConfig();
+        this.setupConfigUI();
+        this.setupEventListeners();
+        this.updateConfigStatus();
+    },
+    
+    loadConfig() {
+        const savedConfig = localStorage.getItem('examConfig');
+        if (savedConfig) {
+            try {
+                const parsedConfig = JSON.parse(savedConfig);
+                // Ensure all default properties exist
+                this.current = this.mergeWithDefaults(parsedConfig);
+                console.log('📁 Loaded saved exam configuration:', this.current);
+            } catch (e) {
+                console.error('❌ Error loading saved config, using defaults:', e);
+                this.current = { ...this.defaults };
+            }
+        } else {
+            this.current = { ...this.defaults };
+            console.log('📁 Using default exam configuration');
+        }
+    },
+    
+    mergeWithDefaults(savedConfig) {
+        // Deep merge to ensure all default properties exist
+        const merged = { ...this.defaults };
+        
+        // Merge top-level properties
+        Object.keys(savedConfig).forEach(key => {
+            if (key === 'constraints') {
+                // Deep merge constraints
+                merged.constraints = { ...this.defaults.constraints, ...savedConfig.constraints };
+            } else {
+                merged[key] = savedConfig[key];
+            }
+        });
+        
+        return merged;
+    },
+    
+    saveConfig() {
+        if (!this.current) {
+            console.error('❌ Cannot save: configuration not initialized');
+            return;
+        }
+        localStorage.setItem('examConfig', JSON.stringify(this.current));
+        console.log('💾 Saved exam configuration:', this.current);
+        this.updateConfigStatus('saved');
+        showNotification('✅ Configuration saved successfully!', 'success');
+    },
+    
+    resetConfig() {
+        if (confirm('Are you sure you want to reset all configuration settings to defaults?')) {
+            this.current = { ...this.defaults };
+            localStorage.removeItem('examConfig');
+            this.applyConfigToUI();
+            this.updateConfigStatus('reset');
+            showNotification('🔄 Configuration reset to defaults', 'info');
+        }
+    },
+    
+    setupConfigUI() {
+        this.setupTabSystem();
+        this.applyConfigToUI();
+    },
+    
+    setupTabSystem() {
+        const tabButtons = document.querySelectorAll('.tab-btn');
+        const tabPanes = document.querySelectorAll('.tab-pane');
+        
+        tabButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tabId = btn.dataset.tab;
+                
+                // Update active tab button
+                tabButtons.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                // Show corresponding tab pane
+                tabPanes.forEach(pane => pane.classList.remove('active'));
+                const targetPane = document.getElementById(`${tabId}-tab`);
+                if (targetPane) {
+                    targetPane.classList.add('active');
+                }
+            });
+        });
+    },
+    
+    applyConfigToUI() {
+        if (!this.current) {
+            console.error('❌ Cannot apply config: configuration not initialized');
+            return;
+        }
+        
+        // Basic Settings
+        const maxExamsSelect = document.getElementById('max-exams-per-day');
+        const sessionDurationSelect = document.getElementById('session-duration');
+        if (maxExamsSelect) maxExamsSelect.value = this.current.maxExamsPerDay;
+        if (sessionDurationSelect) sessionDurationSelect.value = this.current.sessionDuration;
+        
+        // Advanced Settings
+        const includeWeekendsSelect = document.getElementById('include-weekends');
+        const deptConflictSelect = document.getElementById('department-conflict');
+        const preferenceSelect = document.getElementById('preference-weight');
+        const sessionBalanceSelect = document.getElementById('session-balance');
+        
+        if (includeWeekendsSelect) includeWeekendsSelect.value = this.current.includeWeekends;
+        if (deptConflictSelect) deptConflictSelect.value = this.current.departmentConflict;
+        if (preferenceSelect) preferenceSelect.value = this.current.preferenceWeight;
+        if (sessionBalanceSelect) sessionBalanceSelect.value = this.current.sessionBalance;
+        
+        // Constraints
+        this.applyConstraintsToUI();
+    },
+    
+    applyConstraintsToUI() {
+        if (!this.current || !this.current.constraints) {
+            console.error('❌ Cannot apply constraints: constraints not initialized');
+            return;
+        }
+        
+        const constraints = this.current.constraints;
+        
+        // Department constraints
+        const setCheckbox = (id, value) => {
+            const checkbox = document.getElementById(id);
+            if (checkbox) checkbox.checked = value;
+        };
+        
+        setCheckbox('constraint-cse', constraints.departments?.includes('CSE') ?? true);
+        setCheckbox('constraint-dsai', constraints.departments?.includes('DSAI') ?? true);
+        setCheckbox('constraint-ece', constraints.departments?.includes('ECE') ?? true);
+        setCheckbox('constraint-math', constraints.departments?.includes('Mathematics') ?? true);
+        setCheckbox('constraint-physics', constraints.departments?.includes('Physics') ?? true);
+        setCheckbox('constraint-humanities', constraints.departments?.includes('Humanities') ?? true);
+        
+        // Exam type constraints
+        setCheckbox('constraint-theory', constraints.examTypes?.includes('Theory') ?? true);
+        setCheckbox('constraint-lab', constraints.examTypes?.includes('Lab') ?? true);
+        
+        // Additional rules
+        setCheckbox('rule-gap-days', constraints.rules?.includes('gapDays') ?? true);
+        setCheckbox('rule-session-limit', constraints.rules?.includes('sessionLimit') ?? true);
+        setCheckbox('rule-prefer-morning', constraints.rules?.includes('preferMorning') ?? true);
+    },
+    
+    updateConfigFromUI() {
+        if (!this.current) {
+            this.current = { ...this.defaults };
+        }
+        
+        // Basic Settings
+        const maxExamsSelect = document.getElementById('max-exams-per-day');
+        const sessionDurationSelect = document.getElementById('session-duration');
+        if (maxExamsSelect) this.current.maxExamsPerDay = parseInt(maxExamsSelect.value);
+        if (sessionDurationSelect) this.current.sessionDuration = parseInt(sessionDurationSelect.value);
+        
+        // Advanced Settings
+        const includeWeekendsSelect = document.getElementById('include-weekends');
+        const deptConflictSelect = document.getElementById('department-conflict');
+        const preferenceSelect = document.getElementById('preference-weight');
+        const sessionBalanceSelect = document.getElementById('session-balance');
+        
+        if (includeWeekendsSelect) this.current.includeWeekends = includeWeekendsSelect.value === 'true';
+        if (deptConflictSelect) this.current.departmentConflict = deptConflictSelect.value;
+        if (preferenceSelect) this.current.preferenceWeight = preferenceSelect.value;
+        if (sessionBalanceSelect) this.current.sessionBalance = sessionBalanceSelect.value;
+        
+        // Constraints
+        this.updateConstraintsFromUI();
+        
+        console.log('🔄 Updated configuration from UI:', this.current);
+    },
+    
+    updateConstraintsFromUI() {
+        if (!this.current.constraints) {
+            this.current.constraints = { ...this.defaults.constraints };
+        }
+        
+        const constraints = {
+            departments: [],
+            examTypes: [],
+            rules: []
+        };
+        
+        // Department constraints
+        const getCheckboxValue = (id) => {
+            const checkbox = document.getElementById(id);
+            return checkbox ? checkbox.checked : false;
+        };
+        
+        if (getCheckboxValue('constraint-cse')) constraints.departments.push('CSE');
+        if (getCheckboxValue('constraint-dsai')) constraints.departments.push('DSAI');
+        if (getCheckboxValue('constraint-ece')) constraints.departments.push('ECE');
+        if (getCheckboxValue('constraint-math')) constraints.departments.push('Mathematics');
+        if (getCheckboxValue('constraint-physics')) constraints.departments.push('Physics');
+        if (getCheckboxValue('constraint-humanities')) constraints.departments.push('Humanities');
+        
+        // Exam type constraints
+        if (getCheckboxValue('constraint-theory')) constraints.examTypes.push('Theory');
+        if (getCheckboxValue('constraint-lab')) constraints.examTypes.push('Lab');
+        
+        // Additional rules
+        if (getCheckboxValue('rule-gap-days')) constraints.rules.push('gapDays');
+        if (getCheckboxValue('rule-session-limit')) constraints.rules.push('sessionLimit');
+        if (getCheckboxValue('rule-prefer-morning')) constraints.rules.push('preferMorning');
+        
+        this.current.constraints = constraints;
+    },
+    
+    updateConfigStatus(status = '') {
+        const statusElement = document.getElementById('config-status');
+        if (!statusElement) return;
+        
+        switch(status) {
+            case 'saved':
+                statusElement.className = 'config-status saved';
+                statusElement.innerHTML = '<i class="fas fa-check-circle"></i><span>Configuration saved and applied</span>';
+                break;
+            case 'reset':
+                statusElement.className = 'config-status';
+                statusElement.innerHTML = '<i class="fas fa-info-circle"></i><span>Using default configuration settings</span>';
+                break;
+            case 'unsaved':
+                statusElement.className = 'config-status error';
+                statusElement.innerHTML = '<i class="fas fa-exclamation-triangle"></i><span>Unsaved changes - click Save to apply</span>';
+                break;
+            default:
+                const hasSavedConfig = localStorage.getItem('examConfig');
+                if (hasSavedConfig) {
+                    statusElement.className = 'config-status saved';
+                    statusElement.innerHTML = '<i class="fas fa-check-circle"></i><span>Using saved configuration settings</span>';
+                } else {
+                    statusElement.className = 'config-status';
+                    statusElement.innerHTML = '<i class="fas fa-info-circle"></i><span>Using default configuration settings</span>';
+                }
+        }
+    },
+    
+    setupEventListeners() {
+        // Save configuration button
+        const saveBtn = document.getElementById('save-config-btn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => {
+                this.updateConfigFromUI();
+                this.saveConfig();
+            });
+        }
+        
+        // Reset configuration button
+        const resetBtn = document.getElementById('reset-config-btn');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', () => {
+                this.resetConfig();
+            });
+        }
+        
+        // Auto-save on input changes (optional)
+        const configInputs = document.querySelectorAll('#exam-generate-section select, #exam-generate-section input');
+        configInputs.forEach(input => {
+            input.addEventListener('change', () => {
+                this.updateConfigFromUI();
+                this.updateConfigStatus('unsaved');
+            });
+        });
+    },
+    
+    validateConfig() {
+        const errors = [];
+        
+        // Check if configuration is initialized
+        if (!this.current) {
+            errors.push('Configuration not initialized');
+            return errors;
+        }
+        
+        const startDate = document.getElementById('exam-period-start')?.value;
+        const endDate = document.getElementById('exam-period-end')?.value;
+        
+        // Date validation
+        if (!startDate || !endDate) {
+            errors.push('Please enter both start and end dates');
+        } else if (!isValidDate(startDate) || !isValidDate(endDate)) {
+            errors.push('Please enter valid dates in DD/MM/YYYY format');
+        } else {
+            const start = new Date(startDate.split('/').reverse().join('-'));
+            const end = new Date(endDate.split('/').reverse().join('-'));
+            if (start >= end) {
+                errors.push('End date must be after start date');
+            }
+        }
+        
+        // Department constraints validation (with safe access)
+        const departments = this.current.constraints?.departments;
+        if (!departments || departments.length === 0) {
+            errors.push('At least one department must be selected');
+        }
+        
+        // Exam type constraints validation (with safe access)
+        const examTypes = this.current.constraints?.examTypes;
+        if (!examTypes || examTypes.length === 0) {
+            errors.push('At least one exam type must be selected');
+        }
+        
+        return errors;
+    },
+    
+    getConfigForAPI() {
+        if (!this.current) {
+            console.warn('⚠️ No configuration found, using defaults for API');
+            return { ...this.defaults };
+        }
+        return {
+            max_exams_per_day: this.current.maxExamsPerDay || this.defaults.maxExamsPerDay,
+            session_duration: this.current.sessionDuration || this.defaults.sessionDuration,
+            include_weekends: this.current.includeWeekends !== undefined ? this.current.includeWeekends : this.defaults.includeWeekends,
+            department_conflict: this.current.departmentConflict || this.defaults.departmentConflict,
+            preference_weight: this.current.preferenceWeight || this.defaults.preferenceWeight,
+            session_balance: this.current.sessionBalance || this.defaults.sessionBalance,
+            constraints: this.current.constraints || this.defaults.constraints
+        };
+    }
+};
+
 // Export functions for global access
 window.downloadTimetable = downloadTimetable;
 window.printTimetable = printTimetable;
@@ -2204,4 +3133,6 @@ window.debugFileMatching = debugFileMatching;
 window.verifyDataLoad = verifyDataLoad;
 window.clearCache = clearCache;
 window.resetFilters = resetFilters;
-
+window.downloadExamTimetable = downloadExamTimetable;
+window.printExamTimetable = printExamTimetable;
+window.showExamGenerateSection = showExamGenerateSection;
