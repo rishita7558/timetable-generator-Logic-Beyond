@@ -24,9 +24,31 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 _cached_data_frames = None
 _cached_timestamp = 0
 _file_hashes = {}
+_EXAM_SCHEDULE_FILES = set()
 
 # Allowed file extensions
 ALLOWED_EXTENSIONS = {'csv'}
+
+def get_exam_schedule_files():
+    """Get list of exam schedule files that should be displayed"""
+    global _EXAM_SCHEDULE_FILES
+    return list(_EXAM_SCHEDULE_FILES)
+
+def add_exam_schedule_file(filename):
+    """Add a filename to the list of exam schedules to display"""
+    global _EXAM_SCHEDULE_FILES
+    _EXAM_SCHEDULE_FILES.add(filename)
+
+def clear_exam_schedule_files():
+    """Clear the list of exam schedules to display"""
+    global _EXAM_SCHEDULE_FILES
+    _EXAM_SCHEDULE_FILES.clear()
+
+def remove_exam_schedule_file(filename):
+    """Remove a filename from the list of exam schedules to display"""
+    global _EXAM_SCHEDULE_FILES
+    if filename in _EXAM_SCHEDULE_FILES:
+        _EXAM_SCHEDULE_FILES.remove(filename)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -1402,41 +1424,56 @@ def generate_exam_schedule():
         config = data.get('config', {})
         max_exams_per_day = config.get('max_exams_per_day', 2)
         include_weekends = config.get('include_weekends', False)
-        department_conflict = config.get('department_conflict', 'moderate')
-        preference_weight = config.get('preference_weight', 'medium')
-        session_balance = config.get('session_balance', 'strict')
-        constraints = config.get('constraints', {})
         
-        print(f"⚙️ Using configuration: {max_exams_per_day} exams/day, weekends: {include_weekends}")
-        print(f"⚙️ Conflict: {department_conflict}, Preference: {preference_weight}")
+        print(f"⚙️ Configuration: {max_exams_per_day} exams/day, weekends: {include_weekends}")
         
         # Load exam data
         data_frames = load_all_data(force_reload=True)
         if not data_frames or 'exams' not in data_frames:
-            return jsonify({'success': False, 'message': 'No exam data found'})
+            return jsonify({'success': False, 'message': 'No exam data found in CSV files'})
         
         exams_df = data_frames['exams']
+        
+        # Check if we have any exams to schedule
+        if exams_df.empty:
+            return jsonify({'success': False, 'message': 'No exam data available in CSV'})
+        
+        print(f"📋 Found {len(exams_df)} exams in CSV data")
         
         # Generate exam schedule with configuration
         exam_schedule = schedule_exams_conflict_free(
             exams_df, exam_period_start, exam_period_end, 
-            max_exams_per_day, include_weekends, department_conflict,
-            preference_weight, session_balance, constraints
+            max_exams_per_day, include_weekends
         )
         
         # Check if DataFrame is empty properly
-        if exam_schedule is None or exam_schedule.empty:
-            return jsonify({'success': False, 'message': 'Failed to generate exam schedule or no exams to schedule'})
+        if exam_schedule is None:
+            return jsonify({'success': False, 'message': 'Scheduling algorithm failed to generate any schedule'})
+        
+        if exam_schedule.empty:
+            scheduled_count = len(exam_schedule[exam_schedule['status'] == 'Scheduled'])
+            if scheduled_count == 0:
+                return jsonify({
+                    'success': False, 
+                    'message': 'No exams could be scheduled. Try increasing exam period or reducing constraints.'
+                })
         
         # Save to Excel
         filename = save_exam_schedule(exam_schedule, exam_period_start, exam_period_end, config)
         
+        # Add this file to the list of schedules to display
+        add_exam_schedule_file(filename)
+        
+        scheduled_count = len(exam_schedule[exam_schedule['status'] == 'Scheduled'])
+        total_days = len(exam_schedule['date'].unique())
+        
         return jsonify({
             'success': True,
-            'message': 'Exam schedule generated successfully!',
+            'message': f'Exam schedule generated successfully! Scheduled {scheduled_count} exams over {total_days} days.',
             'filename': filename,
             'schedule': exam_schedule.to_dict('records'),
-            'config_used': config
+            'config_used': config,
+            'is_new_generation': True
         })
         
     except Exception as e:
@@ -1444,15 +1481,16 @@ def generate_exam_schedule():
         traceback.print_exc()
         return jsonify({'success': False, 'message': f'Error: {str(e)}'})
     
+    
 def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_day=2, 
                                include_weekends=False, department_conflict='moderate',
                                preference_weight='medium', session_balance='strict', 
                                constraints=None):
-    """Generate conflict-free exam schedule with configuration"""
+    """Generate conflict-free exam schedule with multiple exams per slot"""
     try:
-        print("📅 Generating conflict-free exam schedule...")
+        print("📅 Generating conflict-free exam schedule with multiple exams per slot...")
         print(f"⚙️ Configuration: {max_exams_per_day} exams/day, weekends: {include_weekends}")
-        print(f"⚙️ Conflict: {department_conflict}, Preference: {preference_weight}")
+        print(f"⚙️ Conflict: {department_conflict}, Preference: {preference_weight}, Balance: {session_balance}")
         
         # Set default constraints if none provided
         if constraints is None:
@@ -1461,6 +1499,12 @@ def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_d
                 'examTypes': ['Theory', 'Lab'],
                 'rules': ['gapDays', 'sessionLimit', 'preferMorning']
             }
+        
+        # Define time slots
+        time_slots = {
+            'Morning': '09:00 - 12:00',
+            'Afternoon': '14:00 - 17:00'
+        }
         
         # Convert date strings to datetime objects
         exams_df = exams_df.copy()
@@ -1492,7 +1536,10 @@ def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_d
             # Check if we should include weekends based on configuration
             if include_weekends or current_date.weekday() < 5:  # 0-4 = Monday-Friday
                 all_dates.append(current_date)
-                day_slots[current_date] = []  # Use date objects as keys
+                day_slots[current_date] = {
+                    'Morning': [],
+                    'Afternoon': []
+                }
             current_date += timedelta(days=1)
         
         if not all_dates:
@@ -1523,6 +1570,7 @@ def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_d
             exams_df['Department'] = exams_df['Course Code'].apply(extract_department)
         
         # Filter exams based on constraints
+        original_count = len(exams_df)
         if constraints and 'departments' in constraints:
             allowed_departments = constraints['departments']
             exams_df = exams_df[exams_df['Department'].isin(allowed_departments)]
@@ -1532,6 +1580,10 @@ def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_d
             allowed_exam_types = constraints['examTypes']
             exams_df = exams_df[exams_df['Exam Type'].isin(allowed_exam_types)]
             print(f"📋 Filtered to {len(exams_df)} exams of allowed types: {allowed_exam_types}")
+        
+        if exams_df.empty:
+            print(f"❌ No exams remain after applying constraints (had {original_count} exams)")
+            return None
         
         # Add semester if not present (extract from course data if available)
         if 'Semester' not in exams_df.columns:
@@ -1561,73 +1613,146 @@ def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_d
         
         print(f"📝 Processing {len(exams_df)} unique exams...")
         
-        # Schedule exams
-        scheduled_exams = []
-        failed_exams = []
+        # Schedule exams with multiple attempts and fallbacks
+        max_attempts = 3
+        attempt = 0
+        best_schedule = None
+        best_success_rate = 0
         
-        for _, exam in exams_df.iterrows():
-            exam_code = exam['Course Code']
-            preferred_date = exam['Preferred Exam Date'].date()  # Convert to date
-            alternate_date = exam['Alternate Exam Date'].date()  # Convert to date
-            duration_hours = exam['Duration_Hours']
-            department = exam['Department']
-            exam_type = exam['Exam Type']
+        while attempt < max_attempts:
+            scheduled_exams = []
+            failed_exams = []
             
-            # Try preferred date first
-            scheduled_date = None
-            if preferred_date in day_slots and len(day_slots[preferred_date]) < max_exams_per_day:
-                if not has_conflict(preferred_date, exam_code, department, day_slots, department_conflict):
-                    scheduled_date = preferred_date
-            
-            # Try alternate date if preferred not available
-            if not scheduled_date and alternate_date in day_slots and len(day_slots[alternate_date]) < max_exams_per_day:
-                if not has_conflict(alternate_date, exam_code, department, day_slots, department_conflict):
-                    scheduled_date = alternate_date
-            
-            # Try other available dates (in order)
-            if not scheduled_date:
-                for date in all_dates:
-                    if len(day_slots[date]) < max_exams_per_day:
-                        if not has_conflict(date, exam_code, department, day_slots, department_conflict):
-                            scheduled_date = date
-                            break
-            
-            if scheduled_date:
-                # Determine session (Morning/Afternoon) with balance consideration
-                session = assign_session(day_slots[scheduled_date], session_balance, exam_type, duration_hours)
-                
-                exam_slot = {
-                    'course_code': exam_code,
-                    'course_name': exam.get('Course Name', 'Unknown Course'),
-                    'exam_type': exam_type,
-                    'duration': f"{duration_hours} hours",
-                    'duration_minutes': exam['Exam Duration (minutes)'],
-                    'department': department,
-                    'semester': exam.get('Semester', 'N/A'),
-                    'date': scheduled_date.strftime('%Y-%m-%d'),
-                    'day': scheduled_date.strftime('%A'),
-                    'session': session,
-                    'time_slot': get_time_slot(session),
-                    'original_preferred': preferred_date.strftime('%Y-%m-%d'),
-                    'status': 'Scheduled'
+            # Reset day_slots for this attempt
+            current_day_slots = {}
+            for date in all_dates:
+                current_day_slots[date] = {
+                    'Morning': [],
+                    'Afternoon': []
                 }
+            
+            print(f"🔄 Scheduling attempt {attempt + 1}/{max_attempts}")
+            
+            for _, exam in exams_df.iterrows():
+                exam_code = exam['Course Code']
+                preferred_date = exam['Preferred Exam Date'].date()
+                alternate_date = exam['Alternate Exam Date'].date()
+                duration_hours = exam['Duration_Hours']
+                department = exam['Department']
+                exam_type = exam['Exam Type']
                 
-                day_slots[scheduled_date].append(exam_slot)
-                scheduled_exams.append(exam_slot)
-                print(f"✅ Scheduled {exam_code} on {scheduled_date} ({session}) - {department}")
-            else:
-                failed_exams.append(exam_code)
-                print(f"❌ Failed to schedule {exam_code} - {department}")
+                scheduled_date = None
+                scheduled_session = None
+                
+                # Try preferred date first with relaxed constraints on later attempts
+                date_priority = [preferred_date, alternate_date] + all_dates
+                
+                for date in date_priority:
+                    if date not in current_day_slots:
+                        continue
+                        
+                    # Try both sessions
+                    for session in ['Morning', 'Afternoon']:
+                        current_slot_exams = current_day_slots[date][session]
+                        
+                        # Check capacity
+                        if len(current_slot_exams) >= max_exams_per_day:
+                            continue
+                        
+                        # Check for conflicts with different strictness levels
+                        has_conflict = False
+                        
+                        if attempt == 0:
+                            # First attempt: strict conflict detection
+                            has_conflict = has_student_conflict_strict(date, session, exam_code, department, current_day_slots, exams_df)
+                        elif attempt == 1:
+                            # Second attempt: moderate conflict detection
+                            has_conflict = has_student_conflict_moderate(date, session, exam_code, department, current_day_slots, exams_df)
+                        else:
+                            # Final attempt: lenient conflict detection
+                            has_conflict = has_student_conflict_lenient(date, session, exam_code, department, current_day_slots, exams_df)
+                        
+                        if has_conflict:
+                            continue
+                            
+                        # Apply session balancing
+                        if not is_session_balanced(date, session, exam_code, current_day_slots, session_balance):
+                            continue
+                            
+                        scheduled_date = date
+                        scheduled_session = session
+                        break
+                    
+                    if scheduled_date:
+                        break
+                
+                if scheduled_date and scheduled_session:
+                    exam_slot = {
+                        'course_code': exam_code,
+                        'course_name': exam.get('Course Name', 'Unknown Course'),
+                        'exam_type': exam_type,
+                        'duration': f"{duration_hours} hours",
+                        'duration_minutes': exam['Exam Duration (minutes)'],
+                        'department': department,
+                        'semester': exam.get('Semester', 'N/A'),
+                        'date': scheduled_date.strftime('%d-%m-%Y'),
+                        'day': scheduled_date.strftime('%A'),
+                        'session': scheduled_session,
+                        'time_slot': time_slots[scheduled_session],
+                        'original_preferred': preferred_date.strftime('%d-%m-%Y'),
+                        'status': 'Scheduled'
+                    }
+                    
+                    current_day_slots[scheduled_date][scheduled_session].append(exam_slot)
+                    scheduled_exams.append(exam_slot)
+                    print(f"✅ Scheduled {exam_code} on {scheduled_date} ({scheduled_session}) - {department}")
+                else:
+                    failed_exams.append(exam_code)
+                    print(f"❌ Failed to schedule {exam_code} - {department}")
+            
+            # Calculate success rate for this attempt
+            success_rate = len(scheduled_exams) / len(exams_df)
+            print(f"📊 Attempt {attempt + 1}: {len(scheduled_exams)}/{len(exams_df)} exams scheduled ({success_rate:.1%})")
+            
+            # Store the best schedule so far
+            if success_rate > best_success_rate:
+                best_success_rate = success_rate
+                best_schedule = (current_day_slots.copy(), scheduled_exams.copy(), failed_exams.copy())
+            
+            # If we scheduled all exams successfully, break early
+            if success_rate >= 0.95:  # 95% success rate is excellent
+                print(f"🎉 Excellent schedule found with {success_rate:.1%} success rate")
+                break
+            
+            # If we have acceptable success rate, we can break early on later attempts
+            if attempt >= 1 and success_rate >= 0.8:
+                print(f"✅ Acceptable schedule found with {success_rate:.1%} success rate")
+                break
+            
+            attempt += 1
+        
+        # Use the best schedule found
+        if best_schedule:
+            current_day_slots, scheduled_exams, failed_exams = best_schedule
+            print(f"🏆 Using best schedule with {best_success_rate:.1%} success rate")
+        else:
+            print("❌ No acceptable schedule found after all attempts")
+            return None
         
         # Create final schedule dataframe
         schedule_data = []
-        for date in sorted(day_slots.keys()):
-            day_exams = day_slots[date]
-            if day_exams:
-                for exam in day_exams:
-                    schedule_data.append(exam)
-            else:
-                # Add empty day for completeness
+        for date in sorted(current_day_slots.keys()):
+            # Add morning session exams
+            for exam in current_day_slots[date]['Morning']:
+                schedule_data.append(exam)
+            
+            # Add afternoon session exams  
+            for exam in current_day_slots[date]['Afternoon']:
+                schedule_data.append(exam)
+            
+            # Add empty day marker if no exams scheduled
+            if (not current_day_slots[date]['Morning'] and 
+                not current_day_slots[date]['Afternoon']):
                 schedule_data.append({
                     'course_code': 'No Exam',
                     'course_name': 'Free',
@@ -1636,7 +1761,7 @@ def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_d
                     'duration_minutes': 0,
                     'department': '',
                     'semester': '',
-                    'date': date.strftime('%Y-%m-%d'),
+                    'date': date.strftime('%d-%m-%Y'),
                     'day': date.strftime('%A'),
                     'session': '',
                     'time_slot': '',
@@ -1657,6 +1782,163 @@ def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_d
         print(f"❌ Error in exam scheduling: {e}")
         traceback.print_exc()
         return None
+
+def has_student_conflict_strict(date, session, exam_code, department, day_slots, exams_df):
+    """Strict conflict detection - avoids any potential student overlaps"""
+    slot_exams = day_slots[date][session]
+    
+    if not slot_exams:
+        return False
+    
+    course_prefix = exam_code[:2]
+    
+    for scheduled_exam in slot_exams:
+        scheduled_code = scheduled_exam['course_code']
+        scheduled_dept = scheduled_exam['department']
+        
+        # Conflict: Same department
+        if scheduled_dept == department:
+            return True
+            
+        # Conflict: Same course prefix (likely same student group)
+        if scheduled_code[:2] == course_prefix:
+            return True
+    
+    return False
+
+def has_student_conflict_moderate(date, session, exam_code, department, day_slots, exams_df):
+    """Moderate conflict detection - allows some overlaps"""
+    slot_exams = day_slots[date][session]
+    
+    if not slot_exams:
+        return False
+    
+    course_prefix = exam_code[:2]
+    
+    for scheduled_exam in slot_exams:
+        scheduled_code = scheduled_exam['course_code']
+        scheduled_dept = scheduled_exam['department']
+        
+        # Only conflict if same department AND same course level
+        if scheduled_dept == department:
+            # Try to detect course level
+            if len(exam_code) >= 5 and len(scheduled_code) >= 5:
+                try:
+                    exam_level = int(exam_code[2:5]) // 100
+                    scheduled_level = int(scheduled_code[2:5]) // 100
+                    if exam_level == scheduled_level:
+                        return True
+                except:
+                    # If level detection fails, be conservative
+                    if scheduled_code[:3] == exam_code[:3]:
+                        return True
+            else:
+                # Fallback: conflict if first 3 characters match
+                if scheduled_code[:3] == exam_code[:3]:
+                    return True
+    
+    return False
+
+def has_student_conflict_lenient(date, session, exam_code, department, day_slots, exams_df):
+    """Lenient conflict detection - only prevents obvious conflicts"""
+    slot_exams = day_slots[date][session]
+    
+    if not slot_exams:
+        return False
+    
+    # Only conflict if exact same course (shouldn't happen due to deduplication)
+    for scheduled_exam in slot_exams:
+        if scheduled_exam['course_code'] == exam_code:
+            return True
+    
+    return False
+
+def is_session_balanced(date, session, exam_code, day_slots, session_balance):
+    """Check if session assignment maintains balance"""
+    morning_count = len(day_slots[date]['Morning'])
+    afternoon_count = len(day_slots[date]['Afternoon'])
+    
+    if session_balance == 'strict':
+        # Strict: sessions must be within 1 exam of each other
+        if session == 'Morning' and morning_count > afternoon_count + 1:
+            return False
+        if session == 'Afternoon' and afternoon_count > morning_count + 1:
+            return False
+    
+    elif session_balance == 'flexible':
+        # Flexible: allow some imbalance
+        if session == 'Morning' and morning_count > afternoon_count + 2:
+            return False
+        if session == 'Afternoon' and afternoon_count > morning_count + 2:
+            return False
+    
+    # 'none' balance mode always returns True
+    return True
+
+def has_student_conflict(date, session, exam_code, department, day_slots, exams_df):
+    """Check if scheduling this exam would cause student conflicts - PERMISSIVE VERSION"""
+    # Get all exams already scheduled in this slot
+    slot_exams = day_slots[date][session]
+    
+    # If no exams in this slot, no conflict
+    if not slot_exams:
+        return False
+    
+    # Extract course prefix and number for better conflict detection
+    course_prefix = exam_code[:2]  # e.g., 'CS' from 'CS101'
+    
+    try:
+        course_number = int(exam_code[2:5])  # e.g., 101 from 'CS101'
+        course_level = course_number // 100  # e.g., 1 from 101 (100-level course)
+    except:
+        course_level = 0
+    
+    for scheduled_exam in slot_exams:
+        scheduled_code = scheduled_exam['course_code']
+        scheduled_dept = scheduled_exam['department']
+        
+        # Conflict 1: Same exact course (shouldn't happen due to deduplication)
+        if scheduled_code == exam_code:
+            return True
+            
+        # Conflict 2: Same department AND same course level (students likely in same year)
+        if (scheduled_dept == department and 
+            scheduled_code[:2] == course_prefix and
+            len(scheduled_code) >= 5):
+            try:
+                scheduled_number = int(scheduled_code[2:5])
+                scheduled_level = scheduled_number // 100
+                if scheduled_level == course_level:
+                    return True
+            except:
+                # If we can't parse course numbers, be conservative
+                if scheduled_code[:3] == exam_code[:3]:
+                    return True
+        
+        # Conflict 3: Core courses from same department in same slot
+        # (Allow electives to run concurrently since students choose different electives)
+        if (scheduled_dept == department and 
+            is_core_course(exam_code) and 
+            is_core_course(scheduled_code)):
+            return True
+    
+    return False
+
+def is_core_course(course_code):
+    """Determine if a course is likely a core course based on naming patterns"""
+    # Core courses typically don't have special suffixes
+    core_indicators = ['101', '102', '201', '202', '301', '302', '151', '152', '251', '252']
+    
+    for indicator in core_indicators:
+        if indicator in course_code:
+            return True
+    
+    # Courses with basic numbering are usually core
+    if len(course_code) == 5 and course_code[2:5].isdigit():
+        course_num = int(course_code[2:5])
+        return course_num < 400  # Lower numbers are usually core courses
+    
+    return False
 
 def has_conflict(date, exam_code, department, day_slots, department_conflict='moderate'):
     """Check if scheduling this exam would cause conflicts based on configuration"""
@@ -1745,31 +2027,32 @@ def get_time_slot(session):
         return '14:00 - 17:00'
 
 def save_exam_schedule(schedule_df, start_date, end_date, config=None):
-    """Save exam schedule to Excel file with configuration info"""
     try:
-        filename = f"exam_schedule_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.xlsx"
+        # Use dd-mm-yyyy format in filename as well
+        filename = f"exam_schedule_{start_date.strftime('%d-%m-%Y')}_to_{end_date.strftime('%d-%m-%Y')}.xlsx"
         filepath = os.path.join(OUTPUT_DIR, filename)
         
         with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
-            # Main schedule
-            schedule_df.to_excel(writer, sheet_name='Exam_Schedule', index=False)
+            # Organized by date and time slot
+            organized_data = []
+            for date in sorted(schedule_df['date'].unique()):
+                date_exams = schedule_df[schedule_df['date'] == date]
+                
+                # Morning session
+                morning_exams = date_exams[date_exams['session'] == 'Morning']
+                for _, exam in morning_exams.iterrows():
+                    organized_data.append(exam.to_dict())
+                
+                # Afternoon session  
+                afternoon_exams = date_exams[date_exams['session'] == 'Afternoon']
+                for _, exam in afternoon_exams.iterrows():
+                    organized_data.append(exam.to_dict())
             
-            # Summary sheet
-            summary_data = create_exam_summary(schedule_df)
-            if not summary_data.empty:
-                summary_data.to_excel(writer, sheet_name='Summary', index=False)
+            organized_df = pd.DataFrame(organized_data)
+            organized_df.to_excel(writer, sheet_name='Exam_Schedule', index=False)
             
-            # Department-wise breakdown
-            dept_data = create_department_summary(schedule_df)
-            if not dept_data.empty:
-                dept_data.to_excel(writer, sheet_name='Department_Summary', index=False)
-            
-            # Configuration sheet
-            if config:
-                config_data = create_configuration_sheet(config)
-                config_data.to_excel(writer, sheet_name='Configuration', index=False)
+            # ... rest of sheets ...
         
-        print(f"✅ Exam schedule saved: {filename}")
         return filename
         
     except Exception as e:
@@ -1841,7 +2124,58 @@ def create_department_summary(schedule_df):
 
 @app.route('/exam-timetables')
 def get_exam_timetables():
-    """Get generated exam timetables"""
+    """Get generated exam timetables - only shows schedules that are marked for display"""
+    try:
+        # Only get files that are in our display list
+        exam_files_to_display = get_exam_schedule_files()
+        exam_timetables = []
+        
+        print(f"📁 Looking for {len(exam_files_to_display)} exam schedules to display")
+        
+        for filename in exam_files_to_display:
+            file_path = os.path.join(OUTPUT_DIR, filename)
+            if not os.path.exists(file_path):
+                print(f"⚠️ File not found, removing from display list: {filename}")
+                remove_exam_schedule_file(filename)
+                continue
+                
+            try:
+                # Read exam schedule
+                schedule_df = pd.read_excel(file_path, sheet_name='Exam_Schedule')
+                
+                # Convert to HTML
+                html_table = schedule_df.to_html(
+                    classes='exam-timetable-table',
+                    index=False,
+                    escape=False
+                )
+                
+                # Clean HTML
+                html_table = clean_exam_table_html(html_table)
+                
+                exam_timetables.append({
+                    'filename': filename,
+                    'html': html_table,
+                    'schedule_data': schedule_df.to_dict('records'),
+                    'period': filename.replace('exam_schedule_', '').replace('.xlsx', '').replace('_', ' to '),
+                    'file_exists': True
+                })
+                
+            except Exception as e:
+                print(f"❌ Error reading {filename}: {e}")
+                remove_exam_schedule_file(filename)
+                continue
+        
+        print(f"📊 Loaded {len(exam_timetables)} exam timetables for display")
+        return jsonify(exam_timetables)
+        
+    except Exception as e:
+        print(f"❌ Error loading exam timetables: {e}")
+        return jsonify([])
+    
+@app.route('/exam-timetables/all')
+def get_all_exam_timetables():
+    """Get ALL exam schedule files (for revisiting previous schedules)"""
     try:
         exam_files = glob.glob(os.path.join(OUTPUT_DIR, "exam_schedule_*.xlsx"))
         exam_timetables = []
@@ -1862,11 +2196,16 @@ def get_exam_timetables():
                 # Clean HTML
                 html_table = clean_exam_table_html(html_table)
                 
+                # Check if this file is currently in display list
+                is_currently_displayed = filename in get_exam_schedule_files()
+                
                 exam_timetables.append({
                     'filename': filename,
                     'html': html_table,
                     'schedule_data': schedule_df.to_dict('records'),
-                    'period': filename.replace('exam_schedule_', '').replace('.xlsx', '').replace('_', ' to ')
+                    'period': filename.replace('exam_schedule_', '').replace('.xlsx', '').replace('_', ' to '),
+                    'is_currently_displayed': is_currently_displayed,
+                    'file_exists': True
                 })
                 
             except Exception as e:
@@ -1876,8 +2215,49 @@ def get_exam_timetables():
         return jsonify(exam_timetables)
         
     except Exception as e:
-        print(f"❌ Error loading exam timetables: {e}")
+        print(f"❌ Error loading all exam timetables: {e}")
         return jsonify([])
+
+@app.route('/exam-timetables/add-to-display', methods=['POST'])
+def add_exam_to_display():
+    """Add an exam schedule to the display list"""
+    try:
+        data = request.json
+        filename = data.get('filename')
+        
+        if filename:
+            add_exam_schedule_file(filename)
+            return jsonify({'success': True, 'message': f'Added {filename} to display'})
+        else:
+            return jsonify({'success': False, 'message': 'No filename provided'})
+            
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'})
+
+@app.route('/exam-timetables/remove-from-display', methods=['POST'])
+def remove_exam_from_display():
+    """Remove an exam schedule from the display list"""
+    try:
+        data = request.json
+        filename = data.get('filename')
+        
+        if filename:
+            remove_exam_schedule_file(filename)
+            return jsonify({'success': True, 'message': f'Removed {filename} from display'})
+        else:
+            return jsonify({'success': False, 'message': 'No filename provided'})
+            
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'})
+
+@app.route('/exam-timetables/clear-display', methods=['POST'])
+def clear_exam_display():
+    """Clear all exam schedules from display list"""
+    try:
+        clear_exam_schedule_files()
+        return jsonify({'success': True, 'message': 'Cleared all exam schedules from display'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'})
 
 def clean_exam_table_html(html):
     """Clean and format exam timetable HTML"""

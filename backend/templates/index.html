@@ -631,7 +631,7 @@
         <section class="exam-section" id="exam-view-section" style="display: none;">
             <div class="section-header">
                 <h2>Exam Schedules</h2>
-                <p>View and manage generated exam timetables</p>
+                <p>View and manage generated exam timetables organized by sessions</p>
             </div>
             
             <div class="exam-controls">
@@ -649,6 +649,25 @@
                             <option value="CSE">Computer Science</option>
                             <option value="DSAI">Data Science & AI</option>
                             <option value="ECE">Electronics & Communication</option>
+                            <option value="Mathematics">Mathematics</option>
+                            <option value="Physics">Physics</option>
+                            <option value="Humanities">Humanities</option>
+                        </select>
+                    </div>
+                    <div class="control-item">
+                        <label for="exam-session-filter">Session</label>
+                        <select id="exam-session-filter" class="control-select">
+                            <option value="all">All Sessions</option>
+                            <option value="Morning">Morning Session</option>
+                            <option value="Afternoon">Afternoon Session</option>
+                        </select>
+                    </div>
+                    <div class="control-item">
+                        <label for="exam-type-filter">Exam Type</label>
+                        <select id="exam-type-filter" class="control-select">
+                            <option value="all">All Types</option>
+                            <option value="Theory">Theory</option>
+                            <option value="Lab">Lab</option>
                         </select>
                     </div>
                 </div>
@@ -660,6 +679,28 @@
                     <button class="btn btn-success" id="download-all-exam-btn">
                         <i class="fas fa-download"></i>
                         Download All
+                    </button>
+                    <button class="btn btn-primary" id="toggle-view-mode">
+                        <i class="fas fa-exchange-alt"></i>
+                        Toggle View
+                    </button>
+                </div>
+            </div>
+            
+            <!-- View Mode Toggle -->
+            <div class="view-mode-toggle">
+                <div class="toggle-buttons">
+                    <button class="toggle-btn active" data-view="session">
+                        <i class="fas fa-calendar-day"></i>
+                        Session View
+                    </button>
+                    <button class="toggle-btn" data-view="daily">
+                        <i class="fas fa-list"></i>
+                        Daily View
+                    </button>
+                    <button class="toggle-btn" data-view="compact">
+                        <i class="fas fa-table"></i>
+                        Table View
                     </button>
                 </div>
             </div>

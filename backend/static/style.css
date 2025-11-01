@@ -3616,3 +3616,606 @@ body {
     color: white;
     border-color: var(--primary);
 }
+
+/* Time Slot Styles */
+.time-slots-container {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.time-slot-group {
+    border: 2px solid #e0e0e0;
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.morning-slot {
+    border-left: 6px solid #1976d2;
+}
+
+.afternoon-slot {
+    border-left: 6px solid #f57c00;
+}
+
+.time-slot-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.5rem;
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+}
+
+.time-slot-header i {
+    font-size: 1.5rem;
+}
+
+.morning-slot .time-slot-header i {
+    color: #1976d2;
+}
+
+.afternoon-slot .time-slot-header i {
+    color: #f57c00;
+}
+
+.slot-info {
+    flex: 1;
+}
+
+.slot-title {
+    display: block;
+    font-weight: 700;
+    font-size: 1.2rem;
+    color: var(--dark);
+}
+
+.slot-time {
+    font-size: 0.9rem;
+    color: var(--gray);
+    font-weight: 600;
+}
+
+.slot-count {
+    background: white;
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.slot-exams-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+    padding: 1.5rem;
+    background: white;
+}
+
+.exam-card-time {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    position: relative;
+    transition: var(--transition);
+}
+
+.exam-card-time:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.exam-time-badge {
+    position: absolute;
+    top: -1px;
+    right: -1px;
+    background: var(--primary);
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 0 var(--radius) 0 var(--radius);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.exam-card-content {
+    margin-top: 0.5rem;
+}
+
+.exam-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.exam-code {
+    font-weight: 800;
+    font-size: 1.1rem;
+    color: var(--primary-dark);
+}
+
+.exam-type {
+    background: var(--light);
+    color: var(--dark);
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.no-exams {
+    text-align: center;
+    padding: 2rem;
+    color: var(--gray);
+    font-style: italic;
+    grid-column: 1 / -1;
+}
+
+/* Enhanced Exam View Styles */
+.view-mode-toggle {
+    margin: 1.5rem 0;
+    padding: 1rem;
+    background: var(--light);
+    border-radius: var(--radius);
+}
+
+.toggle-buttons {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.toggle-btn {
+    padding: 0.75rem 1.5rem;
+    background: white;
+    border: 2px solid var(--light);
+    border-radius: var(--radius);
+    font-weight: 600;
+    color: var(--gray);
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.toggle-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.toggle-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+/* Session View */
+.session-view {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.session-category {
+    background: white;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}
+
+.session-header {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: white;
+    padding: 1.5rem 2rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.session-header.morning {
+    background: linear-gradient(135deg, #1976d2, #1565c0);
+}
+
+.session-header.afternoon {
+    background: linear-gradient(135deg, #f57c00, #ef6c00);
+}
+
+.session-icon {
+    font-size: 1.5rem;
+    width: 50px;
+    height: 50px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.session-info {
+    flex: 1;
+}
+
+.session-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+}
+
+.session-time {
+    font-size: 1rem;
+    opacity: 0.9;
+}
+
+.session-stats {
+    display: flex;
+    gap: 1.5rem;
+}
+
+.session-stat {
+    text-align: center;
+}
+
+.session-number {
+    font-size: 1.5rem;
+    font-weight: 700;
+    display: block;
+}
+
+.session-label {
+    font-size: 0.8rem;
+    opacity: 0.9;
+}
+
+.session-content {
+    padding: 2rem;
+}
+
+.exams-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.exams-table th {
+    background: var(--light);
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: var(--dark);
+    border-bottom: 2px solid #e0e0e0;
+}
+
+.exams-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #f0f0f0;
+    vertical-align: top;
+}
+
+.exams-table tr:hover {
+    background: #f8f9fa;
+}
+
+.exams-table .course-code {
+    font-weight: 700;
+    color: var(--primary-dark);
+    font-family: 'Courier New', monospace;
+}
+
+.exams-table .exam-type {
+    background: var(--light);
+    color: var(--dark);
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    display: inline-block;
+}
+
+.exams-table .department {
+    background: var(--primary);
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 15px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.exams-table .date-cell {
+    font-weight: 600;
+    color: var(--dark);
+}
+
+.exams-table .time-cell {
+    font-family: 'Courier New', monospace;
+    font-weight: 600;
+    color: var(--primary);
+}
+
+/* Daily View */
+.daily-view {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.daily-card {
+    background: white;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}
+
+.daily-header {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    padding: 1.5rem 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.daily-date {
+    font-size: 1.3rem;
+    font-weight: 700;
+}
+
+.daily-day {
+    font-size: 1rem;
+    opacity: 0.9;
+    margin-top: 0.25rem;
+}
+
+.daily-sessions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+}
+
+.daily-session {
+    padding: 1.5rem;
+    border-right: 1px solid #f0f0f0;
+}
+
+.daily-session:last-child {
+    border-right: none;
+}
+
+.daily-session.morning {
+    background: linear-gradient(135deg, #e3f2fd, #f8fdff);
+}
+
+.daily-session.afternoon {
+    background: linear-gradient(135deg, #fff3e0, #fffbf0);
+}
+
+.session-title-small {
+    font-weight: 700;
+    color: var(--dark);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.session-exams {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.daily-exam-card {
+    background: white;
+    border-radius: var(--radius);
+    padding: 1rem;
+    border-left: 4px solid var(--primary);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.daily-exam-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.5rem;
+}
+
+.daily-exam-code {
+    font-weight: 800;
+    color: var(--primary-dark);
+    font-size: 1.1rem;
+}
+
+.daily-exam-meta {
+    display: flex;
+    gap: 0.75rem;
+    font-size: 0.8rem;
+    color: var(--gray);
+}
+
+.daily-exam-name {
+    font-weight: 600;
+    color: var(--dark);
+    margin-bottom: 0.5rem;
+}
+
+.daily-exam-details {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.8rem;
+}
+
+/* Compact Table View */
+.compact-view {
+    background: white;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}
+
+.compact-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.compact-table th {
+    background: var(--light);
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid #e0e0e0;
+    position: sticky;
+    top: 0;
+}
+
+.compact-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.compact-table tr:nth-child(even) {
+    background: #fafafa;
+}
+
+.compact-table tr:hover {
+    background: #f0f0f0;
+}
+
+/* No Exams State */
+.no-exams-message {
+    text-align: center;
+    padding: 3rem;
+    color: var(--gray);
+}
+
+.no-exams-message i {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+    .daily-sessions {
+        grid-template-columns: 1fr;
+    }
+    
+    .daily-session {
+        border-right: none;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    
+    .daily-session:last-child {
+        border-bottom: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .exam-controls .control-group {
+        grid-template-columns: 1fr;
+    }
+    
+    .control-actions {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .session-header {
+        flex-direction: column;
+        text-align: center;
+        gap: 1rem;
+    }
+    
+    .session-stats {
+        justify-content: center;
+    }
+    
+    .exams-table {
+        font-size: 0.8rem;
+    }
+    
+    .exams-table th,
+    .exams-table td {
+        padding: 0.5rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .toggle-buttons {
+        flex-direction: column;
+    }
+    
+    .session-stats {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+}
+
+/* Schedule Management Styles */
+.schedule-view-header {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    padding: 1.5rem 2rem;
+    border-radius: var(--radius);
+    margin-bottom: 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.view-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.view-info i {
+    font-size: 2rem;
+    opacity: 0.9;
+}
+
+.view-info h3 {
+    margin: 0;
+    font-size: 1.5rem;
+}
+
+.view-info p {
+    margin: 0.25rem 0 0 0;
+    opacity: 0.9;
+}
+
+.view-actions {
+    display: flex;
+    gap: 1rem;
+}
+
+.not-displayed {
+    opacity: 0.7;
+    border: 2px dashed var(--gray);
+}
+
+.not-displayed-badge {
+    background: var(--warning);
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 15px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-left: 1rem;
+}
+
+.status-badge {
+    background: var(--success);
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 15px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-block;
+}
+
+.exam-timetable-card .btn-sm {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.8rem;
+    margin-left: 0.5rem;
+}
