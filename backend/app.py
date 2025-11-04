@@ -1488,8 +1488,11 @@ def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_d
                                constraints=None):
     """Generate conflict-free exam schedule with multiple exams per slot"""
     try:
+        # VALIDATE max_exams_per_day parameter
+        max_exams_per_day = max(1, min(4, max_exams_per_day))  # Ensure between 1-4
+        
         print("📅 Generating conflict-free exam schedule with multiple exams per slot...")
-        print(f"⚙️ Configuration: {max_exams_per_day} exams/day, weekends: {include_weekends}")
+        print(f"⚙️ Configuration: {max_exams_per_day} exams/slot, weekends: {include_weekends}")
         print(f"⚙️ Conflict: {department_conflict}, Preference: {preference_weight}, Balance: {session_balance}")
         
         # Set default constraints if none provided
@@ -1655,7 +1658,7 @@ def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_d
                     for session in ['Morning', 'Afternoon']:
                         current_slot_exams = current_day_slots[date][session]
                         
-                        # Check capacity
+                        # Check capacity - NOW CONFIGURABLE (1-4 exams per slot)
                         if len(current_slot_exams) >= max_exams_per_day:
                             continue
                         
@@ -1664,19 +1667,19 @@ def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_d
                         
                         if attempt == 0:
                             # First attempt: strict conflict detection
-                            has_conflict = has_student_conflict_strict(date, session, exam_code, department, current_day_slots, exams_df)
+                            has_conflict = has_student_conflict_strict(date, session, exam_code, department, current_day_slots, exams_df, max_exams_per_day)
                         elif attempt == 1:
                             # Second attempt: moderate conflict detection
-                            has_conflict = has_student_conflict_moderate(date, session, exam_code, department, current_day_slots, exams_df)
+                            has_conflict = has_student_conflict_moderate(date, session, exam_code, department, current_day_slots, exams_df, max_exams_per_day)
                         else:
                             # Final attempt: lenient conflict detection
-                            has_conflict = has_student_conflict_lenient(date, session, exam_code, department, current_day_slots, exams_df)
+                            has_conflict = has_student_conflict_lenient(date, session, exam_code, department, current_day_slots, exams_df, max_exams_per_day)
                         
                         if has_conflict:
                             continue
                             
                         # Apply session balancing
-                        if not is_session_balanced(date, session, exam_code, current_day_slots, session_balance):
+                        if not is_session_balanced(date, session, exam_code, current_day_slots, session_balance, max_exams_per_day):
                             continue
                             
                         scheduled_date = date
@@ -1783,7 +1786,7 @@ def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_d
         traceback.print_exc()
         return None
 
-def has_student_conflict_strict(date, session, exam_code, department, day_slots, exams_df):
+def has_student_conflict_strict(date, session, exam_code, department, day_slots, exams_df, max_exams_per_day):
     """Strict conflict detection - avoids any potential student overlaps"""
     slot_exams = day_slots[date][session]
     
@@ -1806,7 +1809,7 @@ def has_student_conflict_strict(date, session, exam_code, department, day_slots,
     
     return False
 
-def has_student_conflict_moderate(date, session, exam_code, department, day_slots, exams_df):
+def has_student_conflict_moderate(date, session, exam_code, department, day_slots, exams_df, max_exams_per_day):
     """Moderate conflict detection - allows some overlaps"""
     slot_exams = day_slots[date][session]
     
@@ -1839,6 +1842,20 @@ def has_student_conflict_moderate(date, session, exam_code, department, day_slot
     
     return False
 
+def has_student_conflict_lenient(date, session, exam_code, department, day_slots, exams_df, max_exams_per_day):
+    """Lenient conflict detection - only prevents obvious conflicts"""
+    slot_exams = day_slots[date][session]
+    
+    if not slot_exams:
+        return False
+    
+    # Only conflict if exact same course (shouldn't happen due to deduplication)
+    for scheduled_exam in slot_exams:
+        if scheduled_exam['course_code'] == exam_code:
+            return True
+    
+    return False
+
 def has_student_conflict_lenient(date, session, exam_code, department, day_slots, exams_df):
     """Lenient conflict detection - only prevents obvious conflicts"""
     slot_exams = day_slots[date][session]
@@ -1853,7 +1870,7 @@ def has_student_conflict_lenient(date, session, exam_code, department, day_slots
     
     return False
 
-def is_session_balanced(date, session, exam_code, day_slots, session_balance):
+def is_session_balanced(date, session, exam_code, day_slots, session_balance, max_exams_per_day):
     """Check if session assignment maintains balance"""
     morning_count = len(day_slots[date]['Morning'])
     afternoon_count = len(day_slots[date]['Afternoon'])
@@ -1866,7 +1883,7 @@ def is_session_balanced(date, session, exam_code, day_slots, session_balance):
             return False
     
     elif session_balance == 'flexible':
-        # Flexible: allow some imbalance
+        # Flexible: Allow some imbalance
         if session == 'Morning' and morning_count > afternoon_count + 2:
             return False
         if session == 'Afternoon' and afternoon_count > morning_count + 2:
