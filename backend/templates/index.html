@@ -918,6 +918,13 @@
                         <div class="step" style="display: flex; gap: 1rem; padding: 1rem; background: var(--light); border-radius: 8px;">
                             <div class="step-number" style="background: var(--primary); color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">3</div>
                             <div>
+                                <strong>Generate Exam Schedules</strong>
+                                <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Navigate to "Generate Exam Schedule" to create conflict-free exam timetables</p>
+                            </div>
+                        </div>
+                        <div class="step" style="display: flex; gap: 1rem; padding: 1rem; background: var(--light); border-radius: 8px;">
+                            <div class="step-number" style="background: var(--primary); color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">4</div>
+                            <div>
                                 <strong>View & Download</strong>
                                 <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Use filters to view specific timetables and download individual or all schedules</p>
                             </div>
@@ -945,10 +952,68 @@
                             </p>
                         </div>
                         <div class="file-item" style="padding: 1rem; background: rgba(67, 97, 238, 0.05); border-radius: 8px; border-left: 4px solid var(--primary);">
+                            <strong>exams_data.csv</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">
+                                Required columns: Course Code, Course Name, Department, Semester, Credits, Exam Type, Duration, Preferred Date
+                            </p>
+                        </div>
+                        <div class="file-item" style="padding: 1rem; background: rgba(67, 97, 238, 0.05); border-radius: 8px; border-left: 4px solid var(--primary);">
                             <strong>Other Files</strong>
                             <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">
-                                classroom_data.csv, student_data.csv, exams_data.csv with appropriate columns
+                                classroom_data.csv, student_data.csv with appropriate columns
                             </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Exam Section Guide -->
+                <div class="help-section" style="margin-bottom: 2rem;">
+                    <h4 style="color: var(--primary); margin-bottom: 1rem;">
+                        <i class="fas fa-file-alt me-2"></i>
+                        Exam Timetable System
+                    </h4>
+                    <div class="features-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+                        <div class="feature" style="padding: 1rem; background: var(--light); border-radius: 8px;">
+                            <i class="fas fa-cog" style="color: var(--primary); margin-bottom: 0.5rem;"></i>
+                            <strong>Smart Configuration</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">Configure exam periods, session durations, and conflict rules</p>
+                        </div>
+                        <div class="feature" style="padding: 1rem; background: var(--light); border-radius: 8px;">
+                            <i class="fas fa-robot" style="color: var(--primary); margin-bottom: 0.5rem;"></i>
+                            <strong>Conflict-Free Scheduling</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">Intelligent algorithms prevent department and student conflicts</p>
+                        </div>
+                        <div class="feature" style="padding: 1rem; background: var(--light); border-radius: 8px;">
+                            <i class="fas fa-eye" style="color: var(--primary); margin-bottom: 0.5rem;"></i>
+                            <strong>Multiple View Modes</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">Session view, daily view, and compact table view options</p>
+                        </div>
+                        <div class="feature" style="padding: 1rem; background: var(--light); border-radius: 8px;">
+                            <i class="fas fa-history" style="color: var(--primary); margin-bottom: 0.5rem;"></i>
+                            <strong>Schedule Management</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">View current and previously generated exam schedules</p>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 1.5rem; background: rgba(67, 97, 238, 0.05); padding: 1.5rem; border-radius: 8px; border-left: 4px solid var(--primary);">
+                        <h5 style="color: var(--primary); margin-bottom: 1rem;">Exam Configuration Tips:</h5>
+                        <div style="display: grid; gap: 0.5rem;">
+                            <div style="display: flex; align-items: start; gap: 0.5rem;">
+                                <i class="fas fa-check-circle" style="color: var(--success); margin-top: 0.2rem;"></i>
+                                <span>Set realistic exam period dates to avoid scheduling conflicts</span>
+                            </div>
+                            <div style="display: flex; align-items: start; gap: 0.5rem;">
+                                <i class="fas fa-check-circle" style="color: var(--success); margin-top: 0.2rem;"></i>
+                                <span>Use 2 exams per day for balanced scheduling</span>
+                            </div>
+                            <div style="display: flex; align-items: start; gap: 0.5rem;">
+                                <i class="fas fa-check-circle" style="color: var(--success); margin-top: 0.2rem;"></i>
+                                <span>Enable department conflict rules to prevent same-department exams on the same day</span>
+                            </div>
+                            <div style="display: flex; align-items: start; gap: 0.5rem;">
+                                <i class="fas fa-check-circle" style="color: var(--success); margin-top: 0.2rem;"></i>
+                                <span>Include weekends if you need more scheduling days</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -995,8 +1060,16 @@
                             <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Check that all required CSV files are uploaded and have the correct format</p>
                         </div>
                         <div class="issue" style="margin-bottom: 1rem;">
+                            <strong>❌ No exam schedules generated?</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Ensure exams_data.csv is uploaded and contains valid exam data with preferred dates</p>
+                        </div>
+                        <div class="issue" style="margin-bottom: 1rem;">
                             <strong>⚠️ Elective courses not showing?</strong>
                             <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Ensure elective courses are marked "Yes" in the Elective column</p>
+                        </div>
+                        <div class="issue" style="margin-bottom: 1rem;">
+                            <strong>⚠️ Exam scheduling conflicts?</strong>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Try increasing the exam period duration or allowing more exams per day</p>
                         </div>
                         <div class="issue">
                             <strong>🔧 Debugging tools</strong>

@@ -2624,7 +2624,13 @@ function updateExamPreview(schedule, config) {
         
         <div class="daily-schedule-full" id="daily-schedule-view">
     `;
+
+    previewContent.innerHTML = html;
     
+    // Setup exam tooltips after rendering
+    setTimeout(() => {
+        setupExamTooltips();
+    }, 100);
     // Create daily schedule view with sorted dates
     sortedDates.forEach(date => {
         const dayExams = examsByDate[date] || [];
@@ -2718,9 +2724,17 @@ function createExamCardWithTime(exam) {
     const courseCode = safeString(safeGet(exam, 'course_code', 'N/A'));
     const examType = safeString(safeGet(exam, 'exam_type', 'N/A'));
     const timeSlot = safeString(safeGet(exam, 'time_slot', 'Time N/A'));
+    const semester = safeString(safeGet(exam, 'semester', 'N/A'));
+    const credits = safeString(safeGet(exam, 'credits', 'N/A'));
+    const instructor = safeString(safeGet(exam, 'instructor', 'Not assigned'));
+    const preferredDate = safeString(safeGet(exam, 'original_preferred', 'Not specified'));
+    
+    // Get session for additional styling
+    const session = safeString(safeGet(exam, 'session', ''));
+    const sessionClass = session.toLowerCase();
     
     return `
-        <div class="exam-card-time ${deptClass}">
+        <div class="exam-card-time ${deptClass} ${sessionClass}" style="position: relative;">
             <div class="exam-time-badge">${timeSlot}</div>
             <div class="exam-card-content">
                 <div class="exam-header">
@@ -2735,10 +2749,83 @@ function createExamCardWithTime(exam) {
                     </div>
                 </div>
             </div>
+            
+            <!-- Enhanced Tooltip -->
+            <div class="exam-tooltip ${deptClass}">
+                <div class="exam-tooltip-header">
+                    <div class="exam-tooltip-code">${courseCode}</div>
+                    <div class="exam-tooltip-type">${examType} Exam</div>
+                </div>
+                <div class="exam-tooltip-name">${courseName}</div>
+                <div class="exam-tooltip-details">
+                    <div class="exam-tooltip-detail">
+                        <i class="fas fa-graduation-cap"></i>
+                        <span><strong>Semester:</strong> ${semester}</span>
+                    </div>
+                    <div class="exam-tooltip-detail">
+                        <i class="fas fa-star"></i>
+                        <span><strong>Credits:</strong> ${credits}</span>
+                    </div>
+                    <div class="exam-tooltip-detail">
+                        <i class="fas fa-user-tie"></i>
+                        <span><strong>Instructor:</strong> ${instructor}</span>
+                    </div>
+                    <div class="exam-tooltip-detail">
+                        <i class="fas fa-building"></i>
+                        <span><strong>Department:</strong> ${department}</span>
+                    </div>
+                    <div class="exam-tooltip-detail">
+                        <i class="fas fa-clock"></i>
+                        <span><strong>Duration:</strong> ${duration}</span>
+                    </div>
+                    <div class="exam-tooltip-detail">
+                        <i class="fas fa-calendar-check"></i>
+                        <span><strong>Preferred Date:</strong> ${preferredDate}</span>
+                    </div>
+                    <div class="exam-tooltip-detail">
+                        <i class="fas fa-calendar-day"></i>
+                        <span><strong>Scheduled:</strong> ${timeSlot}</span>
+                    </div>
+                </div>
+                <div class="exam-tooltip-semester">
+                    <i class="fas fa-university"></i>
+                    Semester ${semester} • ${credits} Credits
+                </div>
+            </div>
         </div>
     `;
 }
-
+function setupExamTooltips() {
+    // This function will be called after the exam preview is rendered
+    const examCards = document.querySelectorAll('.exam-card-time');
+    
+    examCards.forEach(card => {
+        // Prevent tooltip from going off-screen
+        const tooltip = card.querySelector('.exam-tooltip');
+        if (tooltip) {
+            card.addEventListener('mouseenter', function() {
+                const rect = this.getBoundingClientRect();
+                const tooltipRect = tooltip.getBoundingClientRect();
+                
+                // Check if tooltip would go off the left edge
+                if (rect.left - tooltipRect.width / 2 < 10) {
+                    tooltip.style.left = '0';
+                    tooltip.style.transform = 'translateX(0)';
+                } 
+                // Check if tooltip would go off the right edge
+                else if (rect.left + tooltipRect.width / 2 > window.innerWidth - 10) {
+                    tooltip.style.left = 'auto';
+                    tooltip.style.right = '0';
+                    tooltip.style.transform = 'translateX(0)';
+                } else {
+                    tooltip.style.left = '50%';
+                    tooltip.style.right = 'auto';
+                    tooltip.style.transform = 'translateX(-50%)';
+                }
+            });
+        }
+    });
+}
 
 function createExamCardFull(exam) {
     const deptClass = `dept-${exam.department.toLowerCase().replace(' ', '-')}`;

@@ -1277,6 +1277,7 @@ def get_timetables():
         print(f"❌ Error in /timetables: {e}")
         return jsonify({'success': False, 'message': f'Error loading timetables: {str(e)}'})
 
+
 @app.route('/download/<filename>')
 def download_timetable(filename):
     file_path = os.path.join(OUTPUT_DIR, filename)

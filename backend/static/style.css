@@ -4219,3 +4219,218 @@ body {
     font-size: 0.8rem;
     margin-left: 0.5rem;
 }
+
+/* Enhanced Exam Card Tooltips */
+.exam-card-time {
+    position: relative;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.exam-card-time:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.exam-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    border: 2px solid var(--primary);
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+    z-index: 1000;
+    min-width: 280px;
+    max-width: 350px;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    pointer-events: none;
+}
+
+.exam-card-time:hover .exam-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(-8px);
+}
+
+.exam-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 8px solid transparent;
+    border-top-color: var(--primary);
+}
+
+.exam-tooltip-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--light-gray);
+}
+
+.exam-tooltip-code {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--primary);
+}
+
+.exam-tooltip-type {
+    background: var(--primary);
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.exam-tooltip-name {
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+    color: var(--dark);
+    line-height: 1.3;
+}
+
+.exam-tooltip-details {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.exam-tooltip-detail {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--gray);
+}
+
+.exam-tooltip-detail i {
+    width: 16px;
+    text-align: center;
+    color: var(--primary);
+}
+
+.exam-tooltip-semester {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: white;
+    padding: 0.3rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-top: 0.5rem;
+}
+
+/* Department-specific colors for tooltips */
+.exam-tooltip.dept-cse {
+    border-color: #4361ee;
+}
+.exam-tooltip.dept-cse::after {
+    border-top-color: #4361ee;
+}
+
+.exam-tooltip.dept-dsai {
+    border-color: #7209b7;
+}
+.exam-tooltip.dept-dsai::after {
+    border-top-color: #7209b7;
+}
+
+.exam-tooltip.dept-ece {
+    border-color: #f72585;
+}
+.exam-tooltip.dept-ece::after {
+    border-top-color: #f72585;
+}
+
+.exam-tooltip.dept-mathematics {
+    border-color: #4cc9f0;
+}
+.exam-tooltip.dept-mathematics::after {
+    border-top-color: #4cc9f0;
+}
+
+.exam-tooltip.dept-physics {
+    border-color: #f78c19;
+}
+.exam-tooltip.dept-physics::after {
+    border-top-color: #f78c19;
+}
+
+.exam-tooltip.dept-humanities {
+    border-color: #2a9d8f;
+}
+.exam-tooltip.dept-humanities::after {
+    border-top-color: #2a9d8f;
+}
+
+/* Session-specific styling */
+.morning-slot .exam-tooltip {
+    border-color: #2a87e4;
+}
+.morning-slot .exam-tooltip::after {
+    border-top-color: #2a87e4;
+}
+
+.afternoon-slot .exam-tooltip {
+    border-color: #f78819;
+}
+.afternoon-slot .exam-tooltip::after {
+    border-top-color: #f78819;
+}
+
+/* Enhanced exam card styling */
+.exam-card-time {
+    background: white;
+    border-radius: 8px;
+    padding: 0.75rem;
+    border-left: 4px solid var(--primary);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+.exam-card-time:hover {
+    border-left-width: 6px;
+}
+
+/* Department colors for exam cards */
+.exam-card-time.dept-cse {
+    border-left-color: #4361ee;
+    background: linear-gradient(135deg, #ffffff, #f0f4ff);
+}
+
+.exam-card-time.dept-dsai {
+    border-left-color: #7209b7;
+    background: linear-gradient(135deg, #ffffff, #f8f0ff);
+}
+
+.exam-card-time.dept-ece {
+    border-left-color: #f72585;
+    background: linear-gradient(135deg, #ffffff, #fff0f8);
+}
+
+.exam-card-time.dept-mathematics {
+    border-left-color: #4cc9f0;
+    background: linear-gradient(135deg, #ffffff, #f0fdff);
+}
+
+.exam-card-time.dept-physics {
+    border-left-color: #f78c19;
+    background: linear-gradient(135deg, #ffffff, #fff8f0);
+}
+
+.exam-card-time.dept-humanities {
+    border-left-color: #2a9d8f;
+    background: linear-gradient(135deg, #ffffff, #f0fffc);
+}
+
