@@ -4434,3 +4434,81 @@ body {
     background: linear-gradient(135deg, #ffffff, #f0fffc);
 }
 
+.theme-selector-compact {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.theme-option-compact {
+    background: white;
+    border: 2px solid var(--light-gray);
+    border-radius: 8px;
+    padding: 0.75rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-align: center;
+    min-height: 80px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.theme-option-compact:hover {
+    transform: translateY(-2px);
+    border-color: var(--primary);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.theme-option-compact.active {
+    border-color: var(--primary);
+    box-shadow: 0 4px 16px rgba(67, 97, 238, 0.2);
+    background: linear-gradient(135deg, var(--primary-light), white);
+}
+
+.theme-preview-colors-compact {
+    display: flex;
+    height: 24px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    border: 1px solid rgba(0,0,0,0.1);
+}
+
+.theme-color-primary-compact {
+    flex: 2;
+    background: #4361ee;
+}
+
+.theme-color-secondary-compact {
+    flex: 1;
+    background: #4cc9f0;
+}
+
+.theme-color-accent-compact {
+    flex: 1;
+    background: #7209b7;
+}
+
+.theme-name-compact {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--dark);
+    margin-top: auto;
+}
+
+/* Ensure colors are visible */
+.theme-color-primary-compact,
+.theme-color-secondary-compact,
+.theme-color-accent-compact {
+    min-height: 24px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .theme-selector-compact {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}

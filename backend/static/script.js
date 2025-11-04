@@ -1824,6 +1824,7 @@ function showSettingsModal() {
         settingsModal.style.display = 'flex';
         loadCurrentSettings();
         updateSettingsStats();
+        themeConfig.setupCompactThemeSelector(); // Refresh theme selector
     }
 }
 
@@ -2020,76 +2021,101 @@ document.addEventListener('keydown', function(e) {
 // Pastel Theme Management System
 const themeConfig = {
     currentTheme: 'default',
-    themes: ['default', 'sage', 'lavender', 'sand', 'slate', 'rose'],
+    themes: {
+        'default': {
+            name: 'Pastel Blue',
+            colors: ['#4361ee', '#4cc9f0', '#7209b7']
+        },
+        'sage': {
+            name: 'Sage Green', 
+            colors: ['#2a9d8f', '#8ac926', '#f4a261']
+        },
+        'lavender': {
+            name: 'Lavender',
+            colors: ['#7209b7', '#b5179e', '#f72585']
+        },
+        'sand': {
+            name: 'Warm Sand',
+            colors: ['#f78c19', '#ff9e00', '#ffb703']
+        },
+        'slate': {
+            name: 'Cool Slate', 
+            colors: ['#495057', '#6c757d', '#adb5bd']
+        },
+        'rose': {
+            name: 'Blush Rose',
+            colors: ['#f72585', '#b5179e', '#7209b7']
+        }
+    },
     
     init() {
+        console.log("🎨 Initializing theme system...");
         this.loadTheme();
-        this.setupThemeSelector();
+        this.setupCompactThemeSelector();
         this.applyTheme(this.currentTheme);
     },
     
     loadTheme() {
-        this.currentTheme = localStorage.getItem('selectedTheme') || 'default';
+        const savedTheme = localStorage.getItem('selectedTheme');
+        if (savedTheme && this.themes[savedTheme]) {
+            this.currentTheme = savedTheme;
+            console.log("📁 Loaded saved theme:", savedTheme);
+        } else {
+            this.currentTheme = 'default';
+            console.log("📁 Using default theme");
+        }
+    },
+    
+    setupCompactThemeSelector() {
+        const themeContainer = document.getElementById('theme-selector');
+        if (!themeContainer) {
+            console.error("❌ Theme selector container not found!");
+            return;
+        }
+        
+        console.log("🔄 Setting up theme selector with themes:", Object.keys(this.themes));
+        
+        themeContainer.innerHTML = Object.entries(this.themes).map(([themeKey, theme]) => {
+            console.log("🎨 Processing theme:", themeKey, theme);
+            return `
+                <div class="theme-option-compact ${themeKey === this.currentTheme ? 'active' : ''}" 
+                     data-theme="${themeKey}" onclick="themeConfig.selectTheme('${themeKey}')">
+                    <div class="theme-preview-colors-compact">
+                        <div class="theme-color-primary-compact" style="background: ${theme.colors[0]}"></div>
+                        <div class="theme-color-secondary-compact" style="background: ${theme.colors[1]}"></div>
+                        <div class="theme-color-accent-compact" style="background: ${theme.colors[2]}"></div>
+                    </div>
+                    <div class="theme-name-compact">${theme.name}</div>
+                </div>
+            `;
+        }).join('');
+        
+        console.log("✅ Theme selector setup complete");
+    },
+    
+    selectTheme(theme) {
+        console.log("🎨 Selecting theme:", theme);
+        if (!this.themes[theme]) {
+            console.error("❌ Theme not found:", theme);
+            return;
+        }
+        
+        this.currentTheme = theme;
+        this.applyTheme(theme);
+        this.setupCompactThemeSelector(); // Refresh the selector
+        showNotification(`🎨 Switched to ${this.themes[theme].name} theme`, 'success');
+    },
+    
+    applyTheme(theme) {
+        console.log("🎨 Applying theme:", theme);
+        document.body.setAttribute('data-theme', theme);
+        localStorage.setItem('selectedTheme', theme);
+        this.currentTheme = theme;
     },
     
     saveTheme(theme) {
         localStorage.setItem('selectedTheme', theme);
         this.currentTheme = theme;
-    },
-    
-    applyTheme(theme) {
-        document.body.setAttribute('data-theme', theme);
-        this.updateThemeDependentElements(theme);
-        this.saveTheme(theme);
-    },
-    
-    setupThemeSelector() {
-        const themeContainer = document.getElementById('theme-selector');
-        if (!themeContainer) return;
-        
-        themeContainer.innerHTML = `
-            <div class="theme-preview">
-                ${this.themes.map(theme => `
-                    <div class="theme-option ${theme === this.currentTheme ? 'active' : ''}" 
-                         data-theme="${theme}" onclick="themeConfig.selectTheme('${theme}')">
-                        <div class="theme-preview-color"></div>
-                        <div class="theme-name">${this.getThemeDisplayName(theme)}</div>
-                    </div>
-                `).join('')}
-            </div>
-        `;
-    },
-    
-    selectTheme(theme) {
-        this.applyTheme(theme);
-        this.setupThemeSelector(); // Refresh selector
-        showNotification(`🎨 Switched to ${this.getThemeDisplayName(theme)} theme`, 'success');
-    },
-    
-    getThemeDisplayName(theme) {
-        const names = {
-            'default': 'Pastel Blue',
-            'sage': 'Sage Green',
-            'lavender': 'Soft Lavender', 
-            'sand': 'Warm Sand',
-            'slate': 'Cool Slate',
-            'rose': 'Blush Rose'
-        };
-        return names[theme] || theme;
-    },
-    
-    updateThemeDependentElements(theme) {
-        // Update any theme-dependent elements here
-        const statsCards = document.querySelectorAll('.stat-card');
-        statsCards.forEach(card => {
-            card.style.borderLeftColor = `var(--primary)`;
-        });
-        
-        // Update timetable card borders
-        const timetableCards = document.querySelectorAll('.timetable-card');
-        timetableCards.forEach(card => {
-            card.style.borderLeftColor = `var(--primary)`;
-        });
     }
 };
 
