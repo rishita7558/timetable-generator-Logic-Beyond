@@ -900,6 +900,72 @@ function setupEnhancedTooltips() {
         }
     });
 }
+function setupExamTooltips() {
+    const examCards = document.querySelectorAll('.exam-card-time');
+    
+    examCards.forEach((card) => {
+        const tooltip = card.querySelector('.exam-tooltip-enhanced');
+        
+        if (tooltip) {
+            card.addEventListener('mouseenter', function(e) {
+                const rect = this.getBoundingClientRect();
+                const tooltipRect = tooltip.getBoundingClientRect();
+                const viewportWidth = window.innerWidth;
+                const viewportHeight = window.innerHeight;
+                
+                // Reset all positioning
+                tooltip.style.left = '50%';
+                tooltip.style.right = 'auto';
+                tooltip.style.bottom = 'calc(100% + 10px)';
+                tooltip.style.top = 'auto';
+                tooltip.classList.remove('position-below');
+                
+                // Calculate ideal position
+                let idealLeft = rect.left + (rect.width / 2);
+                let leftPosition = idealLeft - (tooltipRect.width / 2);
+                
+                // Adjust for left boundary
+                if (leftPosition < 10) {
+                    leftPosition = 10;
+                }
+                // Adjust for right boundary
+                else if (leftPosition + tooltipRect.width > viewportWidth - 10) {
+                    leftPosition = viewportWidth - tooltipRect.width - 10;
+                }
+                
+                // Check if tooltip fits above the card
+                const spaceAbove = rect.top - 20;
+                const spaceBelow = viewportHeight - rect.bottom - 20;
+                
+                if (spaceAbove >= tooltipRect.height || spaceAbove >= spaceBelow) {
+                    // Position above
+                    tooltip.style.bottom = 'calc(100% + 10px)';
+                    tooltip.style.top = 'auto';
+                } else {
+                    // Position below
+                    tooltip.style.bottom = 'auto';
+                    tooltip.style.top = 'calc(100% + 10px)';
+                    tooltip.classList.add('position-below');
+                }
+                
+                // Apply horizontal positioning
+                tooltip.style.left = `${leftPosition}px`;
+                tooltip.style.transform = 'translateX(0)';
+                
+                // Show tooltip
+                tooltip.style.opacity = '1';
+                tooltip.style.visibility = 'visible';
+            });
+            
+            card.addEventListener('mouseleave', function() {
+                tooltip.style.opacity = '0';
+                tooltip.style.visibility = 'hidden';
+            });
+            
+            // Click handler is already in the HTML onclick attribute
+        }
+    });
+}
 
 function showEnhancedTooltip(cell, x, y) {
     const tooltip = document.getElementById('enhanced-tooltip');
@@ -984,7 +1050,6 @@ function hideEnhancedTooltip() {
 }
 
 // Color Coding and Legend Functions
-// Update the applyDynamicColorCoding function
 function applyDynamicColorCoding(tableElement, courseColors) {
     const cells = tableElement.querySelectorAll('td');
     
@@ -993,7 +1058,13 @@ function applyDynamicColorCoding(tableElement, courseColors) {
         
         // Skip header cells, empty cells, and special slots
         if (!text || text === 'Free' || text === 'LUNCH BREAK' || cell.cellIndex === 0) {
-            cell.classList.add('empty-cell');
+            // Clear the content for free slots but keep the cell structure
+            if (text === 'Free') {
+                cell.textContent = ''; // Clear the "Free" text
+                cell.classList.add('empty-slot'); // Add class for empty slots
+            } else if (text === 'LUNCH BREAK') {
+                cell.classList.add('lunch-break-slot'); // Keep lunch break styling
+            }
             return;
         }
         
@@ -1286,6 +1357,23 @@ function enhanceTables() {
     console.log("🎨 Enhancing tables with color coding and time slots...");
     
     document.querySelectorAll('.timetable-table').forEach(table => {
+        // Remove "Unnamed: 0" from the first header cell
+        const firstHeaderCell = table.querySelector('th:first-child');
+        if (firstHeaderCell && firstHeaderCell.textContent.includes('Unnamed: 0')) {
+            firstHeaderCell.textContent = ''; // Leave it blank
+            firstHeaderCell.classList.add('empty-header');
+        }
+        
+        // Remove "Unnamed: 0" from the first cell of each row
+        const rows = table.querySelectorAll('tr');
+        rows.forEach(row => {
+            const firstCell = row.querySelector('td:first-child');
+            if (firstCell && firstCell.textContent.includes('Unnamed: 0')) {
+                firstCell.textContent = ''; // Leave it blank
+                firstCell.classList.add('empty-header');
+            }
+        });
+
         // Find the parent timetable card and get course information
         const timetableCard = table.closest('.timetable-card') || table.closest('.timetable-item');
         if (timetableCard) {
@@ -1751,24 +1839,35 @@ function simulateProgress() {
     }
 }
 
-function showNotification(message, type = 'info') {
+function showNotification(message, type = 'info', duration = 5000, isHTML = false) {
     if (!notificationContainer) return;
     
     const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    notification.innerHTML = `
-        <i class="fas fa-${getNotificationIcon(type)}"></i>
-        <span>${message}</span>
-    `;
+    notification.className = `notification ${type} ${isHTML ? 'html-content' : ''}`;
+    
+    if (isHTML) {
+        notification.innerHTML = message;
+        notification.style.cursor = 'pointer';
+        notification.addEventListener('click', function() {
+            if (this.parentNode) {
+                this.remove();
+            }
+        });
+    } else {
+        notification.innerHTML = `
+            <i class="fas fa-${getNotificationIcon(type)}"></i>
+            <span>${message}</span>
+        `;
+    }
     
     notificationContainer.appendChild(notification);
     
-    // Auto remove after 5 seconds
+    // Auto remove after duration
     setTimeout(() => {
         if (notification.parentNode) {
             notification.remove();
         }
-    }, 5000);
+    }, duration);
 }
 
 function getNotificationIcon(type) {
@@ -2415,6 +2514,17 @@ async function generateExamSchedule() {
     const startDate = startDateInput.value;
     const endDate = endDateInput.value;
     
+    // Validate dates
+    if (!startDate || !endDate) {
+        showNotification('❌ Please enter both start and end dates', 'error');
+        return;
+    }
+    
+    if (!isValidDate(startDate) || !isValidDate(endDate)) {
+        showNotification('❌ Please enter valid dates in DD/MM/YYYY format', 'error');
+        return;
+    }
+    
     // Ensure configuration is initialized
     if (!examConfig.current) {
         examConfig.loadConfig();
@@ -2452,43 +2562,6 @@ async function generateExamSchedule() {
         if (result.success) {
             showNotification(`✅ ${result.message}`, 'success');
             console.log('📊 Exam schedule generated with config:', config);
-            
-            // Update preview with configuration info
-            updateExamPreview(result.schedule, config);
-            
-            // Reload exam timetables
-            await loadExamTimetables();
-            
-        } else {
-            showNotification(`❌ ${result.message}`, 'error');
-        }
-    } catch (error) {
-        console.error('❌ Error generating exam schedule:', error);
-        showNotification('❌ Error generating exam schedule: ' + error.message, 'error');
-    } finally {
-        showLoading(false);
-    }
-
-    try {
-        const config = examConfig.getConfigForAPI();
-        
-        const response = await fetch('/exam-schedule', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                start_date: startDate,
-                end_date: endDate,
-                config: config
-            })
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            showNotification(`✅ ${result.message}`, 'success');
-            console.log('📊 Exam schedule generated:', result.schedule);
             
             // Safely update preview
             try {
@@ -2621,8 +2694,11 @@ function updateExamPreview(schedule, config) {
         }
     });
 
+    // Initialize html variable here
+    let html = '';
+
     // Enhanced statistics with beautiful summary
-    let html = `
+    html += `
         <div class="preview-summary">
             <div class="summary-grid">
                 <div class="summary-stat">
@@ -2650,13 +2726,7 @@ function updateExamPreview(schedule, config) {
         
         <div class="daily-schedule-full" id="daily-schedule-view">
     `;
-
-    previewContent.innerHTML = html;
     
-    // Setup exam tooltips after rendering
-    setTimeout(() => {
-        setupExamTooltips();
-    }, 100);
     // Create daily schedule view with sorted dates
     sortedDates.forEach(date => {
         const dayExams = examsByDate[date] || [];
@@ -2728,6 +2798,11 @@ function updateExamPreview(schedule, config) {
     
     previewContent.innerHTML = html;
     
+    // Setup exam tooltips after rendering
+    setTimeout(() => {
+        setupExamTooltips();
+    }, 100);
+    
     // Add download functionality
     if (downloadBtn) {
         downloadBtn.onclick = function() {
@@ -2740,6 +2815,40 @@ function updateExamPreview(schedule, config) {
     setupViewToggle();
 }
 
+function getCourseDetails(courseCode, semester, department) {
+    if (!courseDatabase || Object.keys(courseDatabase).length === 0) {
+        console.warn('⚠️ Course database not loaded');
+        return {};
+    }
+    
+    // Try exact match first
+    let courseDetails = courseDatabase[courseCode];
+    
+    // If not found, try to find by course code pattern
+    if (!courseDetails) {
+        const matchingCourse = Object.entries(courseDatabase).find(([code, details]) => {
+            return code.includes(courseCode) || courseCode.includes(code);
+        });
+        
+        if (matchingCourse) {
+            courseDetails = matchingCourse[1];
+        }
+    }
+    
+    // If still not found, try to find by semester and department
+    if (!courseDetails) {
+        const semesterCourses = Object.values(courseDatabase).filter(course => {
+            return course.semester == semester && course.department === department;
+        });
+        
+        if (semesterCourses.length > 0) {
+            // Find the most relevant course by name similarity
+            courseDetails = semesterCourses[0];
+        }
+    }
+    
+    return courseDetails || {};
+}
 function createExamCardWithTime(exam) {
     if (!exam) return '';
     
@@ -2754,13 +2863,27 @@ function createExamCardWithTime(exam) {
     const credits = safeString(safeGet(exam, 'credits', 'N/A'));
     const instructor = safeString(safeGet(exam, 'instructor', 'Not assigned'));
     const preferredDate = safeString(safeGet(exam, 'original_preferred', 'Not specified'));
+    const ltpsc = safeString(safeGet(exam, 'ltpsc', 'N/A'));
+    const courseType = safeString(safeGet(exam, 'course_type', 'Core'));
+    const studentCount = safeString(safeGet(exam, 'student_count', 'N/A'));
+    
+    // Get enhanced data from course database
+    const courseDetails = getCourseDetails(courseCode, semester, department);
+    
+    // Use enhanced data if available
+    const finalInstructor = courseDetails.instructor || instructor;
+    const finalCredits = courseDetails.credits || credits;
+    const finalLTPSC = courseDetails.ltpsc || ltpsc;
+    const finalCourseType = courseDetails.courseType || courseType;
+    const finalSemester = courseDetails.semester || semester;
     
     // Get session for additional styling
     const session = safeString(safeGet(exam, 'session', ''));
     const sessionClass = session.toLowerCase();
     
     return `
-        <div class="exam-card-time ${deptClass} ${sessionClass}" style="position: relative;">
+        <div class="exam-card-time ${deptClass} ${sessionClass}" style="position: relative;" 
+             onclick="showExamCardNotification('${courseCode}', '${courseName.replace(/'/g, "\\'")}', '${finalInstructor.replace(/'/g, "\\'")}', '${finalSemester}', '${finalCredits}', '${finalLTPSC}', '${department}', '${examType}', '${timeSlot}', '${session}')">
             <div class="exam-time-badge">${timeSlot}</div>
             <div class="exam-card-content">
                 <div class="exam-header">
@@ -2772,55 +2895,153 @@ function createExamCardWithTime(exam) {
                     <div class="exam-meta">
                         <span><i class="fas fa-clock"></i> ${duration}</span>
                         <span><i class="fas fa-building"></i> ${department}</span>
+                        <span><i class="fas fa-graduation-cap"></i> Sem ${finalSemester}</span>
                     </div>
                 </div>
             </div>
             
-            <!-- Enhanced Tooltip -->
-            <div class="exam-tooltip ${deptClass}">
+            <!-- Enhanced Exam Tooltip -->
+            <div class="exam-tooltip-enhanced ${deptClass}">
                 <div class="exam-tooltip-header">
                     <div class="exam-tooltip-code">${courseCode}</div>
                     <div class="exam-tooltip-type">${examType} Exam</div>
                 </div>
                 <div class="exam-tooltip-name">${courseName}</div>
+                
                 <div class="exam-tooltip-details">
-                    <div class="exam-tooltip-detail">
-                        <i class="fas fa-graduation-cap"></i>
-                        <span><strong>Semester:</strong> ${semester}</span>
+                    <!-- Semester and LTPSC prominently displayed -->
+                    <div class="exam-tooltip-row">
+                        <div class="tooltip-item full-width highlight">
+                            <i class="fas fa-graduation-cap"></i>
+                            <span><strong>Semester ${finalSemester}</strong> • ${finalCredits} Credits</span>
+                        </div>
                     </div>
-                    <div class="exam-tooltip-detail">
-                        <i class="fas fa-star"></i>
-                        <span><strong>Credits:</strong> ${credits}</span>
+                    
+                    <div class="exam-tooltip-row">
+                        <div class="tooltip-item full-width highlight">
+                            <i class="fas fa-book"></i>
+                            <span><strong>LTPSC Structure:</strong> ${finalLTPSC}</span>
+                        </div>
                     </div>
-                    <div class="exam-tooltip-detail">
-                        <i class="fas fa-user-tie"></i>
-                        <span><strong>Instructor:</strong> ${instructor}</span>
+                    
+                    <div class="exam-tooltip-row">
+                        <div class="tooltip-item">
+                            <i class="fas fa-user-tie"></i>
+                            <span><strong>Instructor:</strong> ${finalInstructor}</span>
+                        </div>
+                        <div class="tooltip-item">
+                            <i class="fas fa-tag"></i>
+                            <span><strong>Type:</strong> ${finalCourseType}</span>
+                        </div>
                     </div>
-                    <div class="exam-tooltip-detail">
-                        <i class="fas fa-building"></i>
-                        <span><strong>Department:</strong> ${department}</span>
+                    
+                    <div class="exam-tooltip-row">
+                        <div class="tooltip-item">
+                            <i class="fas fa-users"></i>
+                            <span><strong>Students:</strong> ${studentCount}</span>
+                        </div>
+                        <div class="tooltip-item">
+                            <i class="fas fa-building"></i>
+                            <span><strong>Department:</strong> ${department}</span>
+                        </div>
                     </div>
-                    <div class="exam-tooltip-detail">
-                        <i class="fas fa-clock"></i>
-                        <span><strong>Duration:</strong> ${duration}</span>
+                    
+                    ${preferredDate && preferredDate !== 'Not specified' ? `
+                    <div class="exam-tooltip-row">
+                        <div class="tooltip-item full-width">
+                            <i class="fas fa-calendar-check"></i>
+                            <span><strong>Preferred Date:</strong> ${preferredDate}</span>
+                        </div>
                     </div>
-                    <div class="exam-tooltip-detail">
-                        <i class="fas fa-calendar-check"></i>
-                        <span><strong>Preferred Date:</strong> ${preferredDate}</span>
-                    </div>
-                    <div class="exam-tooltip-detail">
-                        <i class="fas fa-calendar-day"></i>
-                        <span><strong>Scheduled:</strong> ${timeSlot}</span>
-                    </div>
+                    ` : ''}
                 </div>
-                <div class="exam-tooltip-semester">
-                    <i class="fas fa-university"></i>
-                    Semester ${semester} • ${credits} Credits
+                
+                <div class="exam-tooltip-footer">
+                    <div class="session-indicator ${sessionClass}">
+                        <i class="fas ${session === 'Morning' ? 'fa-sun' : 'fa-cloud-sun'}"></i>
+                        ${session} Session • ${duration}
+                    </div>
+                    <div class="click-hint">
+                        <small><i class="fas fa-mouse-pointer"></i> Click for details</small>
+                    </div>
                 </div>
             </div>
         </div>
     `;
 }
+
+function showExamCardNotification(courseCode, courseName, instructor, semester, credits, ltpsc, department, examType, timeSlot, session) {
+    // Parse LTPSC for better display
+    const ltpscParts = ltpsc.split('-');
+    const ltpscDisplay = ltpscParts.length === 5 ? 
+        `L:${ltpscParts[0]} T:${ltpscParts[1]} P:${ltpscParts[2]} S:${ltpscParts[3]} C:${ltpscParts[4]}` : 
+        ltpsc;
+    
+    const sessionIcon = session === 'Morning' ? '☀️' : '🌤️';
+    
+    const notificationHTML = `
+        <div class="exam-notification-content">
+            <div class="exam-notification-header">
+                <div class="exam-notification-title">
+                    <span class="exam-notification-code">${courseCode}</span>
+                    <span class="exam-notification-type">${examType} Exam</span>
+                </div>
+                <div class="exam-notification-session ${session.toLowerCase()}">
+                    ${sessionIcon} ${session} Session
+                </div>
+            </div>
+            
+            <div class="exam-notification-body">
+                <div class="exam-notification-course">${courseName}</div>
+                
+                <div class="exam-notification-details">
+                    <div class="detail-row">
+                        <div class="detail-item">
+                            <i class="fas fa-user-tie"></i>
+                            <span><strong>Instructor:</strong> ${instructor}</span>
+                        </div>
+                        <div class="detail-item">
+                            <i class="fas fa-graduation-cap"></i>
+                            <span><strong>Semester:</strong> ${semester}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-row">
+                        <div class="detail-item">
+                            <i class="fas fa-star"></i>
+                            <span><strong>Credits:</strong> ${credits}</span>
+                        </div>
+                        <div class="detail-item">
+                            <i class="fas fa-building"></i>
+                            <span><strong>Department:</strong> ${department}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-row">
+                        <div class="detail-item full-width">
+                            <i class="fas fa-book"></i>
+                            <span><strong>LTPSC Structure:</strong> ${ltpscDisplay}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-row">
+                        <div class="detail-item full-width">
+                            <i class="fas fa-clock"></i>
+                            <span><strong>Time Slot:</strong> ${timeSlot}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="exam-notification-footer">
+                <small>Click anywhere to dismiss</small>
+            </div>
+        </div>
+    `;
+    
+    showNotification(notificationHTML, 'info', 8000, true);
+}
+
 function setupExamTooltips() {
     // This function will be called after the exam preview is rendered
     const examCards = document.querySelectorAll('.exam-card-time');

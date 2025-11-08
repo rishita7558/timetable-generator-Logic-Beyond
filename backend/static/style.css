@@ -4512,3 +4512,771 @@ body {
         grid-template-columns: repeat(2, 1fr);
     }
 }
+
+/* Empty slot styling */
+.empty-slot {
+    background: #f8f9fa !important;
+    border: 1px dashed #dee2e6 !important;
+}
+
+.empty-slot:hover {
+    background: #e9ecef !important;
+}
+
+/* Lunch break styling */
+.lunch-break-slot {
+    background: linear-gradient(135deg, #fff3cd, #ffeaa7) !important;
+    color: #856404 !important;
+    font-weight: 600 !important;
+    font-style: italic;
+}
+
+/* Ensure time slot headers are styled properly */
+.time-slot {
+    background: #f8f9fa !important;
+    font-weight: 600 !important;
+    color: var(--dark) !important;
+    border-right: 2px solid #dee2e6 !important;
+}
+
+* Empty header cell styling */
+.empty-header {
+    background: #f8f9fa !important;
+    border-right: 2px solid #dee2e6 !important;
+    min-width: 80px;
+}
+
+/* Ensure time slot cells are properly styled */
+.time-slot {
+    background: #f8f9fa !important;
+    font-weight: 600 !important;
+    color: var(--dark) !important;
+    border-right: 2px solid #dee2e6 !important;
+    text-align: right !important;
+    padding-right: 12px !important;
+}
+
+.time-slot.time-slot-processed {
+    font-size: 0.85rem;
+}
+
+.time-slot-content {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.slot-duration {
+    font-size: 0.7rem;
+    color: var(--gray);
+    font-weight: normal;
+}
+
+/* Exam Card Base Styling */
+.exam-card-time {
+    background: white;
+    border-radius: 8px;
+    padding: 0.75rem;
+    border-left: 4px solid var(--primary);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+    cursor: pointer;
+    position: relative;
+}
+
+.exam-card-time:hover {
+    border-left-width: 6px;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.exam-time-badge {
+    background: var(--primary);
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    display: inline-block;
+}
+
+.exam-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.exam-code {
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: var(--primary);
+}
+
+.exam-type {
+    background: var(--light-gray);
+    color: var(--gray);
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.exam-name {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--dark);
+    margin-bottom: 0.5rem;
+    line-height: 1.3;
+}
+
+.exam-meta {
+    display: flex;
+    gap: 0.75rem;
+    font-size: 0.75rem;
+    color: var(--gray);
+}
+
+.exam-meta span {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+/* Enhanced Exam Tooltip Styling */
+.exam-tooltip-enhanced {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    background: white;
+    border: 2px solid var(--primary);
+    border-radius: 10px;
+    padding: 1rem;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    z-index: 10000;
+    min-width: 300px;
+    max-width: 350px;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    pointer-events: none;
+    font-size: 0.9rem;
+}
+
+.exam-card-time:hover .exam-tooltip-enhanced {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+.exam-tooltip-enhanced::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 8px solid transparent;
+    border-top-color: var(--primary);
+}
+
+.exam-tooltip-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--light-gray);
+}
+
+.exam-tooltip-code {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--primary);
+}
+
+.exam-tooltip-type {
+    background: var(--primary);
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.exam-tooltip-name {
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 1rem;
+    color: var(--dark);
+    line-height: 1.3;
+}
+
+.exam-tooltip-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.exam-tooltip-row {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.tooltip-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    font-size: 0.85rem;
+    color: var(--gray);
+}
+
+.tooltip-item.full-width {
+    flex: 0 0 100%;
+}
+
+.tooltip-item i {
+    width: 14px;
+    text-align: center;
+    color: var(--primary);
+    font-size: 0.8rem;
+}
+
+.tooltip-item strong {
+    color: var(--dark);
+    font-weight: 600;
+}
+
+.exam-tooltip-footer {
+    border-top: 1px solid var(--light-gray);
+    padding-top: 0.75rem;
+}
+
+.session-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    justify-content: center;
+}
+
+.session-indicator.morning {
+    background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+    color: #1565c0;
+    border: 1px solid #90caf9;
+}
+
+.session-indicator.afternoon {
+    background: linear-gradient(135deg, #fff3e0, #ffe0b2);
+    color: #ef6c00;
+    border: 1px solid #ffb74d;
+}
+
+/* Department-specific colors */
+.exam-card-time.dept-cse {
+    border-left-color: #4361ee;
+}
+.exam-card-time.dept-dsai {
+    border-left-color: #7209b7;
+}
+.exam-card-time.dept-ece {
+    border-left-color: #f72585;
+}
+.exam-card-time.dept-mathematics {
+    border-left-color: #4cc9f0;
+}
+.exam-card-time.dept-physics {
+    border-left-color: #f78c19;
+}
+.exam-card-time.dept-humanities {
+    border-left-color: #2a9d8f;
+}
+
+.exam-tooltip-enhanced.dept-cse {
+    border-color: #4361ee;
+}
+.exam-tooltip-enhanced.dept-cse::after {
+    border-top-color: #4361ee;
+}
+
+.exam-tooltip-enhanced.dept-dsai {
+    border-color: #7209b7;
+}
+.exam-tooltip-enhanced.dept-dsai::after {
+    border-top-color: #7209b7;
+}
+
+.exam-tooltip-enhanced.dept-ece {
+    border-color: #f72585;
+}
+.exam-tooltip-enhanced.dept-ece::after {
+    border-top-color: #f72585;
+}
+
+.exam-tooltip-enhanced.dept-mathematics {
+    border-color: #4cc9f0;
+}
+.exam-tooltip-enhanced.dept-mathematics::after {
+    border-top-color: #4cc9f0;
+}
+
+.exam-tooltip-enhanced.dept-physics {
+    border-color: #f78c19;
+}
+.exam-tooltip-enhanced.dept-physics::after {
+    border-top-color: #f78c19;
+}
+
+.exam-tooltip-enhanced.dept-humanities {
+    border-color: #2a9d8f;
+}
+.exam-tooltip-enhanced.dept-humanities::after {
+    border-top-color: #2a9d8f;
+}
+
+/* Ensure tooltip stays above everything */
+.exam-tooltip-enhanced {
+    z-index: 10000 !important;
+}
+
+/* Container styling for exam cards */
+.slot-exams-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+
+/* Enhanced Exam Tooltip Styling */
+.exam-tooltip-enhanced {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    border: 2px solid var(--primary);
+    border-radius: 10px;
+    padding: 1rem;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    z-index: 1000;
+    min-width: 300px;
+    max-width: 350px;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    pointer-events: none;
+    font-size: 0.9rem;
+}
+
+.exam-card-time:hover .exam-tooltip-enhanced {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(-8px);
+}
+
+.exam-tooltip-enhanced::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 8px solid transparent;
+    border-top-color: var(--primary);
+}
+
+.exam-tooltip-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--light-gray);
+}
+
+.exam-tooltip-code {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--primary);
+}
+
+.exam-tooltip-type {
+    background: var(--primary);
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.exam-tooltip-name {
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 1rem;
+    color: var(--dark);
+    line-height: 1.3;
+}
+
+.exam-tooltip-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.exam-tooltip-row {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.tooltip-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    font-size: 0.85rem;
+    color: var(--gray);
+}
+
+.tooltip-item.full-width {
+    flex: 0 0 100%;
+}
+
+.tooltip-item i {
+    width: 14px;
+    text-align: center;
+    color: var(--primary);
+    font-size: 0.8rem;
+}
+
+.tooltip-item strong {
+    color: var(--dark);
+    font-weight: 600;
+}
+
+.exam-tooltip-footer {
+    border-top: 1px solid var(--light-gray);
+    padding-top: 0.75rem;
+}
+
+.session-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    justify-content: center;
+}
+
+.session-indicator.morning {
+    background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+    color: #1565c0;
+    border: 1px solid #90caf9;
+}
+
+.session-indicator.afternoon {
+    background: linear-gradient(135deg, #fff3e0, #ffe0b2);
+    color: #ef6c00;
+    border: 1px solid #ffb74d;
+}
+
+/* Department-specific colors for tooltips */
+.exam-tooltip-enhanced.dept-cse {
+    border-color: #4361ee;
+}
+.exam-tooltip-enhanced.dept-cse::after {
+    border-top-color: #4361ee;
+}
+
+.exam-tooltip-enhanced.dept-dsai {
+    border-color: #7209b7;
+}
+.exam-tooltip-enhanced.dept-dsai::after {
+    border-top-color: #7209b7;
+}
+
+.exam-tooltip-enhanced.dept-ece {
+    border-color: #f72585;
+}
+.exam-tooltip-enhanced.dept-ece::after {
+    border-top-color: #f72585;
+}
+
+.exam-tooltip-enhanced.dept-mathematics {
+    border-color: #4cc9f0;
+}
+.exam-tooltip-enhanced.dept-mathematics::after {
+    border-top-color: #4cc9f0;
+}
+
+.exam-tooltip-enhanced.dept-physics {
+    border-color: #f78c19;
+}
+.exam-tooltip-enhanced.dept-physics::after {
+    border-top-color: #f78c19;
+}
+
+.exam-tooltip-enhanced.dept-humanities {
+    border-color: #2a9d8f;
+}
+.exam-tooltip-enhanced.dept-humanities::after {
+    border-top-color: #2a9d8f;
+}
+
+/* Enhanced exam card hover effects */
+.exam-card-time {
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.exam-card-time:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+/* Prevent tooltip overflow */
+.exam-card-time {
+    position: relative;
+}
+
+/* Tooltip positioning adjustments */
+@media (max-width: 768px) {
+    .exam-tooltip-enhanced {
+        min-width: 280px;
+        max-width: 300px;
+        left: 50%;
+        transform: translateX(-50%);
+    }
+}
+
+/* Enhanced Exam Tooltip Styling with Better Positioning */
+.exam-tooltip-enhanced {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    background: white;
+    border: 2px solid var(--primary);
+    border-radius: 10px;
+    padding: 1rem;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+    z-index: 10000;
+    min-width: 320px;
+    max-width: 380px;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    pointer-events: none;
+    font-size: 0.9rem;
+}
+
+.exam-card-time:hover .exam-tooltip-enhanced {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* Alternative positioning when tooltip would go above viewport */
+.exam-tooltip-enhanced.position-below {
+    bottom: auto;
+    top: calc(100% + 10px);
+}
+
+.exam-tooltip-enhanced.position-below::after {
+    top: auto;
+    bottom: 100%;
+    border-top-color: transparent;
+    border-bottom-color: var(--primary);
+}
+
+/* Ensure tooltip stays within viewport */
+.exam-tooltip-enhanced {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Scrollbar styling for tooltip */
+.exam-tooltip-enhanced::-webkit-scrollbar {
+    width: 6px;
+}
+
+.exam-tooltip-enhanced::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.exam-tooltip-enhanced::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.exam-tooltip-enhanced::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+/* Exam Notification Styling */
+.notification.html-content {
+    max-width: 450px;
+    padding: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    border: 2px solid var(--primary);
+}
+
+.exam-notification-content {
+    background: white;
+}
+
+.exam-notification-header {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: white;
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.exam-notification-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.exam-notification-code {
+    font-weight: 700;
+    font-size: 1.2rem;
+}
+
+.exam-notification-type {
+    background: rgba(255,255,255,0.2);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.exam-notification-session {
+    padding: 0.3rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.exam-notification-session.morning {
+    background: rgba(255,255,255,0.9);
+    color: #1565c0;
+}
+
+.exam-notification-session.afternoon {
+    background: rgba(255,255,255,0.9);
+    color: #ef6c00;
+}
+
+.exam-notification-body {
+    padding: 1.25rem;
+}
+
+.exam-notification-course {
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: var(--dark);
+    margin-bottom: 1rem;
+    line-height: 1.3;
+}
+
+.exam-notification-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.detail-row {
+    display: flex;
+    gap: 1rem;
+}
+
+.detail-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    font-size: 0.9rem;
+    color: var(--gray);
+}
+
+.detail-item.full-width {
+    flex: 0 0 100%;
+}
+
+.detail-item i {
+    width: 16px;
+    text-align: center;
+    color: var(--primary);
+    font-size: 0.9rem;
+}
+
+.detail-item strong {
+    color: var(--dark);
+    font-weight: 600;
+}
+
+.exam-notification-footer {
+    background: var(--light);
+    padding: 0.75rem 1.25rem;
+    text-align: center;
+    border-top: 1px solid var(--light-gray);
+    font-size: 0.8rem;
+    color: var(--gray);
+}
+
+/* Enhanced tooltip styling for LTPSC and semester */
+.tooltip-item.highlight {
+    background: var(--light);
+    padding: 0.5rem;
+    border-radius: 6px;
+    border-left: 3px solid var(--primary);
+}
+
+.tooltip-item.highlight i {
+    color: var(--primary);
+    font-size: 0.9rem;
+}
+
+.tooltip-item.highlight strong {
+    color: var(--primary);
+}
+
+.click-hint {
+    text-align: center;
+    margin-top: 0.5rem;
+    color: var(--gray);
+    font-size: 0.75rem;
+}
+
+.click-hint i {
+    margin-right: 0.25rem;
+}
+
+/* Update exam card meta to include semester */
+.exam-meta {
+    display: flex;
+    gap: 0.75rem;
+    font-size: 0.75rem;
+    color: var(--gray);
+    flex-wrap: wrap;
+}
+
+.exam-meta span {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
