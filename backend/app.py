@@ -210,11 +210,14 @@ def get_course_info(dfs):
             course_type = 'Elective' if is_elective else 'Core'
             department = course.get('Department', 'General')
             
+            # FIX: Use 'Faculty' column instead of 'Instructor'
+            instructor = course.get('Faculty', 'Unknown')
+            
             course_info[course_code] = {
                 'name': course.get('Course Name', 'Unknown Course'),
                 'credits': course.get('Credits', 0),
                 'type': course_type,
-                'instructor': course.get('Instructor', 'Unknown'),
+                'instructor': instructor,  # This will now use the correct Faculty column
                 'department': department,
                 'is_elective': is_elective,
                 'branch': department,  # Use department as branch for compatibility
