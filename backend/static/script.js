@@ -775,15 +775,29 @@ async function loadTimetables() {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         
-        const timetables = await response.json();
+        const data = await response.json();
         
-        console.log(`📊 Received ${timetables.length} timetables`);
+        // Validate and normalize the response data
+        if (Array.isArray(data)) {
+            // Direct array response
+            currentTimetables = data;
+        } else if (data && Array.isArray(data.timetables)) {
+            // Response with timetables property
+            currentTimetables = data.timetables;
+        } else if (data && data.data && Array.isArray(data.data)) {
+            // Response with data property containing array
+            currentTimetables = data.data;
+        } else {
+            // Unexpected response structure
+            console.warn('⚠️ Unexpected timetables response structure:', data);
+            currentTimetables = [];
+        }
         
-        currentTimetables = timetables;
+        console.log(`📊 Loaded ${currentTimetables.length} timetables`);
         
         // Update course database with server data
-        if (timetables.length > 0 && timetables[0].course_info) {
-            courseDatabase = timetables[0].course_info;
+        if (currentTimetables.length > 0 && currentTimetables[0].course_info) {
+            courseDatabase = currentTimetables[0].course_info;
         }
         
         renderTimetables();
@@ -791,6 +805,9 @@ async function loadTimetables() {
     } catch (error) {
         console.error('❌ Error loading timetables:', error);
         showNotification('❌ Error loading timetables: ' + error.message, 'error');
+        // Ensure currentTimetables is always an array
+        currentTimetables = [];
+        renderTimetables();
     }
 }
 
@@ -1050,7 +1067,8 @@ function hideEnhancedTooltip() {
 }
 
 // Color Coding and Legend Functions
-function applyDynamicColorCoding(tableElement, courseColors) {
+// Color Coding and Legend Functions
+function applyDynamicColorCoding(tableElement, courseColors, basketColors = {}) {
     const cells = tableElement.querySelectorAll('td');
     
     cells.forEach(cell => {
@@ -1068,71 +1086,123 @@ function applyDynamicColorCoding(tableElement, courseColors) {
             return;
         }
         
-        // Extract course code - handle both regular and elective/tutorial versions
-        let courseCode = extractCourseCode(text);
+        // Check if this is a basket entry (ELECTIVE_B1, HSS_B3, etc.)
+        const isBasket = isBasketEntry(text);
+        const isBasketTutorial = text.includes('(Tutorial)') && isBasketEntry(text.replace(' (Tutorial)', ''));
         
-        // For elective tutorials, use the base course code without "(Tutorial)"
-        if (text.includes('(Tutorial)') && courseCode) {
-            // Remove "(Tutorial)" suffix but keep the same course code
-            const baseCourseCode = text.replace(' (Tutorial)', '');
-            courseCode = extractCourseCode(baseCourseCode) || courseCode;
-            cell.classList.add('tutorial-session'); // Add tutorial class for styling
-        }
-        
-        // For elective lectures, use the base course code without "(Elective)"
-        if (text.includes('(Elective)') && courseCode) {
-            const baseCourseCode = text.replace(' (Elective)', '');
-            courseCode = extractCourseCode(baseCourseCode) || courseCode;
-            cell.classList.add('elective-session'); // Add elective class for styling
-        }
-
-        // For regular tutorials, use the base course code
-        if (text.includes('(Tutorial)') && courseCode && !text.includes('(Elective)')) {
-            const baseCourseCode = text.replace(' (Tutorial)', '');
-            courseCode = extractCourseCode(baseCourseCode) || courseCode;
-            cell.classList.add('tutorial-session');
-        }
-        
-        if (courseCode && courseColors[courseCode]) {
-            // Apply dynamic color - SAME COLOR for all sessions of the course
-            const color = courseColors[courseCode];
-            cell.style.background = color;
-            cell.style.color = getContrastColor(color);
-            cell.style.fontWeight = '600';
-            cell.style.border = '2px solid white';
+        if (isBasket || isBasketTutorial) {
+            // Handle basket entries
+            const basketName = isBasketTutorial ? text.replace(' (Tutorial)', '') : text;
+            const color = basketColors[basketName] || courseColors[basketName] || getDefaultBasketColor(basketName);
             
-            // Add enhanced tooltip with course info
-            const courseInfo = courseDatabase[courseCode];
-            if (courseInfo) {
-                let sessionType = 'Lecture';
-                if (text.includes('(Tutorial)')) sessionType = 'Tutorial';
-                if (text.includes('(Elective)')) sessionType = 'Elective Lecture';
+            if (color) {
+                cell.style.background = color;
+                cell.style.color = getContrastColor(color);
+                cell.style.fontWeight = '600';
+                cell.style.border = '2px solid white';
                 
-                // Enhanced tooltip data attributes
-                cell.setAttribute('data-course-code', courseCode);
-                cell.setAttribute('data-course-name', courseInfo.name);
-                cell.setAttribute('data-session-type', sessionType);
-                cell.setAttribute('data-credits', courseInfo.credits);
-                cell.setAttribute('data-instructor', courseInfo.instructor);
-                cell.setAttribute('data-department', courseInfo.department);
-                cell.setAttribute('data-course-type', courseInfo.type);
+                // Add basket tooltip
+                cell.setAttribute('data-basket-name', basketName);
+                cell.setAttribute('data-session-type', isBasketTutorial ? 'Basket Tutorial' : 'Basket Lecture');
+                cell.setAttribute('data-is-basket', 'true');
                 
-                // Add common elective info
-                if (text.includes('(Elective)') || text.includes('(Tutorial)')) {
-                    cell.setAttribute('data-is-common', 'true');
+                cell.style.cursor = 'pointer';
+                cell.classList.add('basket-slot');
+                
+                if (isBasketTutorial) {
+                    cell.classList.add('basket-tutorial-session');
+                } else {
+                    cell.classList.add('basket-lecture-session');
                 }
             }
+        } else {
+            // Handle regular course entries
+            // Extract course code - handle both regular and tutorial versions
+            let courseCode = extractCourseCode(text);
             
-            // Make cell clickable for more info
-            cell.style.cursor = 'pointer';
-            cell.classList.add('colored-cell');
+            // For tutorials, use the base course code without "(Tutorial)"
+            if (text.includes('(Tutorial)') && courseCode) {
+                const baseCourseCode = text.replace(' (Tutorial)', '');
+                courseCode = extractCourseCode(baseCourseCode) || courseCode;
+                cell.classList.add('tutorial-session');
+            }
             
-            // Add elective indicator for both lectures and tutorials
-            if (text.includes('(Elective)') || (text.includes('(Tutorial)') && courseInfo && courseInfo.is_elective)) {
-                cell.classList.add('elective-slot');
+            if (courseCode && courseColors[courseCode]) {
+                // Apply dynamic color - SAME COLOR for all sessions of the course
+                const color = courseColors[courseCode];
+                cell.style.background = color;
+                cell.style.color = getContrastColor(color);
+                cell.style.fontWeight = '600';
+                cell.style.border = '2px solid white';
+                
+                // Add enhanced tooltip with course info
+                const courseInfo = courseDatabase[courseCode];
+                if (courseInfo) {
+                    let sessionType = 'Lecture';
+                    if (text.includes('(Tutorial)')) sessionType = 'Tutorial';
+                    
+                    // Enhanced tooltip data attributes
+                    cell.setAttribute('data-course-code', courseCode);
+                    cell.setAttribute('data-course-name', courseInfo.name);
+                    cell.setAttribute('data-session-type', sessionType);
+                    cell.setAttribute('data-credits', courseInfo.credits);
+                    cell.setAttribute('data-instructor', courseInfo.instructor);
+                    cell.setAttribute('data-department', courseInfo.department);
+                    cell.setAttribute('data-course-type', courseInfo.type);
+                }
+                
+                // Make cell clickable for more info
+                cell.style.cursor = 'pointer';
+                cell.classList.add('colored-cell');
             }
         }
     });
+}
+
+function isBasketEntry(text) {
+    // Check if the text matches basket naming patterns
+    const basketPatterns = [
+        /^ELECTIVE_B\d+$/,
+        /^HSS_B\d+$/,
+        /^PROF_B\d+$/,
+        /^OE_B\d+$/,
+        /^BASKET_\w+$/,
+        /^B_\d+$/
+    ];
+    
+    return basketPatterns.some(pattern => pattern.test(text));
+}
+
+function getDefaultBasketColor(basketName) {
+    // Generate consistent colors for baskets
+    const basketColors = {
+        'ELECTIVE_B1': '#FF6B6B',
+        'ELECTIVE_B2': '#4ECDC4', 
+        'ELECTIVE_B3': '#45B7D1',
+        'ELECTIVE_B4': '#96CEB4',
+        'HSS_B1': '#FECA57',
+        'HSS_B2': '#FF9FF3',
+        'HSS_B3': '#54A0FF',
+        'HSS_B4': '#5F27CD',
+        'PROF_B1': '#00D2D3',
+        'PROF_B2': '#FF9F43',
+        'OE_B1': '#10AC84',
+        'OE_B2': '#EE5A24'
+    };
+    
+    // If basket not in predefined colors, generate a consistent color
+    if (basketColors[basketName]) {
+        return basketColors[basketName];
+    }
+    
+    // Generate color based on basket name hash
+    let hash = 0;
+    for (let i = 0; i < basketName.length; i++) {
+        hash = basketName.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    
+    const hue = hash % 360;
+    return `hsl(${hue}, 70%, 65%)`;
 }
 
 function getContrastColor(hexcolor) {
@@ -1153,8 +1223,8 @@ function getContrastColor(hexcolor) {
 
 function extractCourseCode(text) {
     // Match common course code patterns like MA101, CS101, etc.
-    // Handle both regular courses and elective/tutorial marked courses
-    const cleanText = text.replace(' (Elective)', '').replace(' (Tutorial)', '');
+    // Handle both regular courses and tutorial marked courses
+    const cleanText = text.replace(' (Tutorial)', '');
     
     // More robust course code pattern matching
     const coursePattern = /[A-Z]{2,3}\d{3}[A-Z]?/; // Handles codes like CS101, MA101A
@@ -1180,6 +1250,8 @@ function debugCourseDuplicates(timetable) {
     console.log('Unique courses:', [...new Set(timetable.courses)]);
     console.log('Core courses:', timetable.core_courses);
     console.log('Elective courses:', timetable.elective_courses);
+    console.log('Baskets:', timetable.baskets);
+    console.log('Basket courses map:', timetable.basket_courses_map);
     
     // Check for duplicates
     const duplicates = timetable.courses.filter((course, index) => 
@@ -1214,7 +1286,7 @@ function getUniqueCourses(courses) {
     return result;
 }
 
-function createEnhancedLegend(semester, section, courses, courseColors, courseInfo, coreCourses = [], electiveCourses = []) {
+function createEnhancedLegend(semester, section, courses, courseColors, courseInfo, coreCourses = [], electiveCourses = [], baskets = [], basketCoursesMap = {}, basketColors = {}) {
     if (!courses || courses.length === 0) return '';
     
     // Get unique courses with aggressive deduplication
@@ -1235,11 +1307,13 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
         allCourses: uniqueCourses,
         coreCourses: coreCourseList,
         electiveCourses: electiveCourseList,
-        otherCourses: otherCourses
+        otherCourses: otherCourses,
+        baskets: baskets,
+        basketCoursesMap: basketCoursesMap
     });
     
     // If no courses to display, return empty
-    if (coreCourseList.length === 0 && electiveCourseList.length === 0 && otherCourses.length === 0) {
+    if (coreCourseList.length === 0 && electiveCourseList.length === 0 && otherCourses.length === 0 && baskets.length === 0) {
         console.log('⚠️ No courses to display in legend');
         return '';
     }
@@ -1275,13 +1349,60 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
         `;
     }
     
-    // Elective Courses Section
+    // Elective Baskets Section
+    if (baskets.length > 0) {
+        legendHtml += `
+            <div class="legend-section elective-baskets">
+                <div class="legend-section-title elective">
+                    <i class="fas fa-clipboard-list"></i>
+                    Elective Baskets (${baskets.length}) - Common for All Branches
+                </div>
+        `;
+        
+        baskets.sort().forEach(basketName => {
+            const basketCourses = basketCoursesMap[basketName] || [];
+            const color = basketColors[basketName] || courseColors[basketName] || getDefaultBasketColor(basketName);
+            
+            legendHtml += `
+                <div class="legend-basket">
+                    <div class="basket-header" style="border-left-color: ${color}">
+                        <div class="legend-color" style="background: ${color};"></div>
+                        <span class="basket-name"><strong>${basketName}</strong></span>
+                    </div>
+                    <div class="basket-courses">
+            `;
+            
+            if (basketCourses.length > 0) {
+                basketCourses.forEach(courseCode => {
+                    const info = courseInfo[courseCode];
+                    legendHtml += createBasketCourseItem(courseCode, info);
+                });
+            } else {
+                legendHtml += `<div class="no-courses">No courses in basket</div>`;
+            }
+            
+            legendHtml += `
+                    </div>
+                </div>
+            `;
+        });
+        
+        legendHtml += `
+                <div style="margin-top: 1rem; font-size: 0.8rem; color: var(--gray); background: var(--light-bg); padding: 0.5rem; border-radius: 4px;">
+                    <i class="fas fa-info-circle"></i>
+                    Each basket has 2 lectures + 1 tutorial (same slots for all branches and sections)
+                </div>
+            </div>
+        `;
+    }
+    
+    // Individual Elective Courses Section (if any exist outside baskets)
     if (electiveCourseList.length > 0) {
         legendHtml += `
             <div class="legend-section elective">
                 <div class="legend-section-title elective">
-                    <i class="fas fa-clipboard-list"></i>
-                    Elective Courses (${electiveCourseList.length}) - Common for Both Sections
+                    <i class="fas fa-star"></i>
+                    Individual Elective Courses (${electiveCourseList.length})
                 </div>
                 <div class="legend-grid">
         `;
@@ -1293,10 +1414,6 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
         });
         
         legendHtml += `
-                </div>
-                <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--gray);">
-                    <i class="fas fa-info-circle"></i>
-                    Electives have 2 lectures + 1 tutorial (same slots for both sections)
                 </div>
             </div>
         `;
@@ -1335,11 +1452,6 @@ function createLegendItem(courseCode, courseInfo, color, type = 'core') {
     const instructor = courseInfo ? courseInfo.instructor : 'Unknown';
     const courseType = courseInfo ? courseInfo.type : 'Core';
     
-    let additionalInfo = '';
-    if (type === 'elective') {
-        additionalInfo = '<br><small style="color: var(--secondary);">⚡ 2 lectures + 1 tutorial (Common slots)</small>';
-    }
-    
     return `
         <div class="legend-item ${type}">
             <div class="legend-color" style="background: ${color};"></div>
@@ -1347,7 +1459,22 @@ function createLegendItem(courseCode, courseInfo, color, type = 'core') {
             <span class="legend-course-name">
                 ${courseName} (${credits} cr)
                 <br><small>${instructor} • ${courseType}</small>
-                ${additionalInfo}
+            </span>
+        </div>
+    `;
+}
+
+function createBasketCourseItem(courseCode, courseInfo) {
+    const courseName = courseInfo ? courseInfo.name : 'Unknown Course';
+    const credits = courseInfo ? courseInfo.credits : '?';
+    const instructor = courseInfo ? courseInfo.instructor : 'Unknown';
+    
+    return `
+        <div class="basket-course-item">
+            <span class="basket-course-code">${courseCode}</span>
+            <span class="basket-course-name">
+                ${courseName} (${credits} cr)
+                <br><small>${instructor}</small>
             </span>
         </div>
     `;
@@ -1629,6 +1756,12 @@ function renderCompactView(timetables) {
 
 // Filtering Functions
 function filterTimetablesData() {
+    if (!Array.isArray(currentTimetables)) {
+        console.error('❌ currentTimetables is not an array:', currentTimetables);
+        currentTimetables = [];
+        return [];
+    }
+    
     return currentTimetables.filter(timetable => {
         const branchMatch = currentBranchFilter === 'all' || timetable.branch === currentBranchFilter;
         const semesterMatch = currentSemesterFilter === 'all' || timetable.semester === parseInt(currentSemesterFilter);
@@ -2821,13 +2954,14 @@ function getCourseDetails(courseCode, semester, department) {
         return {};
     }
     
-    // Try exact match first
+    // Try exact match first in course database
     let courseDetails = courseDatabase[courseCode];
     
-    // If not found, try to find by course code pattern
+    // If not found, try to find by course code pattern in course database
     if (!courseDetails) {
         const matchingCourse = Object.entries(courseDatabase).find(([code, details]) => {
-            return code.includes(courseCode) || courseCode.includes(code);
+            return code.includes(courseCode) || courseCode.includes(code) || 
+                   details.name && details.name.includes(courseCode);
         });
         
         if (matchingCourse) {
@@ -2835,7 +2969,7 @@ function getCourseDetails(courseCode, semester, department) {
         }
     }
     
-    // If still not found, try to find by semester and department
+    // If still not found, try to find by semester and department in course database
     if (!courseDetails) {
         const semesterCourses = Object.values(courseDatabase).filter(course => {
             return course.semester == semester && course.department === department;
@@ -2849,6 +2983,7 @@ function getCourseDetails(courseCode, semester, department) {
     
     return courseDetails || {};
 }
+
 function createExamCardWithTime(exam) {
     if (!exam) return '';
     
@@ -2859,23 +2994,22 @@ function createExamCardWithTime(exam) {
     const courseCode = safeString(safeGet(exam, 'course_code', 'N/A'));
     const examType = safeString(safeGet(exam, 'exam_type', 'N/A'));
     const timeSlot = safeString(safeGet(exam, 'time_slot', 'Time N/A'));
-    const semester = safeString(safeGet(exam, 'semester', 'N/A'));
-    const credits = safeString(safeGet(exam, 'credits', 'N/A'));
-    const instructor = safeString(safeGet(exam, 'instructor', 'Not assigned'));
+    const semesterFromExam = safeString(safeGet(exam, 'semester', 'N/A'));
+    const creditsFromExam = safeString(safeGet(exam, 'credits', 'N/A'));
+    const instructorFromExam = safeString(safeGet(exam, 'instructor', 'Not assigned'));
     const preferredDate = safeString(safeGet(exam, 'original_preferred', 'Not specified'));
-    const ltpsc = safeString(safeGet(exam, 'ltpsc', 'N/A'));
-    const courseType = safeString(safeGet(exam, 'course_type', 'Core'));
-    const studentCount = safeString(safeGet(exam, 'student_count', 'N/A'));
+    const ltpscFromExam = safeString(safeGet(exam, 'ltpsc', 'N/A'));
+    const courseTypeFromExam = safeString(safeGet(exam, 'course_type', 'Core'));
     
-    // Get enhanced data from course database
-    const courseDetails = getCourseDetails(courseCode, semester, department);
+    // Get enhanced data from course database (course_data.csv)
+    const courseDetails = getCourseDetails(courseCode, semesterFromExam, department);
     
-    // Use enhanced data if available
-    const finalInstructor = courseDetails.instructor || instructor;
-    const finalCredits = courseDetails.credits || credits;
-    const finalLTPSC = courseDetails.ltpsc || ltpsc;
-    const finalCourseType = courseDetails.courseType || courseType;
-    const finalSemester = courseDetails.semester || semester;
+    // Priority: course_data.csv > exams_data.csv
+    const finalInstructor = courseDetails.instructor || instructorFromExam;
+    const finalCredits = courseDetails.credits || creditsFromExam;
+    const finalLTPSC = courseDetails.ltpsc || ltpscFromExam;
+    const finalCourseType = courseDetails.type || courseTypeFromExam;
+    const finalSemester = courseDetails.semester || semesterFromExam;
     
     // Get session for additional styling
     const session = safeString(safeGet(exam, 'session', ''));
@@ -2937,8 +3071,8 @@ function createExamCardWithTime(exam) {
                     
                     <div class="exam-tooltip-row">
                         <div class="tooltip-item">
-                            <i class="fas fa-users"></i>
-                            <span><strong>Students:</strong> ${studentCount}</span>
+                            <i class="fas fa-calendar-alt"></i>
+                            <span><strong>Semester:</strong> ${finalSemester}</span>
                         </div>
                         <div class="tooltip-item">
                             <i class="fas fa-building"></i>
@@ -2954,6 +3088,14 @@ function createExamCardWithTime(exam) {
                         </div>
                     </div>
                     ` : ''}
+                    
+                    <!-- Data Source Info -->
+                    <div class="exam-tooltip-row">
+                        <div class="tooltip-item full-width" style="font-size: 0.7rem; color: var(--gray);">
+                            <i class="fas fa-database"></i>
+                            <span>Data: ${courseDetails.semester ? 'course_data.csv' : 'exams_data.csv'}</span>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="exam-tooltip-footer">
@@ -2969,7 +3111,7 @@ function createExamCardWithTime(exam) {
         </div>
     `;
 }
-
+ 
 function showExamCardNotification(courseCode, courseName, instructor, semester, credits, ltpsc, department, examType, timeSlot, session) {
     // Parse LTPSC for better display
     const ltpscParts = ltpsc.split('-');

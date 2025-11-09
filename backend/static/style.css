@@ -5280,3 +5280,91 @@ body {
     align-items: center;
     gap: 0.25rem;
 }
+
+/* Basket-specific styles */
+.basket-slot {
+    position: relative;
+    font-weight: 700 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.basket-lecture-session {
+    border-left: 4px solid #333 !important;
+}
+
+.basket-tutorial-session {
+    border-left: 4px solid #666 !important;
+    font-style: italic;
+}
+
+/* Basket Legend Styles */
+.legend-basket {
+    margin: 10px 0;
+    padding: 12px;
+    background: var(--light-bg);
+    border-radius: 8px;
+    border-left: 4px solid #ccc;
+}
+
+.basket-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed var(--border-color);
+}
+
+.basket-name {
+    font-weight: bold;
+    color: var(--dark);
+    font-size: 1.1em;
+}
+
+.basket-courses {
+    margin-left: 10px;
+}
+
+.basket-course-item {
+    display: flex;
+    align-items: flex-start;
+    margin: 6px 0;
+    padding: 6px;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+}
+
+.basket-course-code {
+    font-weight: bold;
+    margin-right: 12px;
+    min-width: 80px;
+    color: var(--dark);
+}
+
+.basket-course-name {
+    color: var(--gray);
+    font-size: 0.9em;
+    flex: 1;
+}
+
+.basket-course-name small {
+    color: var(--light-gray);
+    font-size: 0.85em;
+}
+
+.no-courses {
+    color: var(--light-gray);
+    font-style: italic;
+    text-align: center;
+    padding: 10px;
+}
+
+/* Elective Baskets Section */
+.legend-section.elective-baskets {
+    border-left: 4px solid var(--elective-color);
+}
+
+.legend-section.elective-baskets .legend-section-title {
+    color: var(--elective-color);
+}
