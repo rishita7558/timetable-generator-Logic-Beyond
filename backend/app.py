@@ -309,8 +309,42 @@ def parse_ltpsc(ltpsc_string):
     except:
         return {'L': 3, 'T': 0, 'P': 0, 'S': 0, 'C': 3}
 
+def enforce_elective_day_separation(basket_allocations):
+    """Enforce that elective lectures and tutorials are on different days"""
+    print("🔍 ENFORCING ELECTIVE DAY SEPARATION...")
+    
+    for basket_name, allocation in basket_allocations.items():
+        lecture_days = set(day for day, time in allocation['lectures'])
+        tutorial_day = allocation['tutorial'][0]
+        
+        if tutorial_day in lecture_days:
+            print(f"   ❌ VIOLATION: Basket '{basket_name}' has tutorial on same day as lectures")
+            print(f"      Lecture days: {lecture_days}, Tutorial day: {tutorial_day}")
+            
+            # Find an alternative tutorial day
+            all_days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+            available_days = [day for day in all_days if day not in lecture_days]
+            
+            if available_days:
+                new_tutorial_day = available_days[0]
+                # Find a tutorial time slot for the new day
+                tutorial_times = ['14:30-15:30']  # Assuming 1-hour tutorial slots
+                new_tutorial_slot = (new_tutorial_day, tutorial_times[0])
+                
+                allocation['tutorial'] = new_tutorial_slot
+                allocation['tutorial_day'] = new_tutorial_day
+                allocation['days_separated'] = True
+                
+                print(f"   ✅ FIXED: Moved tutorial to {new_tutorial_day}")
+            else:
+                print(f"   ⚠️  CANNOT FIX: No available days for tutorial")
+        else:
+            print(f"   ✅ VALID: Basket '{basket_name}' has proper day separation")
+    
+    return basket_allocations
+
 def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times, branch=None):
-    """Schedule core courses with proper LTPSC structure - only department-specific courses"""
+    """Schedule core courses with exactly 2 lectures and 1 tutorial per course"""
     if core_courses.empty:
         return used_slots
     
@@ -330,27 +364,32 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
         print(f"   ℹ️ No department-specific core courses found for {branch}")
         return used_slots
     
-    # Parse LTPSC for core courses
+    # Parse LTPSC for core courses - ENFORCE 2 lectures + 1 tutorial
     for _, course in dept_core_courses.iterrows():
         course_code = course['Course Code']
-        ltpsc = parse_ltpsc(course['LTPSC'])
-        lectures_needed = ltpsc['L']
-        tutorials_needed = ltpsc['T']
         
+        # ENFORCE: Each course gets exactly 2 lectures and 1 tutorial
+        lectures_needed = 2
+        tutorials_needed = 1
+        
+        # Track which days we've used for this course
         course_day_usage[course_code] = {'lectures': set(), 'tutorials': set()}
         
-        print(f"      Scheduling {lectures_needed} lectures and {tutorials_needed} tutorials for {course_code} (Department: {course.get('Department', 'General')})...")
+        print(f"      Scheduling {lectures_needed} lectures and {tutorials_needed} tutorial for {course_code} (Department: {course.get('Department', 'General')})...")
         
-        # Schedule lectures (1.5 hours each)
+        # Schedule lectures (1.5 hours each) - ENFORCE 2 lectures on different days
         lectures_scheduled = 0
-        max_lecture_attempts = 100
+        max_lecture_attempts = 200
         
         while lectures_scheduled < lectures_needed and max_lecture_attempts > 0:
             max_lecture_attempts -= 1
+            
+            # Find days where this course doesn't have a lecture yet
             available_days = [d for d in days if d not in course_day_usage[course_code]['lectures']]
             if not available_days:
-                course_day_usage[course_code]['lectures'] = set()
-                available_days = days.copy()
+                # If no available days left, we can't schedule without violating the rule
+                print(f"      ⚠️ Cannot schedule more lectures for {course_code} - no available days left")
+                break
             
             day = random.choice(available_days)
             time_slot = random.choice(lecture_times)
@@ -361,17 +400,23 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
                 used_slots.add(key)
                 course_day_usage[course_code]['lectures'].add(day)
                 lectures_scheduled += 1
+                print(f"      ✅ Scheduled lecture {lectures_scheduled} for {course_code} on {day} at {time_slot}")
         
-        # Schedule tutorials (1 hour each)
+        # Schedule tutorial (1 hour) - ENFORCE 1 tutorial on a different day
         tutorials_scheduled = 0
-        max_tutorial_attempts = 50
+        max_tutorial_attempts = 100
         
         while tutorials_scheduled < tutorials_needed and max_tutorial_attempts > 0:
             max_tutorial_attempts -= 1
-            available_days = [d for d in days if d not in course_day_usage[course_code]['tutorials']]
+            
+            # Find days where this course doesn't have a tutorial AND doesn't have a lecture
+            available_days = [d for d in days if d not in course_day_usage[course_code]['tutorials'] and d not in course_day_usage[course_code]['lectures']]
             if not available_days:
-                course_day_usage[course_code]['tutorials'] = set()
-                available_days = days.copy()
+                # If no completely free days, try days without tutorial but with lecture
+                available_days = [d for d in days if d not in course_day_usage[course_code]['tutorials']]
+                if not available_days:
+                    print(f"      ⚠️ Cannot schedule tutorial for {course_code} - no available days left")
+                    break
             
             day = random.choice(available_days)
             time_slot = random.choice(tutorial_times)
@@ -382,11 +427,14 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
                 used_slots.add(key)
                 course_day_usage[course_code]['tutorials'].add(day)
                 tutorials_scheduled += 1
+                print(f"      ✅ Scheduled tutorial for {course_code} on {day} at {time_slot}")
         
         if lectures_scheduled < lectures_needed:
-            print(f"      ⚠️ Could only schedule {lectures_scheduled}/{lectures_needed} lectures for {course_code}")
+            print(f"      ❌ Could only schedule {lectures_scheduled}/{lectures_needed} lectures for {course_code}")
         if tutorials_scheduled < tutorials_needed:
-            print(f"      ⚠️ Could only schedule {tutorials_scheduled}/{tutorials_needed} tutorials for {course_code}")
+            print(f"      ❌ Could only schedule {tutorials_scheduled}/{tutorials_needed} tutorials for {course_code}")
+        if lectures_scheduled == lectures_needed and tutorials_scheduled == tutorials_needed:
+            print(f"      ✅ Successfully scheduled {course_code} with 2 lectures and 1 tutorial")
 
     return used_slots
 
@@ -411,9 +459,8 @@ def get_common_elective_slots():
         ('Fri', '14:30-15:30'), ('Fri', '15:30-17:00'), ('Fri', '17:00-18:00')
     ]
 
-def allocate_electives_by_baskets(elective_courses, semester_id):
-    """Allocate elective courses based on basket groups with common time slots"""
-    print(f"🎯 Allocating elective courses by baskets for Semester {semester_id}...")
+    """Allocate elective courses to COMMON time slots for ALL departments of the semester"""
+    print(f"🎯 Allocating elective courses to COMMON SLOTS for Semester {semester_id}...")
     
     # Group electives by basket
     basket_groups = {}
@@ -425,27 +472,25 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
     
     print(f"   Found {len(basket_groups)} elective baskets: {list(basket_groups.keys())}")
     
-    # Define available time slots for baskets (2 lectures + 1 tutorial per basket)
-    basket_lecture_slots = [
-        ('Mon', '09:00-10:30'), ('Mon', '13:00-14:30'), ('Mon', '15:30-17:00'),
-        ('Tue', '09:00-10:30'), ('Tue', '13:00-14:30'), ('Tue', '15:30-17:00'),
-        ('Wed', '09:00-10:30'), ('Wed', '13:00-14:30'), ('Wed', '15:30-17:00'),
-        ('Thu', '09:00-10:30'), ('Thu', '13:00-14:30'), ('Thu', '15:30-17:00'),
-        ('Fri', '09:00-10:30'), ('Fri', '13:00-14:30'), ('Fri', '15:30-17:00')
+    # Define COMMON time slots for ALL departments - 2 lectures + 1 tutorial per basket
+    common_lecture_slots = [
+        ('Mon', '09:00-10:30'), ('Mon', '13:00-14:30'), 
+        ('Tue', '09:00-10:30'), ('Tue', '13:00-14:30'),
+        ('Wed', '09:00-10:30'), ('Wed', '13:00-14:30'),
+        ('Thu', '09:00-10:30'), ('Thu', '13:00-14:30'),
+        ('Fri', '09:00-10:30'), ('Fri', '13:00-14:30')
     ]
     
-    basket_tutorial_slots = [
-        ('Mon', '14:30-15:30'), ('Mon', '17:00-18:00'),
-        ('Tue', '14:30-15:30'), ('Tue', '17:00-18:00'),
-        ('Wed', '14:30-15:30'), ('Wed', '17:00-18:00'),
-        ('Thu', '14:30-15:30'), ('Thu', '17:00-18:00'),
-        ('Fri', '14:30-15:30'), ('Fri', '17:00-18:00')
+    common_tutorial_slots = [
+        ('Mon', '14:30-15:30'), ('Tue', '14:30-15:30'),
+        ('Wed', '14:30-15:30'), ('Thu', '14:30-15:30'),
+        ('Fri', '14:30-15:30')
     ]
     
     elective_allocations = {}
     basket_allocations = {}
     
-    # Use FIXED allocation (don't shuffle) to ensure consistency across all branches
+    # Use FIXED allocation to ensure consistency across ALL departments
     lecture_idx = 0
     tutorial_idx = 0
     
@@ -453,27 +498,27 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
         basket_courses = basket_groups[basket_name]
         course_codes = [course['Course Code'] for course in basket_courses]
         
-        # Allocate 2 lectures and 1 tutorial for this basket
+        # Allocate 2 lectures and 1 tutorial for this basket - COMMON for ALL departments
         lectures_allocated = []
         tutorial_allocated = None
         
-        # Allocate 2 lectures (1.5 hours each)
+        # Allocate 2 lectures from common slots
         for _ in range(2):
-            if lecture_idx < len(basket_lecture_slots):
-                lectures_allocated.append(basket_lecture_slots[lecture_idx])
+            if lecture_idx < len(common_lecture_slots):
+                lectures_allocated.append(common_lecture_slots[lecture_idx])
                 lecture_idx += 1
             else:
-                print(f"   ⚠️ Not enough lecture slots available for basket '{basket_name}'")
+                print(f"   ⚠️ Not enough common lecture slots available for basket '{basket_name}'")
         
-        # Allocate 1 tutorial (1 hour)
-        if tutorial_idx < len(basket_tutorial_slots):
-            tutorial_allocated = basket_tutorial_slots[tutorial_idx]
+        # Allocate 1 tutorial from common slots
+        if tutorial_idx < len(common_tutorial_slots):
+            tutorial_allocated = common_tutorial_slots[tutorial_idx]
             tutorial_idx += 1
         else:
-            print(f"   ⚠️ Not enough tutorial slots available for basket '{basket_name}'")
+            print(f"   ⚠️ Not enough common tutorial slots available for basket '{basket_name}'")
         
         if len(lectures_allocated) == 2 and tutorial_allocated:
-            # Store allocation for all courses in this basket
+            # Store allocation for all courses in this basket - COMMON for ALL departments
             for course_code in course_codes:
                 elective_allocations[course_code] = {
                     'basket_name': basket_name,
@@ -482,22 +527,24 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
                     'all_courses_in_basket': course_codes,
                     'for_all_branches': True,
                     'for_both_sections': True,
-                    'common_for_semester': True
+                    'common_for_semester': True,
+                    'common_for_all_departments': True  # NEW: Explicitly mark as common for all departments
                 }
             
             basket_allocations[basket_name] = {
                 'lectures': lectures_allocated,
                 'tutorial': tutorial_allocated,
-                'courses': course_codes
+                'courses': course_codes,
+                'common_for_all_departments': True
             }
             
-            print(f"   🗂️ Basket '{basket_name}' allocated:")
+            print(f"   🗂️ COMMON SLOTS for Basket '{basket_name}' (ALL Departments):")
             for i, (day, time_slot) in enumerate(lectures_allocated, 1):
                 print(f"      Lecture {i}: {day} {time_slot}")
             print(f"      Tutorial: {tutorial_allocated[0]} {tutorial_allocated[1]}")
             print(f"      Courses: {', '.join(course_codes)}")
         else:
-            print(f"   ❌ Could not allocate all required slots for basket '{basket_name}'")
+            print(f"   ❌ Could not allocate all required COMMON slots for basket '{basket_name}'")
     
     return elective_allocations, basket_allocations
 
@@ -514,69 +561,14 @@ def get_basket_time_slots():
         ('Fri', '14:30-15:30')
     ]
 
-# def allocate_electives_to_common_slots(elective_courses, semester_id):
-#     """Allocate elective courses to COMMON time slots for ALL branches of the same semester"""
-#     common_slots = get_common_elective_slots()
-#     elective_allocations = {}
-    
-#     print(f"🎯 ALLOCATING COMMON SLOTS for Semester {semester_id} electives (SAME for ALL branches):")
-#     print(f"   Elective courses: {[course['Course Code'] for _, course in elective_courses.iterrows()]}")
-    
-#     # Separate lecture and tutorial slots
-#     lecture_slots = [slot for slot in common_slots if any(time in slot[1] for time in ['09:00-10:30', '10:30-12:00', '13:00-14:30', '15:30-17:00'])]
-#     tutorial_slots = [slot for slot in common_slots if any(time in slot[1] for time in ['14:30-15:30', '17:00-18:00'])]
-    
-#     # Use FIXED allocation (don't shuffle) to ensure consistency across all branches
-#     # This ensures same slots for all branches
-#     lecture_idx = 0
-#     tutorial_idx = 0
-    
-#     for _, course in elective_courses.iterrows():
-#         course_code = course['Course Code']
-        
-#         # Allocate 2 lectures and 1 tutorial for each elective - FIXED for all branches
-#         lectures_allocated = []
-#         tutorial_allocated = None
-        
-#         # Allocate 2 lectures from fixed positions
-#         for _ in range(2):
-#             if lecture_idx < len(lecture_slots):
-#                 lectures_allocated.append(lecture_slots[lecture_idx])
-#                 lecture_idx += 1
-#             else:
-#                 print(f"   ⚠️ Not enough lecture slots available for {course_code}")
-        
-#         # Allocate 1 tutorial from fixed position
-#         if tutorial_idx < len(tutorial_slots):
-#             tutorial_allocated = tutorial_slots[tutorial_idx]
-#             tutorial_idx += 1
-#         else:
-#             print(f"   ⚠️ Not enough tutorial slots available for {course_code}")
-        
-#         if len(lectures_allocated) == 2 and tutorial_allocated:
-#             elective_allocations[course_code] = {
-#                 'lectures': lectures_allocated,
-#                 'tutorial': tutorial_allocated,
-#                 'for_all_branches': True,
-#                 'for_both_sections': True,
-#                 'common_for_semester': True
-#             }
-#             print(f"   ✅ COMMON SLOTS for {course_code}:")
-#             for i, (day, time_slot) in enumerate(lectures_allocated, 1):
-#                 print(f"      Lecture {i}: {day} {time_slot}")
-#             print(f"      Tutorial: {tutorial_allocated[0]} {tutorial_allocated[1]}")
-#         else:
-#             print(f"   ❌ Could not allocate all required slots for elective {course_code}")
-#             elective_allocations[course_code] = None
-    
-#     return elective_allocations
-
 def schedule_electives_by_baskets(elective_allocations, schedule, used_slots, section, branch=None):
-    """Schedule elective courses based on basket allocations - COMMON for all branches"""
+    """Schedule elective courses in IDENTICAL COMMON slots for ALL branches and sections"""
     elective_scheduled = 0
     branch_info = f" for {branch}" if branch else ""
     
-    # Track which basket slots we've already scheduled (to avoid duplicates)
+    print(f"   📅 Applying IDENTICAL COMMON slots for Section {section}{branch_info}:")
+    
+    # Track which basket slots we've already scheduled
     scheduled_basket_slots = set()
     
     for course_code, allocation in elective_allocations.items():
@@ -587,34 +579,36 @@ def schedule_electives_by_baskets(elective_allocations, schedule, used_slots, se
         lectures = allocation['lectures']
         tutorial = allocation['tutorial']
         all_courses = allocation['all_courses_in_basket']
+        days_separated = allocation['days_separated']
         
-        # UPDATED: Remove "Basket:" prefix, just use the basket name
-        basket_display = basket_name  # Changed from f"Basket: {basket_name}"
-        tutorial_display = f"{basket_name} (Tutorial)"  # Changed from f"Basket: {basket_name} (Tutorial)"
+        print(f"      🗂️ Basket '{basket_name}' - IDENTICAL across all branches:")
+        print(f"         Courses: {', '.join(all_courses)}")
+        print(f"         Days Separation: {'✅' if days_separated else '❌'}")
         
-        # Schedule lectures - COMMON for all branches
+        # Use basket name directly
+        basket_display = basket_name
+        tutorial_display = f"{basket_name} (Tutorial)"
+        
+        # Schedule lectures - IDENTICAL for all branches and sections
         for day, time_slot in lectures:
             slot_key = (basket_name, day, time_slot, 'lecture')
             
-            # Skip if we've already scheduled this basket lecture slot
             if slot_key in scheduled_basket_slots:
                 continue
                 
             key = (day, time_slot)
             
             if schedule.loc[time_slot, day] == 'Free':
-                # Schedule as basket with just the basket name
                 schedule.loc[time_slot, day] = basket_display
                 used_slots.add(key)
                 scheduled_basket_slots.add(slot_key)
                 elective_scheduled += 1
-                
-                print(f"      ✅ BASKET LECTURE '{basket_name}' at {day} {time_slot} - Section {section}{branch_info}")
-                print(f"         Courses: {', '.join(all_courses)}")
+                print(f"         ✅ COMMON LECTURE: {day} {time_slot}")
+                print(f"                SAME for ALL branches & sections")
             else:
-                print(f"      ❌ LECTURE SLOT CONFLICT: Basket '{basket_name}' at {day} {time_slot} already has: {schedule.loc[time_slot, day]}")
+                print(f"         ❌ LECTURE CONFLICT: {day} {time_slot} - {schedule.loc[time_slot, day]}")
         
-        # Schedule tutorial - COMMON for all branches
+        # Schedule tutorial - IDENTICAL for all branches and sections
         if tutorial:
             day, time_slot = tutorial
             slot_key = (basket_name, day, time_slot, 'tutorial')
@@ -627,87 +621,13 @@ def schedule_electives_by_baskets(elective_allocations, schedule, used_slots, se
                     used_slots.add(key)
                     scheduled_basket_slots.add(slot_key)
                     elective_scheduled += 1
-                    
-                    print(f"      ✅ BASKET TUTORIAL '{basket_name}' at {day} {time_slot} - Section {section}{branch_info}")
+                    print(f"         ✅ COMMON TUTORIAL: {day} {time_slot}")
+                    print(f"                SAME for ALL branches & sections")
                 else:
-                    print(f"      ❌ TUTORIAL SLOT CONFLICT: Basket '{basket_name}' at {day} {time_slot} already has: {schedule.loc[time_slot, day]}")
+                    print(f"         ❌ TUTORIAL CONFLICT: {day} {time_slot} - {schedule.loc[time_slot, day]}")
     
-    print(f"   ✅ Scheduled {elective_scheduled} elective basket sessions for Section {section}{branch_info}")
+    print(f"   ✅ Scheduled {elective_scheduled} IDENTICAL COMMON elective sessions")
     return used_slots
-
-# def generate_section_schedule_with_electives(dfs, semester_id, section, elective_allocations, branch=None):
-#     """Generate schedule with IDENTICAL elective slots across all branches"""
-#     branch_info = f", Branch {branch}" if branch else ""
-#     print(f"   📅 Generating schedule for Semester {semester_id}, Section {section}{branch_info}...")
-#     print(f"   🎯 Using COMMON elective slots (same for all branches)")
-    
-#     if 'course' not in dfs:
-#         print("❌ Course data not available")
-#         return None
-    
-#     try:
-#         # Get only the core courses for this specific branch
-#         course_baskets = separate_courses_by_type(dfs, semester_id, branch)
-#         core_courses = course_baskets['core_courses']
-        
-#         days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-        
-#         # Time slot structure
-#         morning_slots = ['09:00-10:30', '10:30-12:00']
-#         lunch_slots = ['12:00-13:00']
-#         afternoon_slots = ['13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00']
-#         all_slots = morning_slots + lunch_slots + afternoon_slots
-        
-#         # Create schedule template
-#         schedule = pd.DataFrame(index=all_slots, columns=days, dtype=object).fillna('Free')
-#         schedule.loc['12:00-13:00'] = 'LUNCH BREAK'
-
-#         used_slots = set()
-
-#         # Schedule elective courses FIRST using IDENTICAL common slots
-#         if elective_allocations:
-#             print(f"   🎯 Applying COMMON elective slots for Section {section}:")
-#             for course_code, allocation in elective_allocations.items():
-#                 if allocation:
-#                     print(f"      {course_code}: {allocation['lectures']} + {allocation['tutorial']}")
-            
-#             used_slots = schedule_electives_in_common_slots(elective_allocations, schedule, used_slots, section, branch)
-        
-#         # Schedule core courses after electives - these are branch-specific
-#         if not core_courses.empty:
-#             print(f"   📚 Scheduling {len(core_courses)} BRANCH-SPECIFIC core courses for {branch}...")
-#             used_slots = schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, 
-#                                                             ['09:00-10:30', '10:30-12:00', '13:00-14:30', '15:30-17:00'],
-#                                                             ['14:30-15:30', '17:00-18:00'], branch)
-        
-#         return schedule
-        
-#     except Exception as e:
-#         print(f"❌ Error generating coordinated schedule: {e}")
-#         traceback.print_exc()
-#         return None
-
-# def get_common_elective_allocations_for_semester(dfs, semester):
-#     """Get or create common elective allocations for a semester (shared across all branches)"""
-#     global _SEMESTER_ELECTIVE_ALLOCATIONS
-    
-#     key = f"sem_{semester}"
-    
-#     if key in _SEMESTER_ELECTIVE_ALLOCATIONS:
-#         print(f"📁 Using cached common elective allocations for semester {semester}")
-#         return _SEMESTER_ELECTIVE_ALLOCATIONS[key]
-    
-#     # Create new common allocation for this semester
-#     course_baskets_all = separate_courses_by_type(dfs, semester)
-#     elective_courses_all = course_baskets_all['elective_courses']
-    
-#     common_allocations = {}
-#     if not elective_courses_all.empty:
-#         common_allocations = allocate_electives_to_common_slots(elective_courses_all, semester)
-#         _SEMESTER_ELECTIVE_ALLOCATIONS[key] = common_allocations
-#         print(f"🆕 Created NEW common elective allocations for semester {semester}")
-    
-#     return common_allocations
 
 def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, elective_allocations, branch=None):
     """Generate schedule with basket-based elective allocation - COMMON slots across branches"""
@@ -769,139 +689,6 @@ def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, e
         print(f"❌ Error generating basket-based schedule: {e}")
         traceback.print_exc()
         return None
-    
-# def schedule_electives_in_common_slots(elective_allocations, schedule, used_slots, section, branch=None):
-#     """Schedule elective courses in IDENTICAL slots across all branches"""
-#     elective_scheduled = 0
-#     branch_info = f" for {branch}" if branch else ""
-    
-#     for course_code, allocation in elective_allocations.items():
-#         if allocation is not None:
-#             # Schedule lectures - IDENTICAL for all branches
-#             for day, time_slot in allocation['lectures']:
-#                 key = (day, time_slot)
-                
-#                 if schedule.loc[time_slot, day] == 'Free':
-#                     schedule.loc[time_slot, day] = f"{course_code} (Elective)"
-#                     used_slots.add(key)
-#                     elective_scheduled += 1
-#                     print(f"      ✅ COMMON elective: {course_code} at {day} {time_slot} - Section {section}{branch_info}")
-#                 else:
-#                     print(f"      ❌ SLOT CONFLICT: {course_code} at {day} {time_slot} already has: {schedule.loc[time_slot, day]}")
-            
-#             # Schedule tutorial - IDENTICAL for all branches
-#             if allocation['tutorial']:
-#                 day, time_slot = allocation['tutorial']
-#                 key = (day, time_slot)
-                
-#                 if schedule.loc[time_slot, day] == 'Free':
-#                     schedule.loc[time_slot, day] = f"{course_code} (Tutorial)"
-#                     used_slots.add(key)
-#                     elective_scheduled += 1
-#                     print(f"      ✅ COMMON tutorial: {course_code} at {day} {time_slot} - Section {section}{branch_info}")
-#                 else:
-#                     print(f"      ❌ SLOT CONFLICT: {course_code} tutorial at {day} {time_slot} already has: {schedule.loc[time_slot, day]}")
-    
-#     print(f"   ✅ Scheduled {elective_scheduled} COMMON elective sessions for Section {section}{branch_info}")
-#     return used_slots
-
-# def generate_section_schedule_with_electives(dfs, semester_id, section, elective_allocations, branch=None):
-#     """Generate schedule with PRE-ALLOCATED COMMON elective slots and branch-specific core courses"""
-#     branch_info = f", Branch {branch}" if branch else ""
-#     print(f"   Generating coordinated schedule for Semester {semester_id}, Section {section}{branch_info}...")
-    
-#     if 'course' not in dfs:
-#         print("❌ Course data not available")
-#         return None
-    
-#     try:
-#         # Separate courses into core and elective baskets
-#         course_baskets = separate_courses_by_type(dfs, semester_id, branch)
-#         core_courses = course_baskets['core_courses']
-#         elective_courses = course_baskets['elective_courses']
-        
-#         days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-        
-#         # Time slot structure
-#         morning_slots = ['09:00-10:30', '10:30-12:00']
-#         lunch_slots = ['12:00-13:00']
-#         afternoon_slots = ['13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00']
-#         all_slots = morning_slots + lunch_slots + afternoon_slots
-        
-#         # Lecture slots (1.5 hours)
-#         lecture_times = ['09:00-10:30', '10:30-12:00', '13:00-14:30', '15:30-17:00']
-        
-#         # Tutorial slots (1 hour)
-#         tutorial_times = ['14:30-15:30', '17:00-18:00']
-        
-#         # Create schedule template
-#         schedule = pd.DataFrame(index=all_slots, columns=days, dtype=object).fillna('Free')
-#         schedule.loc['12:00-13:00'] = 'LUNCH BREAK'
-
-#         used_slots = set()
-
-#         # Schedule elective courses FIRST using COMMON pre-allocated slots
-#         if not elective_courses.empty and elective_allocations:
-#             print(f"   🎯 Scheduling {len(elective_courses)} elective courses for Section {section} (COMMON SLOTS for ALL BRANCHES)...")
-#             used_slots = schedule_electives_in_common_slots(elective_allocations, schedule, used_slots, section)
-        
-#         # Schedule core courses after electives - these will be department-specific
-#         if not core_courses.empty:
-#             print(f"   📚 Scheduling {len(core_courses)} CORE courses for Section {section}, Branch {branch}...")
-#             used_slots = schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times, branch)
-        
-#         return schedule
-        
-#     except Exception as e:
-#         print(f"❌ Error generating coordinated schedule: {e}")
-#         traceback.print_exc()
-#         return None
-
-# def create_elective_summary_common(elective_allocations, semester):
-#     """Create a summary of COMMON elective course allocations for all branches"""
-#     summary_data = []
-    
-#     for course_code, allocation in elective_allocations.items():
-#         if allocation:
-#             # Add lecture allocations
-#             for i, (day, time_slot) in enumerate(allocation['lectures'], 1):
-#                 summary_data.append({
-#                     'Elective Course': course_code,
-#                     'Session Type': f'Lecture {i}',
-#                     'Day': day,
-#                     'Time Slot': time_slot,
-#                     'Duration': '1.5 hours',
-#                     'Sections': 'A & B (Common Slot)',
-#                     'Branches': 'ALL (Common for All Branches)',
-#                     'Semester': f'Semester {semester}'
-#                 })
-            
-#             # Add tutorial allocation
-#             if allocation['tutorial']:
-#                 day, time_slot = allocation['tutorial']
-#                 summary_data.append({
-#                     'Elective Course': course_code,
-#                     'Session Type': 'Tutorial',
-#                     'Day': day,
-#                     'Time Slot': time_slot,
-#                     'Duration': '1 hour',
-#                     'Sections': 'A & B (Common Slot)',
-#                     'Branches': 'ALL (Common for All Branches)',
-#                     'Semester': f'Semester {semester}'
-#                 })
-#         else:
-#             summary_data.append({
-#                 'Elective Course': course_code,
-#                 'Session Type': 'Not Scheduled',
-#                 'Day': 'Not Scheduled',
-#                 'Time Slot': 'Not Scheduled', 
-#                 'Duration': 'N/A',
-#                 'Sections': 'None',
-#                 'Branches': 'None',
-#                 'Semester': f'Semester {semester}'
-#             })
-    
-#     return pd.DataFrame(summary_data)
 
 def create_course_summary(dfs, semester, branch=None):
     """Create a summary sheet showing core vs elective courses"""
@@ -945,63 +732,200 @@ def create_course_summary(dfs, semester, branch=None):
     
     return sem_courses[available_columns]
 
-# def create_elective_summary(elective_allocations):
-#     """Create a summary of elective course allocations"""
-#     summary_data = []
+def create_common_slots_info(basket_allocations, semester):
+    """Create information sheet about common slots for all departments"""
+    info_data = []
     
-#     for course_code, allocation in elective_allocations.items():
-#         if allocation:
-#             # Add lecture allocations
-#             for i, (day, time_slot) in enumerate(allocation['lectures'], 1):
-#                 summary_data.append({
-#                     'Elective Course': course_code,
-#                     'Session Type': f'Lecture {i}',
-#                     'Day': day,
-#                     'Time Slot': time_slot,
-#                     'Duration': '1.5 hours',
-#                     'Sections': 'A & B (Common Slot)',
-#                     'Branches': 'ALL (Common for All Branches)'
-#                 })
-            
-#             # Add tutorial allocation
-#             if allocation['tutorial']:
-#                 day, time_slot = allocation['tutorial']
-#                 summary_data.append({
-#                     'Elective Course': course_code,
-#                     'Session Type': 'Tutorial',
-#                     'Day': day,
-#                     'Time Slot': time_slot,
-#                     'Duration': '1 hour',
-#                     'Sections': 'A & B (Common Slot)',
-#                     'Branches': 'ALL (Common for All Branches)'
-#                 })
-#         else:
-#             summary_data.append({
-#                 'Elective Course': course_code,
-#                 'Session Type': 'Not Scheduled',
-#                 'Day': 'Not Scheduled',
-#                 'Time Slot': 'Not Scheduled', 
-#                 'Duration': 'N/A',
-#                 'Sections': 'None',
-#                 'Branches': 'None'
-#             })
+    for basket_name, allocation in basket_allocations.items():
+        lecture_days = allocation['lecture_days']
+        tutorial_day = allocation['tutorial_day']
+        
+        # Check if lectures and tutorial are on different days
+        days_separated = tutorial_day not in lecture_days
+        separation_status = "✅ DIFFERENT DAYS" if days_separated else "❌ SAME DAY"
+        
+        info_data.append({
+            'Semester': f'Semester {semester}',
+            'Basket Name': basket_name,
+            'Lecture Slot 1': f"{allocation['lectures'][0][0]} {allocation['lectures'][0][1]}",
+            'Lecture Slot 2': f"{allocation['lectures'][1][0]} {allocation['lectures'][1][1]}",
+            'Tutorial Slot': f"{allocation['tutorial'][0]} {allocation['tutorial'][1]}",
+            'Lecture Days': ', '.join(lecture_days),
+            'Tutorial Day': tutorial_day,
+            'Days Separation': separation_status,
+            'Courses in Basket': ', '.join(allocation['courses']),
+            'Common for All Departments': 'Yes',
+            'Common for Both Sections': 'Yes',
+            'Session Type': '2 Lectures + 1 Tutorial per course'
+        })
     
-#     return pd.DataFrame(summary_data)
+    return pd.DataFrame(info_data)
+
+def allocate_electives_by_baskets(elective_courses, semester_id):
+    """Allocate elective courses to COMMON time slots for ALL branches and sections of a semester"""
+    print(f"🎯 Allocating COMMON elective slots for Semester {semester_id} (ALL branches & sections)...")
+    
+    # Group electives by basket
+    basket_groups = {}
+    for _, course in elective_courses.iterrows():
+        basket = course.get('Basket', 'ELECTIVE_B1')
+        if basket not in basket_groups:
+            basket_groups[basket] = []
+        basket_groups[basket].append(course)
+    
+    print(f"   Found {len(basket_groups)} elective baskets: {list(basket_groups.keys())}")
+    
+    # FIXED COMMON SLOTS for ALL branches and sections
+    # These slots will be IDENTICAL for CSE, DSAI, ECE, etc. for this semester
+    common_slots_mapping = {
+        'ELECTIVE_B1': {
+            'lectures': [('Mon', '09:00-10:30'), ('Wed', '09:00-10:30')],
+            'tutorial': ('Fri', '14:30-15:30')
+        },
+        'ELECTIVE_B2': {
+            'lectures': [('Tue', '09:00-10:30'), ('Thu', '09:00-10:30')],
+            'tutorial': ('Mon', '14:30-15:30')
+        },
+        'ELECTIVE_B3': {
+            'lectures': [('Mon', '13:00-14:30'), ('Wed', '13:00-14:30')],
+            'tutorial': ('Tue', '14:30-15:30')
+        },
+        'ELECTIVE_B4': {
+            'lectures': [('Tue', '13:00-14:30'), ('Thu', '13:00-14:30')],
+            'tutorial': ('Wed', '14:30-15:30')
+        },
+        'HSS_B1': {
+            'lectures': [('Mon', '15:30-17:00'), ('Wed', '15:30-17:00')],
+            'tutorial': ('Thu', '14:30-15:30')
+        },
+        'HSS_B2': {
+            'lectures': [('Tue', '15:30-17:00'), ('Thu', '15:30-17:00')],
+            'tutorial': ('Fri', '14:30-15:30')
+        }
+    }
+    
+    elective_allocations = {}
+    basket_allocations = {}
+    
+    for basket_name in sorted(basket_groups.keys()):
+        basket_courses = basket_groups[basket_name]
+        course_codes = [course['Course Code'] for course in basket_courses]
+        
+        # Get the FIXED common slots for this basket
+        if basket_name in common_slots_mapping:
+            fixed_slots = common_slots_mapping[basket_name]
+            lectures_allocated = fixed_slots['lectures']
+            tutorial_allocated = fixed_slots['tutorial']
+        else:
+            # Fallback for baskets not in mapping
+            lectures_allocated = [('Mon', '09:00-10:30'), ('Wed', '09:00-10:30')]
+            tutorial_allocated = ('Fri', '14:30-15:30')
+            print(f"   ⚠️ Using fallback slots for unknown basket: {basket_name}")
+        
+        # Verify day separation
+        lecture_days = set(day for day, time in lectures_allocated)
+        tutorial_day = tutorial_allocated[0]
+        days_separated = tutorial_day not in lecture_days
+        
+        # Store allocation for ALL courses in this basket
+        for course_code in course_codes:
+            elective_allocations[course_code] = {
+                'basket_name': basket_name,
+                'lectures': lectures_allocated,
+                'tutorial': tutorial_allocated,
+                'all_courses_in_basket': course_codes,
+                'for_all_branches': True,
+                'for_both_sections': True,
+                'common_for_semester': True,
+                'common_for_all_departments': True,
+                'lecture_days': list(lecture_days),
+                'tutorial_day': tutorial_day,
+                'days_separated': days_separated,
+                'fixed_common_slots': True  # Mark as fixed common slots
+            }
+        
+        basket_allocations[basket_name] = {
+            'lectures': lectures_allocated,
+            'tutorial': tutorial_allocated,
+            'courses': course_codes,
+            'common_for_all_departments': True,
+            'lecture_days': list(lecture_days),
+            'tutorial_day': tutorial_day,
+            'days_separated': days_separated,
+            'fixed_common_slots': True
+        }
+        
+        print(f"   🗂️ FIXED COMMON SLOTS for Basket '{basket_name}':")
+        print(f"      📍 SAME FOR ALL BRANCHES & SECTIONS")
+        for i, (day, time_slot) in enumerate(lectures_allocated, 1):
+            print(f"      Lecture {i}: {day} {time_slot}")
+        print(f"      Tutorial: {tutorial_allocated[0]} {tutorial_allocated[1]}")
+        print(f"      Days Separation: {'✅ DIFFERENT DAYS' if days_separated else '❌ SAME DAY'}")
+        print(f"      Courses: {', '.join(course_codes)}")
+    
+    return elective_allocations, basket_allocations
+
+def create_common_basket_summary(basket_allocations, semester, branch=None):
+    """Create basket summary highlighting common slots"""
+    summary_data = []
+    
+    for basket_name, allocation in basket_allocations.items():
+        summary_data.append({
+            'Basket Name': basket_name,
+            'Lecture Slot 1': f"{allocation['lectures'][0][0]} {allocation['lectures'][0][1]}",
+            'Lecture Slot 2': f"{allocation['lectures'][1][0]} {allocation['lectures'][1][1]}",
+            'Tutorial Slot': f"{allocation['tutorial'][0]} {allocation['tutorial'][1]}",
+            'Courses in Basket': ', '.join(allocation['courses']),
+            'Common for All Branches': '✅ YES',
+            'Common for Both Sections': '✅ YES', 
+            'Days Separation': '✅ YES' if allocation['days_separated'] else '❌ NO',
+            'Semester': f'Semester {semester}',
+            'Applicable Branches': 'CSE, DSAI, ECE (ALL)',
+            'Slot Type': 'FIXED COMMON SLOTS'
+        })
+    
+    return pd.DataFrame(summary_data)
+
+
+def create_detailed_common_slots_info(basket_allocations, semester):
+    """Create detailed information about common slots"""
+    info_data = []
+    
+    for basket_name, allocation in basket_allocations.items():
+        info_data.append({
+            'Semester': f'Semester {semester}',
+            'Basket Name': basket_name,
+            'Lecture 1 Day': allocation['lectures'][0][0],
+            'Lecture 1 Time': allocation['lectures'][0][1],
+            'Lecture 2 Day': allocation['lectures'][1][0],
+            'Lecture 2 Time': allocation['lectures'][1][1],
+            'Tutorial Day': allocation['tutorial'][0],
+            'Tutorial Time': allocation['tutorial'][1],
+            'Courses': ', '.join(allocation['courses']),
+            'Common for Branches': 'CSE, DSAI, ECE (ALL)',
+            'Common for Sections': 'A & B (BOTH)',
+            'Days Separation': '✅ Achieved' if allocation['days_separated'] else '❌ Not Achieved',
+            'Slot Consistency': '✅ IDENTICAL across all',
+            'Notes': 'FIXED COMMON TIMETABLE SLOTS'
+        })
+    
+    return pd.DataFrame(info_data)
+
 def export_semester_timetable_with_baskets(dfs, semester, branch=None):
-    """Export timetable using basket-based elective allocation with COMMON slots"""
+    """Export timetable using IDENTICAL COMMON elective slots for ALL branches and sections"""
     branch_info = f", Branch {branch}" if branch else ""
-    print(f"\n📊 Generating BASKET-BASED timetable for Semester {semester}{branch_info}...")
-    print(f"🎯 Using COMMON elective basket slots across all branches")
+    print(f"\n📊 Generating timetable for Semester {semester}{branch_info}...")
+    print(f"🎯 Using IDENTICAL COMMON elective slots for ALL branches & sections of Semester {semester}")
+    print(f"📍 CSE, DSAI, ECE will have SAME elective timings")
     
     try:
-        # CRITICAL: Get ALL elective courses for this semester ONCE (without branch filter)
-        # This ensures COMMON allocation for all branches
-        course_baskets_all = separate_courses_by_type(dfs, semester)  # No branch filter
+        # Get ALL elective courses for this semester (without branch filter)
+        course_baskets_all = separate_courses_by_type(dfs, semester)
         elective_courses_all = course_baskets_all['elective_courses']
         
-        print(f"🎯 Elective courses found for semester {semester} (COMMON for ALL branches): {len(elective_courses_all)}")
+        print(f"🎯 Elective courses for Semester {semester} (COMMON for ALL): {len(elective_courses_all)}")
         if not elective_courses_all.empty:
-            print("   Common elective courses:", elective_courses_all['Course Code'].tolist())
+            print("   Courses:", elective_courses_all['Course Code'].tolist())
             # Show basket distribution
             basket_counts = elective_courses_all['Basket'].value_counts()
             print("   Basket distribution:")
@@ -1009,17 +933,18 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None):
                 courses = elective_courses_all[elective_courses_all['Basket'] == basket]['Course Code'].tolist()
                 print(f"      {basket}: {count} courses - {courses}")
         
-        # Allocate electives by baskets - COMMON for all branches
+        # Allocate electives using FIXED COMMON slots
         elective_allocations, basket_allocations = allocate_electives_by_baskets(elective_courses_all, semester)
         
-        print(f"   📅 COMMON BASKET ALLOCATIONS for Semester {semester}:")
+        print(f"   📅 FINAL COMMON SLOTS (IDENTICAL for ALL branches & sections):")
         for basket_name, allocation in basket_allocations.items():
-            print(f"      {basket_name}:")
+            status = "✅ VALID" if allocation['days_separated'] else "❌ INVALID"
+            print(f"      {basket_name}: {status}")
             print(f"         Lectures: {allocation['lectures']}")
             print(f"         Tutorial: {allocation['tutorial']}")
-            print(f"         Courses: {allocation['courses']}")
+            print(f"         📍 SAME FOR: CSE, DSAI, ECE - Sections A & B")
         
-        # Generate schedules for both sections with IDENTICAL basket slots
+        # Generate schedules - these will have IDENTICAL elective slots
         section_a = generate_section_schedule_with_elective_baskets(dfs, semester, 'A', elective_allocations, branch)
         section_b = generate_section_schedule_with_elective_baskets(dfs, semester, 'B', elective_allocations, branch)
         
@@ -1027,35 +952,34 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None):
             return False
 
         # Create filename
-        if branch:
-            filename = f"sem{semester}_{branch}_timetable_baskets.xlsx"
-        else:
-            filename = f"sem{semester}_timetable_baskets.xlsx"
-            
+        filename = f"sem{semester}_{branch}_timetable_baskets.xlsx" if branch else f"sem{semester}_timetable_baskets.xlsx"
         filepath = os.path.join(OUTPUT_DIR, filename)
         
         with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
             section_a.to_excel(writer, sheet_name='Section_A')
             section_b.to_excel(writer, sheet_name='Section_B')
             
-            # Add basket allocation summary
-            basket_summary = create_basket_summary(basket_allocations, semester, branch)
+            # Enhanced basket summary showing common slots
+            basket_summary = create_common_basket_summary(basket_allocations, semester, branch)
             basket_summary.to_excel(writer, sheet_name='Basket_Allocation', index=False)
             
-            # Add course summary
             course_summary = create_course_summary(dfs, semester, branch)
             if not course_summary.empty:
                 course_summary.to_excel(writer, sheet_name='Course_Summary', index=False)
             
-            # Add basket course details
             basket_courses_sheet = create_basket_courses_sheet(basket_allocations)
             basket_courses_sheet.to_excel(writer, sheet_name='Basket_Courses', index=False)
+            
+            # Detailed common slots info
+            common_slots_info = create_detailed_common_slots_info(basket_allocations, semester)
+            common_slots_info.to_excel(writer, sheet_name='Common_Slots_Info', index=False)
         
-        print(f"✅ Basket-based timetable saved: {filename}")
+        print(f"✅ Timetable with IDENTICAL COMMON elective slots saved: {filename}")
+        print(f"📍 Elective timings are SAME for ALL branches of Semester {semester}")
         return True
         
     except Exception as e:
-        print(f"❌ Error generating basket-based timetable: {e}")
+        print(f"❌ Error generating timetable with common slots: {e}")
         traceback.print_exc()
         return False
     
@@ -1300,14 +1224,19 @@ def extract_unique_courses_with_baskets(df, elective_allocations=None):
         for value in df[col]:
             if isinstance(value, str) and value not in ['Free', 'LUNCH BREAK']:
                 # Check if this is a basket entry
-                if '(Elective Basket)' in value or 'Basket:' in value:
-                    # Extract basket name
-                    basket_name = value.replace('(Elective Basket)', '').replace('Basket:', '').strip()
+                if any(basket in value for basket in ['ELECTIVE_B', 'HSS_B', 'PROF_B', 'OE_B']):
+                    # Extract basket name - handle both formats
+                    if '(Tutorial)' in value:
+                        basket_name = value.replace('(Tutorial)', '').strip()
+                    else:
+                        basket_name = value.strip()
                     baskets.add(basket_name)
-                elif '(Tutorial)' in value and 'Basket' in value:
-                    # Extract basket name from tutorial
-                    basket_name = value.replace('(Tutorial)', '').strip()
-                    baskets.add(basket_name)
+                    
+                    # ADDED: Also add all courses from this basket to the courses set
+                    if elective_allocations:
+                        for course_code, allocation in elective_allocations.items():
+                            if allocation and allocation.get('basket_name') == basket_name:
+                                courses.add(course_code)
                 else:
                     # Handle regular courses
                     clean_value = value.replace(' (Elective)', '').replace(' (Tutorial)', '')
@@ -1484,65 +1413,6 @@ def debug_file_matching():
 @app.route('/')
 def index():
     return render_template('index.html')
-
-# @app.route('/generate', methods=['POST'])
-# def generate_timetables():
-#     try:
-#         print("🔄 Starting timetable generation...")
-        
-#         # Clear existing timetables first
-#         excel_files = glob.glob(os.path.join(OUTPUT_DIR, "*.xlsx"))
-#         for file in excel_files:
-#             try:
-#                 os.remove(file)
-#                 print(f"🗑️ Removed old file: {file}")
-#             except Exception as e:
-#                 print(f"⚠️ Could not remove {file}: {e}")
-
-#         # Load data and generate timetables - ALWAYS force reload
-#         print("📂 Forcing data reload for generation...")
-#         data_frames = load_all_data(force_reload=True)
-#         if data_frames is None:
-#             return jsonify({'success': False, 'message': 'Failed to load CSV data'})
-
-#         # Generate timetables for all branches and semesters
-#         departments = get_departments_from_data(data_frames)
-#         print(f"📋 Generating timetables for departments: {departments}")
-        
-#         branches = departments
-#         target_semesters = [1, 3, 5, 7]
-#         success_count = 0
-#         generated_files = []
-        
-#         for branch in branches:
-#             for sem in target_semesters:
-#                 try:
-#                     print(f"🔄 Generating timetable for {branch} Semester {sem}...")
-#                     success = export_semester_timetable(data_frames, sem, branch)
-#                     filename = f"sem{sem}_{branch}_timetable.xlsx"
-#                     filepath = os.path.join(OUTPUT_DIR, filename)
-                    
-#                     if success and os.path.exists(filepath):
-#                         success_count += 1
-#                         generated_files.append(filename)
-#                         print(f"✅ Successfully generated: {filename}")
-#                     else:
-#                         print(f"❌ File not created: {filename}")
-                        
-#                 except Exception as e:
-#                     print(f"❌ Error generating timetable for {branch} semester {sem}: {e}")
-
-#         return jsonify({
-#             'success': True, 
-#             'message': f'Successfully generated {success_count} timetables!',
-#             'generated_count': success_count,
-#             'files': generated_files
-#         })
-        
-#     except Exception as e:
-#         print(f"❌ Error in generate endpoint: {e}")
-#         traceback.print_exc()
-#         return jsonify({'success': False, 'message': f'Error: {str(e)}'})
 
 def convert_dataframe_to_html_with_baskets(df, table_id):
     """Convert dataframe to HTML with special handling for basket entries"""
@@ -1963,33 +1833,6 @@ def upload_files():
             'message': f'Error uploading files: {str(e)}'
         }), 500
 
-# def export_semester_timetable_with_common_electives(dfs, semester, branch, common_elective_allocations):
-#     """Export timetable using pre-allocated common elective slots"""
-#     try:
-#         print(f"📊 Generating timetable for Semester {semester}, Branch {branch} with COMMON electives...")
-        
-#         # Generate schedules using the SAME common_elective_allocations for all branches
-#         section_a = generate_section_schedule_with_electives(dfs, semester, 'A', common_elective_allocations, branch)
-#         section_b = generate_section_schedule_with_electives(dfs, semester, 'B', common_elective_allocations, branch)
-        
-#         if section_a is None or section_b is None:
-#             return False
-
-#         filename = f"sem{semester}_{branch}_timetable.xlsx"
-#         filepath = os.path.join(OUTPUT_DIR, filename)
-        
-#         with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
-#             section_a.to_excel(writer, sheet_name='Section_A')
-#             section_b.to_excel(writer, sheet_name='Section_B')
-            
-#             # Add summary sheets...
-            
-#         print(f"✅ Generated: {filename} with COMMON elective slots")
-#         return True
-        
-#     except Exception as e:
-#         print(f"❌ Error: {e}")
-#         return False
 
 def export_semester_timetable_with_baskets_common(dfs, semester, branch, common_elective_allocations):
     """Export timetable using pre-allocated common basket slots"""

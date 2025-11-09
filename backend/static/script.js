@@ -1286,7 +1286,7 @@ function getUniqueCourses(courses) {
     return result;
 }
 
-function createEnhancedLegend(semester, section, courses, courseColors, courseInfo, coreCourses = [], electiveCourses = [], baskets = [], basketCoursesMap = {}, basketColors = {}) {
+function createEnhancedLegend(semester, section, courses, courseColors, courseInfo, coreCourses = [], electiveCourses = [], baskets = [], basketCoursesMap = {}, basketColors = {}, timetable = null) {
     if (!courses || courses.length === 0) return '';
     
     // Get unique courses with aggressive deduplication
@@ -1309,7 +1309,8 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
         electiveCourses: electiveCourseList,
         otherCourses: otherCourses,
         baskets: baskets,
-        basketCoursesMap: basketCoursesMap
+        basketCoursesMap: basketCoursesMap,
+        allBasketCourses: timetable?.all_basket_courses
     });
     
     // If no courses to display, return empty
@@ -1349,51 +1350,154 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
         `;
     }
     
-    // Elective Baskets Section
+    // Elective Baskets Section - Filter based on semester
     if (baskets.length > 0) {
-        legendHtml += `
-            <div class="legend-section elective-baskets">
-                <div class="legend-section-title elective">
-                    <i class="fas fa-clipboard-list"></i>
-                    Elective Baskets (${baskets.length}) - Common for All Branches
-                </div>
-        `;
+        // Filter baskets based on semester
+        let filteredBaskets = baskets;
         
-        baskets.sort().forEach(basketName => {
-            const basketCourses = basketCoursesMap[basketName] || [];
-            const color = basketColors[basketName] || courseColors[basketName] || getDefaultBasketColor(basketName);
-            
+        if (semester === 3) {
+            // For semester 3, show only B3 baskets
+            filteredBaskets = baskets.filter(basket => 
+                basket.includes('B3') || 
+                basket.includes('_B3') ||
+                basket === 'ELECTIVE_B3' ||
+                basket === 'HSS_B3' ||
+                basket === 'PROF_B3'
+            );
+            console.log(`🎯 Semester 3 - Filtered to B3 baskets:`, filteredBaskets);
+        } else if (semester === 5) {
+            // For semester 5, show only B5 baskets
+            filteredBaskets = baskets.filter(basket => 
+                basket.includes('B5') || 
+                basket.includes('_B5') ||
+                basket === 'ELECTIVE_B5' ||
+                basket === 'HSS_B5' ||
+                basket === 'PROF_B5'
+            );
+            console.log(`🎯 Semester 5 - Filtered to B5 baskets:`, filteredBaskets);
+        }
+        // For other semesters, show all baskets
+        
+        if (filteredBaskets.length > 0) {
             legendHtml += `
-                <div class="legend-basket">
-                    <div class="basket-header" style="border-left-color: ${color}">
-                        <div class="legend-color" style="background: ${color};"></div>
-                        <span class="basket-name"><strong>${basketName}</strong></span>
+                <div class="legend-section elective-baskets">
+                    <div class="legend-section-header elective">
+                        <div class="legend-section-title elective">
+                            <i class="fas fa-clipboard-list"></i>
+                            Elective Baskets (${filteredBaskets.length})
+                        </div>
+                        <div class="elective-semester-info">
+                            <i class="fas fa-info-circle"></i>
+                            <span>Common for All Branches & Sections</span>
+                        </div>
                     </div>
-                    <div class="basket-courses">
+                    <div class="elective-baskets-container">
             `;
             
-            if (basketCourses.length > 0) {
-                basketCourses.forEach(courseCode => {
-                    const info = courseInfo[courseCode];
-                    legendHtml += createBasketCourseItem(courseCode, info);
-                });
-            } else {
-                legendHtml += `<div class="no-courses">No courses in basket</div>`;
+            filteredBaskets.sort().forEach(basketName => {
+                // Combine courses from both basketCoursesMap and all_basket_courses
+                const basketCoursesFromMap = basketCoursesMap[basketName] || [];
+                const basketCoursesFromAll = (timetable && timetable.all_basket_courses && timetable.all_basket_courses[basketName]) || [];
+                
+                // Merge and deduplicate courses
+                const allBasketCourses = [...new Set([...basketCoursesFromMap, ...basketCoursesFromAll])];
+                
+                const color = basketColors[basketName] || courseColors[basketName] || getDefaultBasketColor(basketName);
+                
+                // Determine basket type for styling
+                let basketType = 'general';
+                if (basketName.includes('ELECTIVE')) basketType = 'professional';
+                else if (basketName.includes('HSS')) basketType = 'hss';
+                else if (basketName.includes('PROF')) basketType = 'professional';
+                else if (basketName.includes('OE')) basketType = 'open';
+                
+                legendHtml += `
+                    <div class="legend-basket ${basketType}-basket">
+                        <div class="basket-header" style="border-left-color: ${color}">
+                            <div class="basket-header-content">
+                                <div class="basket-color-info">
+                                    <div class="legend-color" style="background: ${color};"></div>
+                                    <span class="basket-name"><strong>${basketName}</strong></span>
+                                </div>
+                                <div class="basket-stats">
+                                    <span class="course-count">${allBasketCourses.length} courses</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="basket-courses">
+                `;
+                
+                if (allBasketCourses.length > 0) {
+                    allBasketCourses.forEach(courseCode => {
+                        const info = courseInfo[courseCode] || { name: courseCode };
+                        legendHtml += createBasketCourseItem(courseCode, info, color);
+                    });
+                } else {
+                    legendHtml += `
+                        <div class="no-courses">
+                            <i class="fas fa-exclamation-circle"></i>
+                            <span>No courses available in this basket</span>
+                        </div>
+                    `;
+                }
+                
+                legendHtml += `
+                        </div>
+                        <div class="basket-footer">
+                            <div class="basket-schedule-info">
+                                <i class="fas fa-clock"></i>
+                                <span>2 Lectures + 1 Tutorial per week</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            // Add semester-specific guidance
+            let semesterGuidance = '';
+            if (semester === 3) {
+                semesterGuidance = `
+                    <div class="semester-guidance">
+                        <div class="guidance-header">
+                            <i class="fas fa-graduation-cap"></i>
+                            <strong>Semester 3 Elective Guidance</strong>
+                        </div>
+                        <div class="guidance-content">
+                            <p>Choose one elective basket from the available B3 options above.</p>
+                            <ul>
+                                <li>Each basket contains related elective courses</li>
+                                <li>Courses are common across all branches and sections</li>
+                                <li>Schedule includes 2 lectures and 1 tutorial per week</li>
+                            </ul>
+                        </div>
+                    </div>
+                `;
+            } else if (semester === 5) {
+                semesterGuidance = `
+                    <div class="semester-guidance">
+                        <div class="guidance-header">
+                            <i class="fas fa-graduation-cap"></i>
+                            <strong>Semester 5 Elective Guidance</strong>
+                        </div>
+                        <div class="guidance-content">
+                            <p>Choose one elective basket from the available B5 options above.</p>
+                            <ul>
+                                <li>Each basket contains specialized elective courses</li>
+                                <li>Courses are common across all branches and sections</li>
+                                <li>Schedule includes 2 lectures and 1 tutorial per week</li>
+                                <li>Focus on advanced topics in your chosen specialization</li>
+                            </ul>
+                        </div>
+                    </div>
+                `;
             }
             
             legendHtml += `
                     </div>
+                    ${semesterGuidance}
                 </div>
             `;
-        });
-        
-        legendHtml += `
-                <div style="margin-top: 1rem; font-size: 0.8rem; color: var(--gray); background: var(--light-bg); padding: 0.5rem; border-radius: 4px;">
-                    <i class="fas fa-info-circle"></i>
-                    Each basket has 2 lectures + 1 tutorial (same slots for all branches and sections)
-                </div>
-            </div>
-        `;
+        }
     }
     
     // Individual Elective Courses Section (if any exist outside baskets)
@@ -1452,30 +1556,45 @@ function createLegendItem(courseCode, courseInfo, color, type = 'core') {
     const instructor = courseInfo ? courseInfo.instructor : 'Unknown';
     const courseType = courseInfo ? courseInfo.type : 'Core';
     
+    // Add type-specific icons
+    let typeIcon = 'fas fa-book'; // Default for core
+    if (type === 'elective') typeIcon = 'fas fa-star';
+    else if (type === 'other') typeIcon = 'fas fa-graduation-cap';
+    
     return `
         <div class="legend-item ${type}">
             <div class="legend-color" style="background: ${color};"></div>
-            <span class="legend-course-code">${courseCode}</span>
-            <span class="legend-course-name">
-                ${courseName} (${credits} cr)
-                <br><small>${instructor} • ${courseType}</small>
-            </span>
+            <div class="legend-item-content">
+                <div class="legend-course-header">
+                    <span class="legend-course-code">${courseCode}</span>
+                    <span class="course-credits">${credits} cr</span>
+                </div>
+                <span class="legend-course-name">${courseName}</span>
+                <div class="legend-course-details">
+                    <i class="${typeIcon}"></i>
+                    <span>${instructor} • ${courseType}</span>
+                </div>
+            </div>
         </div>
     `;
 }
 
-function createBasketCourseItem(courseCode, courseInfo) {
+function createBasketCourseItem(courseCode, courseInfo, basketColor) {
     const courseName = courseInfo ? courseInfo.name : 'Unknown Course';
     const credits = courseInfo ? courseInfo.credits : '?';
     const instructor = courseInfo ? courseInfo.instructor : 'Unknown';
     
     return `
-        <div class="basket-course-item">
-            <span class="basket-course-code">${courseCode}</span>
-            <span class="basket-course-name">
-                ${courseName} (${credits} cr)
-                <br><small>${instructor}</small>
-            </span>
+        <div class="basket-course-item" style="border-left-color: ${basketColor}">
+            <div class="basket-course-header">
+                <span class="basket-course-code">${courseCode}</span>
+                <span class="basket-course-credits">${credits} cr</span>
+            </div>
+            <div class="basket-course-name">${courseName}</div>
+            <div class="basket-course-instructor">
+                <i class="fas fa-user-tie"></i>
+                <span>${instructor}</span>
+            </div>
         </div>
     `;
 }
@@ -1533,7 +1652,11 @@ function enhanceTables() {
                                     timetable.course_colors, 
                                     timetable.course_info,
                                     timetable.core_courses || [],
-                                    timetable.elective_courses || []
+                                    timetable.elective_courses || [],
+                                    timetable.baskets || [],
+                                    timetable.basket_courses_map || {},
+                                    timetable.basket_colors || {},
+                                    timetable // Pass the entire timetable object
                                 );
                                 if (legend) {
                                     // Remove existing legend if any

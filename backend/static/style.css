@@ -5368,3 +5368,264 @@ body {
 .legend-section.elective-baskets .legend-section-title {
     color: var(--elective-color);
 }
+
+/* Enhanced Elective Basket Styles */
+.elective-baskets {
+    background: linear-gradient(135deg, #f8f9ff 0%, #f0f2ff 100%);
+    border-radius: 12px;
+    border: 1px solid #e1e5ff;
+    margin: 1rem 0;
+}
+
+.legend-section-header.elective {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    background: linear-gradient(135deg, #7209b7 0%, #4361ee 100%);
+    color: white;
+    border-radius: 12px 12px 0 0;
+}
+
+.elective-semester-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    opacity: 0.9;
+}
+
+.elective-baskets-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 1.5rem;
+    padding: 1.5rem;
+}
+
+.legend-basket {
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 4px 15px rgba(114, 9, 183, 0.1);
+    border: 1px solid #e1e5ff;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    overflow: hidden;
+}
+
+.legend-basket:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(114, 9, 183, 0.15);
+}
+
+.basket-header {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid #f0f2ff;
+}
+
+.basket-header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.basket-color-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.basket-name {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #2d3748;
+}
+
+.basket-stats {
+    font-size: 0.85rem;
+    color: #718096;
+}
+
+.course-count {
+    background: #f7fafc;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    font-weight: 600;
+}
+
+.basket-courses {
+    padding: 1rem 1.5rem;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.basket-course-item {
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+    background: #f8fafc;
+    border-radius: 8px;
+    border-left: 4px solid;
+    transition: background-color 0.2s ease;
+}
+
+.basket-course-item:hover {
+    background: #edf2f7;
+}
+
+.basket-course-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.25rem;
+}
+
+.basket-course-code {
+    font-weight: 700;
+    color: #2d3748;
+    font-size: 0.95rem;
+}
+
+.basket-course-credits {
+    font-size: 0.8rem;
+    color: #718096;
+    background: white;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.basket-course-name {
+    font-size: 0.9rem;
+    color: #4a5568;
+    margin-bottom: 0.25rem;
+    line-height: 1.4;
+}
+
+.basket-course-instructor {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: #718096;
+}
+
+.basket-footer {
+    padding: 1rem 1.5rem;
+    background: #f7fafc;
+    border-top: 1px solid #e2e8f0;
+}
+
+.basket-schedule-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: #718096;
+}
+
+.no-courses {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem;
+    background: #fff5f5;
+    border-radius: 8px;
+    color: #e53e3e;
+    font-size: 0.9rem;
+}
+
+/* Basket Type Variations */
+.professional-basket {
+    border-top: 3px solid #4299e1;
+}
+
+.hss-basket {
+    border-top: 3px solid #48bb78;
+}
+
+.open-basket {
+    border-top: 3px solid #ed8936;
+}
+
+.general-basket {
+    border-top: 3px solid #9f7aea;
+}
+
+/* Semester Guidance */
+.semester-guidance {
+    margin: 1rem 1.5rem 1.5rem;
+    padding: 1rem;
+    background: linear-gradient(135deg, #fff9e6 0%, #fff0cc 100%);
+    border: 1px solid #ffd966;
+    border-radius: 8px;
+}
+
+.guidance-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    color: #d97706;
+    font-size: 0.95rem;
+}
+
+.guidance-content {
+    font-size: 0.9rem;
+    color: #92400e;
+}
+
+.guidance-content ul {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+}
+
+.guidance-content li {
+    margin-bottom: 0.25rem;
+}
+
+/* Improved Legend Items */
+.legend-item-content {
+    flex: 1;
+}
+
+.legend-course-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.25rem;
+}
+
+.course-credits {
+    font-size: 0.8rem;
+    color: #718096;
+    background: #f7fafc;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.legend-course-details {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: #718096;
+    margin-top: 0.25rem;
+}
+
+/* Scrollbar styling for basket courses */
+.basket-courses::-webkit-scrollbar {
+    width: 6px;
+}
+
+.basket-courses::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.basket-courses::-webkit-scrollbar-thumb {
+    background: #cbd5e0;
+    border-radius: 3px;
+}
+
+.basket-courses::-webkit-scrollbar-thumb:hover {
+    background: #a0aec0;
+}
