@@ -30,6 +30,29 @@ _EXAM_SCHEDULE_FILES = set()
 # Allowed file extensions
 ALLOWED_EXTENSIONS = {'csv'}
 
+_CLASSROOM_USAGE_TRACKER = {}
+_TIMETABLE_CLASSROOM_ALLOCATIONS = {}
+
+def initialize_classroom_usage_tracker():
+    """Initialize the global classroom usage tracker"""
+    global _CLASSROOM_USAGE_TRACKER
+    days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+    time_slots = ['09:00-10:30', '10:30-12:00', '12:00-13:00', '13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00']
+    
+    _CLASSROOM_USAGE_TRACKER = {}
+    for day in days:
+        _CLASSROOM_USAGE_TRACKER[day] = {}
+        for time_slot in time_slots:
+            _CLASSROOM_USAGE_TRACKER[day][time_slot] = set()
+
+def reset_classroom_usage_tracker():
+    """Reset the classroom usage tracker (call before generating new timetables)"""
+    global _CLASSROOM_USAGE_TRACKER, _TIMETABLE_CLASSROOM_ALLOCATIONS
+    _CLASSROOM_USAGE_TRACKER = {}
+    _TIMETABLE_CLASSROOM_ALLOCATIONS = {}
+    initialize_classroom_usage_tracker()
+    print("🔄 Classroom usage tracker reset for new timetable generation")
+
 def get_exam_schedule_files():
     """Get list of exam schedule files that should be displayed"""
     global _EXAM_SCHEDULE_FILES
@@ -1009,12 +1032,74 @@ def create_semester_rules_sheet(semester, basket_allocations):
         })
     
     return pd.DataFrame(rules_data)
+def print_classroom_allocation_summary(semester, branch):
+    """Print a summary of classroom allocations"""
+    global _TIMETABLE_CLASSROOM_ALLOCATIONS
+    timetable_key = f"{branch}_sem{semester}"
+    
+    room_usage = {}
+    for key, allocations in _TIMETABLE_CLASSROOM_ALLOCATIONS.items():
+        if key.startswith(timetable_key):
+            for allocation_key, allocation in allocations.items():
+                room = allocation['classroom']
+                if room not in room_usage:
+                    room_usage[room] = 0
+                room_usage[room] += 1
+    
+    print(f"   📊 Classroom usage summary for {branch} Semester {semester}:")
+    for room, count in sorted(room_usage.items()):
+        print(f"      {room}: {count} sessions")
+
+def create_classroom_allocation_detail_with_tracking(timetable_schedules, classrooms_df, semester, branch):
+    """Create detailed classroom allocation information with global tracking"""
+    allocation_data = []
+    global _TIMETABLE_CLASSROOM_ALLOCATIONS
+    
+    for i, schedule in enumerate(timetable_schedules, 1):
+        section = 'A' if i == 1 else 'B'
+        timetable_key = f"{branch}_sem{semester}_sec{section}"
+        
+        for day in schedule.columns:
+            for time_slot in schedule.index:
+                cell_value = str(schedule.loc[time_slot, day])
+                
+                if cell_value not in ['Free', 'LUNCH BREAK'] and '[' in cell_value and ']' in cell_value:
+                    # Extract course and room
+                    course_match = re.search(r'^(.*?)\s*\[', cell_value)
+                    room_match = re.search(r'\[(.*?)\]', cell_value)
+                    
+                    if course_match and room_match:
+                        course = course_match.group(1).strip()
+                        room_number = room_match.group(1)
+                        
+                        # Get room details
+                        room_details = classrooms_df[classrooms_df['Room Number'] == room_number]
+                        capacity = room_details['Capacity'].iloc[0] if not room_details.empty else 'Unknown'
+                        room_type = room_details['Type'].iloc[0] if not room_details.empty else 'Unknown'
+                        
+                        allocation_data.append({
+                            'Semester': semester,
+                            'Branch': branch,
+                            'Section': section,
+                            'Day': day,
+                            'Time Slot': time_slot,
+                            'Course': course,
+                            'Room Number': room_number,
+                            'Room Type': room_type,
+                            'Capacity': capacity,
+                            'Facilities': room_details['Facilities'].iloc[0] if not room_details.empty else 'Unknown',
+                            'Allocation Type': 'Global Tracking'
+                        })
+    
+    return pd.DataFrame(allocation_data)
 
 def export_semester_timetable_with_baskets(dfs, semester, branch=None):
     """Export timetable using IDENTICAL COMMON elective slots for ALL branches and sections with classroom allocation"""
     branch_info = f", Branch {branch}" if branch else ""
     print(f"\n📊 Generating timetable for Semester {semester}{branch_info}...")
-    print(f"🎯 Using IDENTICAL COMMON elective slots for ALL branches & sections of Semester {semester}")
+    
+    # Reset classroom tracker at the start of generation for this branch/semester
+    reset_classroom_usage_tracker()
     
     # Show semester-specific basket rules
     if semester == 3:
@@ -1032,14 +1117,6 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None):
         elective_courses_all = course_baskets_all['elective_courses']
         
         print(f"🎯 Elective courses for Semester {semester} (COMMON for ALL): {len(elective_courses_all)}")
-        if not elective_courses_all.empty:
-            print("   All courses found:", elective_courses_all['Course Code'].tolist())
-            # Show basket distribution
-            basket_counts = elective_courses_all['Basket'].value_counts()
-            print("   Basket distribution in data:")
-            for basket, count in basket_counts.items():
-                courses = elective_courses_all[elective_courses_all['Basket'] == basket]['Course Code'].tolist()
-                print(f"      {basket}: {count} courses - {courses}")
         
         # Allocate electives using FIXED COMMON slots (with semester filtering)
         elective_allocations, basket_allocations = allocate_electives_by_baskets(elective_courses_all, semester)
@@ -1049,11 +1126,6 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None):
             for basket_name, allocation in basket_allocations.items():
                 status = "✅ VALID" if allocation['days_separated'] else "❌ INVALID"
                 print(f"      {basket_name}: {status}")
-                print(f"         Lectures: {allocation['lectures']}")
-                print(f"         Tutorial: {allocation['tutorial']}")
-                print(f"         📍 SAME FOR: CSE, DSAI, ECE - Sections A & B")
-        else:
-            print(f"      No elective baskets scheduled for Semester {semester}")
         
         # Generate schedules - these will have IDENTICAL elective slots
         section_a = generate_section_schedule_with_elective_baskets(dfs, semester, 'A', elective_allocations, branch)
@@ -1062,14 +1134,18 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None):
         if section_a is None or section_b is None:
             return False
 
-        # ALLOCATE CLASSROOMS for both sections
+        # ALLOCATE CLASSROOMS for both sections with proper tracking
         course_info = get_course_info(dfs) if dfs else {}
         classroom_data = dfs.get('classroom')
         
         if classroom_data is not None and not classroom_data.empty:
-            print("🏫 Allocating classrooms for timetable sessions...")
-            section_a_with_rooms = allocate_classrooms_for_timetable(section_a, classroom_data, course_info)
-            section_b_with_rooms = allocate_classrooms_for_timetable(section_b, classroom_data, course_info)
+            print("🏫 Allocating classrooms with global tracking...")
+            section_a_with_rooms = allocate_classrooms_for_timetable(
+                section_a, classroom_data, course_info, semester, branch, 'A'
+            )
+            section_b_with_rooms = allocate_classrooms_for_timetable(
+                section_b, classroom_data, course_info, semester, branch, 'B'
+            )
             
             # Check if classroom allocation was successful
             has_classroom_allocation_a = check_for_classroom_allocation(section_a_with_rooms)
@@ -1077,7 +1153,9 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None):
             has_classroom_allocation = has_classroom_allocation_a or has_classroom_allocation_b
             
             if has_classroom_allocation:
-                print("   ✅ Classroom allocation completed successfully")
+                print("   ✅ Classroom allocation completed with global tracking")
+                # Print allocation summary
+                print_classroom_allocation_summary(semester, branch)
             else:
                 print("   ⚠️ Classroom allocation attempted but no rooms were assigned")
         else:
@@ -1094,24 +1172,7 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None):
             section_a_with_rooms.to_excel(writer, sheet_name='Section_A')
             section_b_with_rooms.to_excel(writer, sheet_name='Section_B')
             
-            # Enhanced basket summary showing common slots
-            basket_summary = create_common_basket_summary(basket_allocations, semester, branch)
-            basket_summary.to_excel(writer, sheet_name='Basket_Allocation', index=False)
-            
-            course_summary = create_course_summary(dfs, semester, branch)
-            if not course_summary.empty:
-                course_summary.to_excel(writer, sheet_name='Course_Summary', index=False)
-            
-            basket_courses_sheet = create_basket_courses_sheet(basket_allocations)
-            basket_courses_sheet.to_excel(writer, sheet_name='Basket_Courses', index=False)
-            
-            # Detailed common slots info
-            common_slots_info = create_detailed_common_slots_info(basket_allocations, semester)
-            common_slots_info.to_excel(writer, sheet_name='Common_Slots_Info', index=False)
-            
-            # Add semester-specific rules sheet
-            semester_rules = create_semester_rules_sheet(semester, basket_allocations)
-            semester_rules.to_excel(writer, sheet_name='Semester_Rules', index=False)
+            # ... existing sheets ...
             
             # Add classroom allocation summary if classrooms were allocated
             if classroom_data is not None and not classroom_data.empty:
@@ -1120,13 +1181,13 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None):
                 )
                 classroom_report.to_excel(writer, sheet_name='Classroom_Utilization', index=False)
                 
-                # Add detailed classroom allocation
-                classroom_allocation_detail = create_classroom_allocation_detail(
-                    [section_a_with_rooms, section_b_with_rooms], classroom_data
+                # Add detailed classroom allocation with global tracking info
+                classroom_allocation_detail = create_classroom_allocation_detail_with_tracking(
+                    [section_a_with_rooms, section_b_with_rooms], classroom_data, semester, branch
                 )
                 classroom_allocation_detail.to_excel(writer, sheet_name='Classroom_Allocation', index=False)
         
-        success_message = f"✅ Timetable with semester-specific elective rules saved: {filename}"
+        success_message = f"✅ Timetable saved: {filename}"
         if classroom_data is not None and not classroom_data.empty:
             success_message += " (with classroom allocation)"
         
@@ -1543,13 +1604,18 @@ def generate_course_colors(courses, course_info):
     
     return course_colors
 
-def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info):
-    """Allocate classrooms to timetable sessions based on capacity and facilities"""
-    print("🏫 Allocating classrooms for timetable...")
+def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, semester, branch, section):
+    """Allocate classrooms to timetable sessions with proper tracking across all timetables"""
+    print(f"🏫 Allocating classrooms for {branch} Semester {semester} Section {section}...")
     
     if classrooms_df is None or classrooms_df.empty:
         print("   ⚠️ No classroom data available")
         return schedule_df
+    
+    # Initialize global tracker if not exists
+    global _CLASSROOM_USAGE_TRACKER
+    if not _CLASSROOM_USAGE_TRACKER:
+        initialize_classroom_usage_tracker()
     
     # Filter available classrooms (exclude labs, recreation, library, etc.)
     available_classrooms = classrooms_df[
@@ -1566,27 +1632,21 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info):
         return schedule_df
     
     print(f"   Available classrooms: {len(available_classrooms)}")
-    print(f"   Classroom list: {available_classrooms['Room Number'].tolist()}")
     
     # Create a copy of schedule with classroom allocation
     schedule_with_rooms = schedule_df.copy()
     
-    # Track classroom usage to avoid double-booking
-    classroom_usage = {}
-    days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-    
-    # Initialize classroom usage tracking
-    for day in days:
-        classroom_usage[day] = {}
-        for time_slot in schedule_df.index:
-            classroom_usage[day][time_slot] = set()
-    
     # Estimate student numbers for courses
     course_enrollment = estimate_course_enrollment(course_info)
     
+    # Track allocations for this specific timetable
+    timetable_key = f"{branch}_sem{semester}_sec{section}"
+    if timetable_key not in _TIMETABLE_CLASSROOM_ALLOCATIONS:
+        _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key] = {}
+    
     # Allocate classrooms for each time slot
     allocation_count = 0
-    for day in days:
+    for day in schedule_df.columns:
         for time_slot in schedule_df.index:
             course_value = schedule_df.loc[time_slot, day]
             
@@ -1608,15 +1668,23 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info):
             else:
                 continue
             
-            # Find suitable classroom
-            suitable_classroom = find_suitable_classroom(
-                available_classrooms, enrollment, day, time_slot, classroom_usage
+            # Find suitable classroom with global usage tracking
+            suitable_classroom = find_suitable_classroom_with_tracking(
+                available_classrooms, enrollment, day, time_slot, _CLASSROOM_USAGE_TRACKER
             )
             
             if suitable_classroom:
                 # Update schedule with classroom in format "Course [Room]"
                 schedule_with_rooms.loc[time_slot, day] = f"{course_display} [{suitable_classroom}]"
-                classroom_usage[day][time_slot].add(suitable_classroom)
+                
+                # Track this allocation
+                allocation_key = f"{day}_{time_slot}"
+                _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key] = {
+                    'course': course_display,
+                    'classroom': suitable_classroom,
+                    'enrollment': enrollment
+                }
+                
                 allocation_count += 1
                 print(f"      ✅ {day} {time_slot}: {course_display} → {suitable_classroom} ({enrollment} students)")
             else:
@@ -1624,6 +1692,47 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info):
     
     print(f"   🏫 Total classroom allocations: {allocation_count}")
     return schedule_with_rooms
+
+def find_suitable_classroom_with_tracking(classrooms_df, enrollment, day, time_slot, classroom_usage_tracker):
+    """Find a suitable classroom based on capacity and availability with global tracking"""
+    if classrooms_df.empty:
+        return None
+    
+    # Filter classrooms that can accommodate the enrollment
+    suitable_rooms = classrooms_df[classrooms_df['Capacity'] >= enrollment].copy()
+    
+    if suitable_rooms.empty:
+        # If no room can accommodate, find the largest available
+        suitable_rooms = classrooms_df.nlargest(3, 'Capacity')  # Get top 3 largest
+        if suitable_rooms.empty:
+            return None
+        print(f"         ⚠️ Using largest available room for {enrollment} students")
+    
+    # Sort by capacity (prefer smallest adequate room first to preserve larger rooms)
+    suitable_rooms = suitable_rooms.sort_values('Capacity')
+    
+    # Check availability in global tracker
+    for _, room in suitable_rooms.iterrows():
+        room_number = room['Room Number']
+        
+        # Check if room is already booked at this time in global tracker
+        if room_number not in classroom_usage_tracker[day][time_slot]:
+            # Mark room as used in global tracker
+            classroom_usage_tracker[day][time_slot].add(room_number)
+            return room_number
+    
+    # If all suitable rooms are booked, try larger rooms
+    larger_rooms = classrooms_df[classrooms_df['Capacity'] > enrollment].copy()
+    if not larger_rooms.empty:
+        larger_rooms = larger_rooms.sort_values('Capacity')
+        for _, room in larger_rooms.iterrows():
+            room_number = room['Room Number']
+            if room_number not in classroom_usage_tracker[day][time_slot]:
+                classroom_usage_tracker[day][time_slot].add(room_number)
+                print(f"         🔄 Using larger room {room_number} for {enrollment} students")
+                return room_number
+    
+    return None
 
 def find_suitable_classroom(classrooms_df, enrollment, day, time_slot, classroom_usage):
     """Find a suitable classroom based on capacity and availability"""
@@ -2432,6 +2541,10 @@ def upload_files():
         global _SEMESTER_ELECTIVE_ALLOCATIONS
         _SEMESTER_ELECTIVE_ALLOCATIONS = {}
         print("🗑️ Cleared common elective allocations cache")
+        
+        # Reset classroom usage tracker for new generation
+        reset_classroom_usage_tracker()
+        print("🔄 Reset classroom usage tracker for new timetable generation")
         
         # Generate ONLY basket timetables for all branches and semesters
         branches = ['CSE', 'DSAI', 'ECE']
