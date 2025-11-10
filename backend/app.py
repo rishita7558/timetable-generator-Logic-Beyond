@@ -201,14 +201,17 @@ def load_all_data(force_reload=False):
     return dfs
 
 def get_course_info(dfs):
-    """Extract course information from course data for frontend display"""
+    """Extract course information from course data for frontend display with proper department mapping"""
     course_info = {}
     if 'course' in dfs:
         for _, course in dfs['course'].iterrows():
             course_code = course['Course Code']
+            
+            # FIXED: Map department based on course code prefix
+            department = map_department_from_course_code(course_code)
+            
             is_elective = course.get('Elective (Yes/No)', 'No').upper() == 'YES'
             course_type = 'Elective' if is_elective else 'Core'
-            department = course.get('Department', 'General')
             
             # FIX: Use 'Faculty' column instead of 'Instructor'
             instructor = course.get('Faculty', 'Unknown')
@@ -218,12 +221,34 @@ def get_course_info(dfs):
                 'credits': course.get('Credits', 0),
                 'type': course_type,
                 'instructor': instructor,  # This will now use the correct Faculty column
-                'department': department,
+                'department': department,  # Use mapped department
                 'is_elective': is_elective,
                 'branch': department,  # Use department as branch for compatibility
                 'is_common_elective': is_elective
             }
+            
+            # Debug logging
+            print(f"   📝 Course {course_code}: Department = {department}")
+            
     return course_info
+
+def map_department_from_course_code(course_code):
+    """Map department based on course code prefix"""
+    if not isinstance(course_code, str):
+        return 'Department of Arts, Science and Design'
+    
+    course_code_upper = course_code.upper().strip()
+    
+    if course_code_upper.startswith('CS'):
+        return 'Computer Science and Engineering'
+    elif course_code_upper.startswith('EC'):
+        return 'Electronics and Communication Engineering'
+    elif course_code_upper.startswith('DS'):
+        return 'Data Science and Artificial Intelligence'
+    elif course_code_upper.startswith('DA'):  # Also handle DA prefix for DSAI
+        return 'Data Science and Artificial Intelligence'
+    else:
+        return 'Department of Arts, Science and Design'
 
 def get_departments_from_data(dfs):
     """Extract unique departments from course data"""
@@ -784,6 +809,10 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
         # Semester 5: Only ELECTIVE_B5, exclude ELECTIVE_B3
         baskets_to_schedule = [basket for basket in basket_groups.keys() if basket == 'ELECTIVE_B5']
         print(f"   🎯 Semester 5: Scheduling only ELECTIVE_B5, excluding ELECTIVE_B3")
+    elif semester_id == 7:
+        # FIXED: Semester 7: Schedule BOTH ELECTIVE_B6 and ELECTIVE_B7
+        baskets_to_schedule = [basket for basket in basket_groups.keys() if basket in ['ELECTIVE_B6', 'ELECTIVE_B7']]
+        print(f"   🎯 Semester 7: Scheduling BOTH ELECTIVE_B6 and ELECTIVE_B7")
     else:
         # Other semesters: Schedule all baskets
         baskets_to_schedule = list(basket_groups.keys())
@@ -791,7 +820,7 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
     
     print(f"   📋 Baskets to schedule: {baskets_to_schedule}")
     
-    # FIXED COMMON SLOTS for ALL branches and sections
+    # FIXED COMMON SLOTS for ALL branches and sections - ADDED B6 and B7
     common_slots_mapping = {
         'ELECTIVE_B1': {
             'lectures': [('Mon', '09:00-10:30'), ('Wed', '09:00-10:30')],
@@ -813,6 +842,14 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
             'lectures': [('Mon', '15:30-17:00'), ('Wed', '15:30-17:00')],
             'tutorial': ('Thu', '14:30-15:30')
         },
+        'ELECTIVE_B6': {
+            'lectures': [('Mon', '09:00-10:30'), ('Wed', '13:00-14:30')],
+            'tutorial': ('Tue', '14:30-15:30')
+        },
+        'ELECTIVE_B7': {
+            'lectures': [('Tue', '09:00-10:30'), ('Thu', '13:00-14:30')],
+            'tutorial': ('Wed', '14:30-15:30')
+        },
         'HSS_B1': {
             'lectures': [('Mon', '15:30-17:00'), ('Wed', '15:30-17:00')],
             'tutorial': ('Thu', '14:30-15:30')
@@ -828,6 +865,7 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
     
     for basket_name in sorted(baskets_to_schedule):  # Only iterate through filtered baskets
         if basket_name not in basket_groups:
+            print(f"   ⚠️ Basket {basket_name} not found in course data")
             continue
             
         basket_courses = basket_groups[basket_name]
@@ -973,7 +1011,7 @@ def create_semester_rules_sheet(semester, basket_allocations):
     return pd.DataFrame(rules_data)
 
 def export_semester_timetable_with_baskets(dfs, semester, branch=None):
-    """Export timetable using IDENTICAL COMMON elective slots for ALL branches and sections"""
+    """Export timetable using IDENTICAL COMMON elective slots for ALL branches and sections with classroom allocation"""
     branch_info = f", Branch {branch}" if branch else ""
     print(f"\n📊 Generating timetable for Semester {semester}{branch_info}...")
     print(f"🎯 Using IDENTICAL COMMON elective slots for ALL branches & sections of Semester {semester}")
@@ -983,6 +1021,8 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None):
         print(f"   🎯 SEMESTER 3 RULE: Scheduling only ELECTIVE_B3, excluding ELECTIVE_B5")
     elif semester == 5:
         print(f"   🎯 SEMESTER 5 RULE: Scheduling only ELECTIVE_B5, excluding ELECTIVE_B3")
+    elif semester == 7:
+        print(f"   🎯 SEMESTER 7 RULE: Scheduling BOTH ELECTIVE_B6 and ELECTIVE_B7")
     else:
         print(f"   🎯 SEMESTER {semester}: Scheduling all elective baskets")
     
@@ -1022,13 +1062,37 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None):
         if section_a is None or section_b is None:
             return False
 
+        # ALLOCATE CLASSROOMS for both sections
+        course_info = get_course_info(dfs) if dfs else {}
+        classroom_data = dfs.get('classroom')
+        
+        if classroom_data is not None and not classroom_data.empty:
+            print("🏫 Allocating classrooms for timetable sessions...")
+            section_a_with_rooms = allocate_classrooms_for_timetable(section_a, classroom_data, course_info)
+            section_b_with_rooms = allocate_classrooms_for_timetable(section_b, classroom_data, course_info)
+            
+            # Check if classroom allocation was successful
+            has_classroom_allocation_a = check_for_classroom_allocation(section_a_with_rooms)
+            has_classroom_allocation_b = check_for_classroom_allocation(section_b_with_rooms)
+            has_classroom_allocation = has_classroom_allocation_a or has_classroom_allocation_b
+            
+            if has_classroom_allocation:
+                print("   ✅ Classroom allocation completed successfully")
+            else:
+                print("   ⚠️ Classroom allocation attempted but no rooms were assigned")
+        else:
+            section_a_with_rooms = section_a
+            section_b_with_rooms = section_b
+            print("⚠️  No classroom data available for allocation")
+
         # Create filename
         filename = f"sem{semester}_{branch}_timetable_baskets.xlsx" if branch else f"sem{semester}_timetable_baskets.xlsx"
         filepath = os.path.join(OUTPUT_DIR, filename)
         
         with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
-            section_a.to_excel(writer, sheet_name='Section_A')
-            section_b.to_excel(writer, sheet_name='Section_B')
+            # Save schedules with classroom allocation
+            section_a_with_rooms.to_excel(writer, sheet_name='Section_A')
+            section_b_with_rooms.to_excel(writer, sheet_name='Section_B')
             
             # Enhanced basket summary showing common slots
             basket_summary = create_common_basket_summary(basket_allocations, semester, branch)
@@ -1048,14 +1112,117 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None):
             # Add semester-specific rules sheet
             semester_rules = create_semester_rules_sheet(semester, basket_allocations)
             semester_rules.to_excel(writer, sheet_name='Semester_Rules', index=False)
+            
+            # Add classroom allocation summary if classrooms were allocated
+            if classroom_data is not None and not classroom_data.empty:
+                classroom_report = create_classroom_utilization_report(
+                    classroom_data, [section_a_with_rooms, section_b_with_rooms], []
+                )
+                classroom_report.to_excel(writer, sheet_name='Classroom_Utilization', index=False)
+                
+                # Add detailed classroom allocation
+                classroom_allocation_detail = create_classroom_allocation_detail(
+                    [section_a_with_rooms, section_b_with_rooms], classroom_data
+                )
+                classroom_allocation_detail.to_excel(writer, sheet_name='Classroom_Allocation', index=False)
         
-        print(f"✅ Timetable with semester-specific elective rules saved: {filename}")
+        success_message = f"✅ Timetable with semester-specific elective rules saved: {filename}"
+        if classroom_data is not None and not classroom_data.empty:
+            success_message += " (with classroom allocation)"
+        
+        print(success_message)
         return True
         
     except Exception as e:
         print(f"❌ Error generating timetable: {e}")
         traceback.print_exc()
         return False
+
+def check_for_classroom_allocation(schedule_df):
+    """Check if classroom allocation was successful by looking for [Room] pattern"""
+    for col in schedule_df.columns:
+        for val in schedule_df[col]:
+            if isinstance(val, str) and '[' in val and ']' in val:
+                return True
+    return False
+    
+def calculate_classroom_usage_for_exams(exam_schedule_df):
+    """Calculate classroom usage statistics for exams"""
+    used_rooms = set()
+    total_sessions = 0
+    
+    for _, exam in exam_schedule_df.iterrows():
+        if exam['status'] == 'Scheduled' and 'classroom' in exam:
+            classrooms = str(exam['classroom']).split(', ')
+            used_rooms.update(classrooms)
+            total_sessions += len(classrooms)
+    
+    return {
+        'used_rooms': len(used_rooms),
+        'total_sessions': total_sessions,
+        'rooms_list': list(used_rooms)
+    }
+
+def calculate_timetable_classroom_usage(timetable_schedules):
+    """Calculate classroom usage statistics for timetables"""
+    used_rooms = set()
+    total_sessions = 0
+    
+    for schedule in timetable_schedules:
+        for day in schedule.columns:
+            for time_slot in schedule.index:
+                cell_value = str(schedule.loc[time_slot, day])
+                # Extract room numbers from format "Course [Room]"
+                if '[' in cell_value and ']' in cell_value:
+                    room_match = re.search(r'\[(.*?)\]', cell_value)
+                    if room_match:
+                        room_number = room_match.group(1)
+                        used_rooms.add(room_number)
+                        total_sessions += 1
+    
+    return {
+        'used_rooms': len(used_rooms),
+        'total_sessions': total_sessions,
+        'rooms_list': list(used_rooms)
+    }
+
+def create_classroom_allocation_detail(timetable_schedules, classrooms_df):
+    """Create detailed classroom allocation information"""
+    allocation_data = []
+    
+    for i, schedule in enumerate(timetable_schedules, 1):
+        section = 'A' if i == 1 else 'B'
+        
+        for day in schedule.columns:
+            for time_slot in schedule.index:
+                cell_value = str(schedule.loc[time_slot, day])
+                
+                if cell_value not in ['Free', 'LUNCH BREAK'] and '[' in cell_value and ']' in cell_value:
+                    # Extract course and room
+                    course_match = re.search(r'^(.*?)\s*\[', cell_value)
+                    room_match = re.search(r'\[(.*?)\]', cell_value)
+                    
+                    if course_match and room_match:
+                        course = course_match.group(1).strip()
+                        room_number = room_match.group(1)
+                        
+                        # Get room details
+                        room_details = classrooms_df[classrooms_df['Room Number'] == room_number]
+                        capacity = room_details['Capacity'].iloc[0] if not room_details.empty else 'Unknown'
+                        room_type = room_details['Type'].iloc[0] if not room_details.empty else 'Unknown'
+                        
+                        allocation_data.append({
+                            'Section': section,
+                            'Day': day,
+                            'Time Slot': time_slot,
+                            'Course': course,
+                            'Room Number': room_number,
+                            'Room Type': room_type,
+                            'Capacity': capacity,
+                            'Facilities': room_details['Facilities'].iloc[0] if not room_details.empty else 'Unknown'
+                        })
+    
+    return pd.DataFrame(allocation_data)
     
 def create_basket_courses_sheet(basket_allocations):
     """Create detailed sheet showing all courses in each basket"""
@@ -1297,23 +1464,34 @@ def extract_unique_courses_with_baskets(df, elective_allocations=None):
     for col in df.columns:
         for value in df[col]:
             if isinstance(value, str) and value not in ['Free', 'LUNCH BREAK']:
+                # Extract clean course code (remove classroom info, tutorial markers, etc.)
+                clean_value = value
+                
+                # Remove classroom allocation info
+                if '[' in clean_value:
+                    clean_value = clean_value.split('[')[0].strip()
+                
+                # Remove tutorial marker
+                clean_value = clean_value.replace(' (Tutorial)', '')
+                
                 # Check if this is a basket entry
-                if any(basket in value for basket in ['ELECTIVE_B', 'HSS_B', 'PROF_B', 'OE_B']):
-                    # Extract basket name - handle both formats
-                    if '(Tutorial)' in value:
-                        basket_name = value.replace('(Tutorial)', '').strip()
-                    else:
-                        basket_name = value.strip()
-                    baskets.add(basket_name)
+                basket_names = ['ELECTIVE_B1', 'ELECTIVE_B2', 'ELECTIVE_B3', 'ELECTIVE_B4', 'ELECTIVE_B5', 'ELECTIVE_B6', 'ELECTIVE_B7', 'HSS_B1', 'HSS_B2']
+                is_basket = any(basket in clean_value for basket in basket_names)
+                
+                if is_basket:
+                    # Extract basket name - get the actual basket name from the string
+                    for basket_name in basket_names:
+                        if basket_name in clean_value:
+                            baskets.add(basket_name)
+                            break
                     
                     # ADDED: Also add all courses from this basket to the courses set
                     if elective_allocations:
                         for course_code, allocation in elective_allocations.items():
-                            if allocation and allocation.get('basket_name') == basket_name:
+                            if allocation and allocation.get('basket_name') in baskets:
                                 courses.add(course_code)
                 else:
-                    # Handle regular courses
-                    clean_value = value.replace(' (Elective)', '').replace(' (Tutorial)', '')
+                    # Handle regular courses - extract course code
                     course_code = extract_course_code(clean_value)
                     if course_code:
                         courses.add(course_code)
@@ -1364,6 +1542,338 @@ def generate_course_colors(courses, course_info):
         course_colors[course] = elective_colors[i % len(elective_colors)]
     
     return course_colors
+
+def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info):
+    """Allocate classrooms to timetable sessions based on capacity and facilities"""
+    print("🏫 Allocating classrooms for timetable...")
+    
+    if classrooms_df is None or classrooms_df.empty:
+        print("   ⚠️ No classroom data available")
+        return schedule_df
+    
+    # Filter available classrooms (exclude labs, recreation, library, etc.)
+    available_classrooms = classrooms_df[
+        (classrooms_df['Type'].str.contains('classroom', case=False, na=False)) |
+        (classrooms_df['Type'].str.contains('auditorium', case=False, na=False))
+    ].copy()
+    
+    # Convert capacity to numeric, handle 'nil' values
+    available_classrooms['Capacity'] = pd.to_numeric(available_classrooms['Capacity'], errors='coerce')
+    available_classrooms = available_classrooms.dropna(subset=['Capacity'])
+    
+    if available_classrooms.empty:
+        print("   ⚠️ No suitable classrooms found after filtering")
+        return schedule_df
+    
+    print(f"   Available classrooms: {len(available_classrooms)}")
+    print(f"   Classroom list: {available_classrooms['Room Number'].tolist()}")
+    
+    # Create a copy of schedule with classroom allocation
+    schedule_with_rooms = schedule_df.copy()
+    
+    # Track classroom usage to avoid double-booking
+    classroom_usage = {}
+    days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+    
+    # Initialize classroom usage tracking
+    for day in days:
+        classroom_usage[day] = {}
+        for time_slot in schedule_df.index:
+            classroom_usage[day][time_slot] = set()
+    
+    # Estimate student numbers for courses
+    course_enrollment = estimate_course_enrollment(course_info)
+    
+    # Allocate classrooms for each time slot
+    allocation_count = 0
+    for day in days:
+        for time_slot in schedule_df.index:
+            course_value = schedule_df.loc[time_slot, day]
+            
+            # Skip free slots, lunch breaks
+            if course_value in ['Free', 'LUNCH BREAK']:
+                continue
+            
+            # Handle both regular courses and basket entries
+            if isinstance(course_value, str):
+                # For basket entries, use a standard enrollment
+                if any(basket in course_value for basket in ['ELECTIVE_B', 'HSS_B', 'PROF_B', 'OE_B']):
+                    enrollment = 40  # Standard enrollment for elective baskets
+                    course_display = course_value
+                else:
+                    # Regular course - extract clean course code
+                    clean_course_code = course_value.replace(' (Tutorial)', '')
+                    enrollment = course_enrollment.get(clean_course_code, 50)
+                    course_display = course_value
+            else:
+                continue
+            
+            # Find suitable classroom
+            suitable_classroom = find_suitable_classroom(
+                available_classrooms, enrollment, day, time_slot, classroom_usage
+            )
+            
+            if suitable_classroom:
+                # Update schedule with classroom in format "Course [Room]"
+                schedule_with_rooms.loc[time_slot, day] = f"{course_display} [{suitable_classroom}]"
+                classroom_usage[day][time_slot].add(suitable_classroom)
+                allocation_count += 1
+                print(f"      ✅ {day} {time_slot}: {course_display} → {suitable_classroom} ({enrollment} students)")
+            else:
+                print(f"      ⚠️  {day} {time_slot}: No classroom available for {course_display} ({enrollment} students)")
+    
+    print(f"   🏫 Total classroom allocations: {allocation_count}")
+    return schedule_with_rooms
+
+def find_suitable_classroom(classrooms_df, enrollment, day, time_slot, classroom_usage):
+    """Find a suitable classroom based on capacity and availability"""
+    if classrooms_df.empty:
+        return None
+    
+    # Filter classrooms that can accommodate the enrollment
+    suitable_rooms = classrooms_df[classrooms_df['Capacity'] >= enrollment].copy()
+    
+    if suitable_rooms.empty:
+        # If no room can accommodate, find the largest available
+        suitable_rooms = classrooms_df.nlargest(1, 'Capacity')
+        if suitable_rooms.empty:
+            return None
+        print(f"         ⚠️ Using largest available room for {enrollment} students")
+    
+    # Sort by capacity (prefer smallest adequate room first)
+    suitable_rooms = suitable_rooms.sort_values('Capacity')
+    
+    # Check availability
+    for _, room in suitable_rooms.iterrows():
+        room_number = room['Room Number']
+        
+        # Check if room is already booked at this time
+        if room_number not in classroom_usage[day][time_slot]:
+            return room_number
+    
+    return None
+
+def estimate_course_enrollment(course_info):
+    """Estimate student enrollment for courses (can be enhanced with actual student data)"""
+    enrollment_estimates = {}
+    for course_code, info in course_info.items():
+        if info.get('is_elective', False):
+            # Electives typically have smaller enrollment
+            enrollment_estimates[course_code] = 40
+        else:
+            # Core courses have larger enrollment
+            if 'Semester' in course_code:
+                # Estimate based on typical semester sizes
+                enrollment_estimates[course_code] = 60
+            else:
+                enrollment_estimates[course_code] = 50
+    return enrollment_estimates
+
+def find_suitable_classroom(classrooms_df, enrollment, day, time_slot, classroom_usage):
+    """Find a suitable classroom based on capacity and availability"""
+    # Filter classrooms that can accommodate the enrollment
+    suitable_rooms = classrooms_df[classrooms_df['Capacity'] >= enrollment].copy()
+    
+    if suitable_rooms.empty:
+        # If no room can accommodate, find the largest available
+        suitable_rooms = classrooms_df.nlargest(1, 'Capacity')
+        if suitable_rooms.empty:
+            return None
+    
+    # Sort by capacity (prefer smallest adequate room first)
+    suitable_rooms = suitable_rooms.sort_values('Capacity')
+    
+    # Check availability
+    for _, room in suitable_rooms.iterrows():
+        room_number = room['Room Number']
+        
+        # Check if room is already booked at this time
+        if (room_number not in classroom_usage[day][time_slot]):
+            return room_number
+    
+    return None
+
+def allocate_classrooms_for_exams(exam_schedule_df, classrooms_df, courses_df):
+    """Allocate classrooms for exam schedule based on enrollment and duration"""
+    print("🏫 Allocating classrooms for exams...")
+    
+    # Get all available classrooms
+    available_classrooms = classrooms_df.copy()
+    available_classrooms['Capacity'] = pd.to_numeric(available_classrooms['Capacity'], errors='coerce')
+    available_classrooms = available_classrooms.dropna(subset=['Capacity'])
+    
+    # Create exam schedule with classroom allocation
+    exam_schedule_with_rooms = exam_schedule_df.copy()
+    
+    # Track classroom usage for exams
+    exam_classroom_usage = {}
+    
+    # Group exams by date and session
+    for date in exam_schedule_df['date'].unique():
+        date_str = str(date)
+        exam_classroom_usage[date_str] = {'Morning': set(), 'Afternoon': set()}
+    
+    # Estimate exam enrollment (can be enhanced with actual student data)
+    exam_enrollment = estimate_exam_enrollment(exam_schedule_df, courses_df)
+    
+    # Allocate classrooms for each exam
+    for idx, exam in exam_schedule_df.iterrows():
+        if exam['status'] != 'Scheduled':
+            continue
+            
+        course_code = exam['course_code']
+        date = exam['date']
+        session = exam['session']
+        duration = exam.get('duration_minutes', 180)
+        
+        # Get enrollment estimate
+        enrollment = exam_enrollment.get(course_code, 60)
+        
+        # Calculate number of rooms needed based on capacity
+        rooms_needed = calculate_rooms_needed(enrollment, available_classrooms)
+        
+        allocated_rooms = []
+        for room_num in rooms_needed:
+            # Check if room is available
+            if room_num not in exam_classroom_usage[str(date)][session]:
+                allocated_rooms.append(room_num)
+                exam_classroom_usage[str(date)][session].add(room_num)
+        
+        if allocated_rooms:
+            room_str = ', '.join(allocated_rooms)
+            exam_schedule_with_rooms.at[idx, 'classroom'] = room_str
+            exam_schedule_with_rooms.at[idx, 'capacity_info'] = f"{enrollment} students"
+            print(f"      ✅ {date} {session}: {course_code} → {room_str} ({enrollment} students)")
+        else:
+            exam_schedule_with_rooms.at[idx, 'classroom'] = 'NOT ALLOCATED'
+            exam_schedule_with_rooms.at[idx, 'capacity_info'] = f"{enrollment} students"
+            print(f"      ⚠️  {date} {session}: No classroom available for {course_code}")
+    
+    return exam_schedule_with_rooms
+
+def estimate_exam_enrollment(exam_schedule_df, courses_df):
+    """Estimate student enrollment for exams"""
+    enrollment_estimates = {}
+    
+    for _, exam in exam_schedule_df.iterrows():
+        if exam['status'] == 'Scheduled':
+            course_code = exam['course_code']
+            department = exam.get('department', 'General')
+            
+            # Simple estimation based on department and course type
+            if department in ['CSE', 'DSAI', 'ECE']:
+                enrollment_estimates[course_code] = 60  # Core department courses
+            elif 'Elective' in course_code:
+                enrollment_estimates[course_code] = 40  # Elective courses
+            else:
+                enrollment_estimates[course_code] = 50  # Default
+    
+    return enrollment_estimates
+
+def calculate_rooms_needed(enrollment, classrooms_df):
+    """Calculate how many rooms are needed for an exam based on enrollment"""
+    # Sort classrooms by capacity (descending)
+    sorted_rooms = classrooms_df.sort_values('Capacity', ascending=False)
+    
+    remaining_students = enrollment
+    allocated_rooms = []
+    
+    for _, room in sorted_rooms.iterrows():
+        if remaining_students <= 0:
+            break
+            
+        room_capacity = room['Capacity']
+        room_number = room['Room Number']
+        
+        # Use this room
+        allocated_rooms.append(room_number)
+        remaining_students -= room_capacity
+    
+    return allocated_rooms
+
+def create_classroom_utilization_report(classrooms_df, timetable_schedules, exam_schedules):
+    """Create a comprehensive classroom utilization report"""
+    print("📊 Generating classroom utilization report...")
+    
+    utilization_data = []
+    
+    for _, classroom in classrooms_df.iterrows():
+        room_number = classroom['Room Number']
+        capacity = classroom['Capacity']
+        room_type = classroom['Type']
+        
+        # Calculate timetable usage
+        timetable_usage = calculate_timetable_usage(room_number, timetable_schedules)
+        
+        # Calculate exam usage
+        exam_usage = calculate_exam_usage(room_number, exam_schedules)
+        
+        utilization_data.append({
+            'Room Number': room_number,
+            'Type': room_type,
+            'Capacity': capacity,
+            'Weekly Hours (Timetable)': timetable_usage['weekly_hours'],
+            'Daily Avg Hours (Timetable)': timetable_usage['daily_avg_hours'],
+            'Exam Sessions': exam_usage['exam_sessions'],
+            'Utilization Rate (%)': calculate_utilization_rate(
+                timetable_usage['weekly_hours'], exam_usage['exam_sessions']
+            ),
+            'Facilities': classroom.get('Facilities', 'None')
+        })
+    
+    return pd.DataFrame(utilization_data)
+
+def calculate_timetable_usage(room_number, timetable_schedules):
+    """Calculate how much a room is used in timetables"""
+    weekly_hours = 0
+    
+    for schedule in timetable_schedules:
+        for day in schedule.columns:
+            for time_slot in schedule.index:
+                cell_value = str(schedule.loc[time_slot, day])
+                if f"[{room_number}]" in cell_value:
+                    # Calculate hours from time slot
+                    hours = calculate_time_slot_hours(time_slot)
+                    weekly_hours += hours
+    
+    daily_avg_hours = weekly_hours / 5  # 5 days per week
+    return {'weekly_hours': weekly_hours, 'daily_avg_hours': daily_avg_hours}
+
+def calculate_exam_usage(room_number, exam_schedules):
+    """Calculate how much a room is used for exams"""
+    exam_sessions = 0
+    
+    for schedule in exam_schedules:
+        for _, exam in schedule.iterrows():
+            if exam['status'] == 'Scheduled':
+                classrooms = str(exam.get('classroom', ''))
+                if room_number in classrooms:
+                    exam_sessions += 1
+    
+    return {'exam_sessions': exam_sessions}
+
+def calculate_time_slot_hours(time_slot):
+    """Calculate duration in hours from time slot string"""
+    try:
+        if '-' in time_slot:
+            start, end = time_slot.split('-')
+            start_hour = int(start.split(':')[0]) + int(start.split(':')[1]) / 60
+            end_hour = int(end.split(':')[0]) + int(end.split(':')[1]) / 60
+            return end_hour - start_hour
+    except:
+        pass
+    return 1.5  # Default fallback
+
+def calculate_utilization_rate(weekly_hours, exam_sessions):
+    """Calculate classroom utilization rate"""
+    # Assuming 40 hours per week available (8 hours × 5 days)
+    max_weekly_hours = 40
+    timetable_utilization = (weekly_hours / max_weekly_hours) * 100
+    
+    # Exam utilization (each exam session counts as 1)
+    exam_utilization = min(exam_sessions * 5, 100)  # Cap at 100%
+    
+    return min(timetable_utilization + exam_utilization, 100)
 
 # Debug endpoints
 @app.route('/debug/current-data')
@@ -1488,31 +1998,65 @@ def debug_file_matching():
 def index():
     return render_template('index.html')
 
-def convert_dataframe_to_html_with_baskets(df, table_id):
-    """Convert dataframe to HTML with special handling for basket entries"""
+def convert_dataframe_to_html_with_baskets(df, table_id, course_colors, basket_colors, course_info):
+    """Convert dataframe to HTML with special handling for basket entries, classroom allocation, and color coding"""
     # Create a copy to avoid modifying the original
     df_display = df.copy()
     
-    # UPDATED: Style basket entries without "Basket:" prefix
-    def style_basket_entries(val):
-        if isinstance(val, str):
-            # Check for basket names (without "Basket:" prefix)
-            basket_names = ['ELECTIVE_B1', 'ELECTIVE_B2', 'HSS_B3', 'HSS_B4']  # Add your actual basket names
+    def style_cell_with_classroom_and_colors(val):
+        if isinstance(val, str) and val not in ['Free', 'LUNCH BREAK']:
+            # Check for classroom allocation format "Course [Room]"
+            if '[' in val and ']' in val:
+                try:
+                    # Extract course and classroom
+                    course_part = val.split('[')[0].strip()
+                    room_part = '[' + val.split('[')[1]  # Get everything after first [
+                    
+                    # Check if it's a basket
+                    basket_names = ['ELECTIVE_B1', 'ELECTIVE_B2', 'ELECTIVE_B3', 'ELECTIVE_B4', 'ELECTIVE_B5', 'ELECTIVE_B6', 'ELECTIVE_B7', 'HSS_B1', 'HSS_B2']
+                    is_basket = any(basket in course_part for basket in basket_names)
+                    
+                    if is_basket:
+                        # Get basket color
+                        basket_color = basket_colors.get(course_part.replace(' (Tutorial)', ''), '#cccccc')
+                        if '(Tutorial)' in course_part:
+                            return f'<span class="basket-entry basket-tutorial" style="background-color: {basket_color}">{course_part}<br><small class="classroom-info">{room_part}</small></span>'
+                        else:
+                            return f'<span class="basket-entry elective-basket" style="background-color: {basket_color}">{course_part}<br><small class="classroom-info">{room_part}</small></span>'
+                    else:
+                        # Regular course with classroom - get course color
+                        clean_course = course_part.replace(' (Tutorial)', '')
+                        course_color = course_colors.get(clean_course, '#cccccc')
+                        return f'<span class="course-with-room" style="background-color: {course_color}">{course_part}<br><small class="classroom-info">{room_part}</small></span>'
+                except:
+                    return val
+            
+            # Handle courses without classroom allocation but with color coding
+            basket_names = ['ELECTIVE_B1', 'ELECTIVE_B2', 'ELECTIVE_B3', 'ELECTIVE_B4', 'ELECTIVE_B5', 'ELECTIVE_B6', 'ELECTIVE_B7', 'HSS_B1', 'HSS_B2']
             for basket_name in basket_names:
                 if basket_name in val and '(Tutorial)' not in val:
-                    return f'<span class="basket-entry elective-basket">{val}</span>'
+                    basket_color = basket_colors.get(basket_name, '#cccccc')
+                    return f'<span class="basket-entry elective-basket" style="background-color: {basket_color}">{val}</span>'
                 elif basket_name in val and '(Tutorial)' in val:
-                    return f'<span class="basket-entry basket-tutorial">{val}</span>'
+                    basket_color = basket_colors.get(basket_name.replace(' (Tutorial)', ''), '#cccccc')
+                    return f'<span class="basket-entry basket-tutorial" style="background-color: {basket_color}">{val}</span>'
+            
+            # Regular courses without classrooms - apply course color
+            if val not in ['Free', 'LUNCH BREAK']:
+                clean_course = val.replace(' (Tutorial)', '')
+                course_color = course_colors.get(clean_course, '#cccccc')
+                return f'<span class="regular-course" style="background-color: {course_color}">{val}</span>'
+                
         return val
     
-    # Apply styling
+    # Apply styling to all cells
     for col in df_display.columns:
-        df_display[col] = df_display[col].apply(style_basket_entries)
+        df_display[col] = df_display[col].apply(style_cell_with_classroom_and_colors)
     
     # Convert to HTML
     html = df_display.to_html(
         classes='timetable-table', 
-        index=False, 
+        index=True,  # Keep index to show time slots
         escape=False,
         border=0,
         table_id=table_id
@@ -1600,6 +2144,19 @@ def get_timetables():
                     df_a = pd.read_excel(file_path, sheet_name='Section_A')
                     df_b = pd.read_excel(file_path, sheet_name='Section_B')
                     
+                    # Check if classrooms are allocated (look for [Room] pattern in any cell)
+                    has_classroom_allocation = False
+                    for df in [df_a, df_b]:
+                        for col in df.columns:
+                            for val in df[col]:
+                                if isinstance(val, str) and '[' in val and ']' in val:
+                                    has_classroom_allocation = True
+                                    break
+                            if has_classroom_allocation:
+                                break
+                        if has_classroom_allocation:
+                            break
+                    
                     # Try to read basket allocations if available
                     basket_allocations = {}
                     basket_courses_map = {}
@@ -1617,9 +2174,18 @@ def get_timetables():
                     except:
                         print(f"   ⚠️ No basket allocation sheet found in {filename}")
                     
-                    # Convert to HTML tables with basket-aware processing
-                    html_a = convert_dataframe_to_html_with_baskets(df_a, f"sem{sem}_{branch}_A" if branch else f"sem{sem}_A")
-                    html_b = convert_dataframe_to_html_with_baskets(df_b, f"sem{sem}_{branch}_B" if branch else f"sem{sem}_B")
+                    # Try to read classroom allocation details
+                    classroom_allocation_details = []
+                    try:
+                        classroom_df = pd.read_excel(file_path, sheet_name='Classroom_Allocation')
+                        classroom_allocation_details = classroom_df.to_dict('records')
+                        print(f"   🏫 Found classroom allocation details: {len(classroom_allocation_details)} entries")
+                    except:
+                        print(f"   ⚠️ No classroom allocation sheet found in {filename}")
+                    
+                    # Convert to HTML tables with basket-aware, classroom-aware, and color-aware processing
+                    html_a = convert_dataframe_to_html_with_baskets(df_a, f"sem{sem}_{branch}_A" if branch else f"sem{sem}_A", course_colors, basket_colors, course_info)
+                    html_b = convert_dataframe_to_html_with_baskets(df_b, f"sem{sem}_{branch}_B" if branch else f"sem{sem}_B", course_colors, basket_colors, course_info)
                     
                     # Extract unique courses AND baskets from the actual schedule
                     unique_courses_a, unique_baskets_a = extract_unique_courses_with_baskets(df_a, basket_allocations)
@@ -1642,18 +2208,27 @@ def get_timetables():
                     all_core_courses = course_baskets['core_courses']['Course Code'].tolist() if not course_baskets['core_courses'].empty else []
                     all_elective_courses = course_baskets['elective_courses']['Course Code'].tolist() if not course_baskets['elective_courses'].empty else []
                     
-                    # ENHANCED: Combine scheduled courses with all basket courses for complete legends
+                    # FIXED: Remove duplicate basket entries and empty baskets
+                    # Combine scheduled courses with all basket courses for complete legends
                     legend_courses_a = set(unique_courses_a)
                     legend_courses_b = set(unique_courses_b)
                     
                     # Add all elective courses from baskets that appear in the schedule
                     for basket_name in unique_baskets_a:
-                        if basket_name in basket_courses_map:
+                        if basket_name in basket_courses_map and basket_courses_map[basket_name]:
                             legend_courses_a.update(basket_courses_map[basket_name])
                     
                     for basket_name in unique_baskets_b:
-                        if basket_name in basket_courses_map:
+                        if basket_name in basket_courses_map and basket_courses_map[basket_name]:
                             legend_courses_b.update(basket_courses_map[basket_name])
+                    
+                    # FIXED: Create clean basket lists without duplicates
+                    clean_baskets_a = [basket for basket in unique_baskets_a if basket in basket_courses_map and basket_courses_map[basket]]
+                    clean_baskets_b = [basket for basket in unique_baskets_b if basket in basket_courses_map and basket_courses_map[basket]]
+                    
+                    print(f"   🎨 Color coding: {len(course_colors)} course colors, {len(basket_colors)} basket colors")
+                    print(f"   📊 Legend courses A: {len(legend_courses_a)}, Baskets A: {clean_baskets_a}")
+                    print(f"   📊 Legend courses B: {len(legend_courses_b)}, Baskets B: {clean_baskets_b}")
                     
                     # Add timetable for Section A
                     timetables.append({
@@ -1663,7 +2238,7 @@ def get_timetables():
                         'filename': filename,
                         'html': html_a,
                         'courses': list(legend_courses_a),  # Use enhanced course list
-                        'baskets': unique_baskets_a,
+                        'baskets': clean_baskets_a,  # Use cleaned basket list
                         'basket_courses_map': basket_courses_map,
                         'course_info': course_info,
                         'course_colors': course_colors,
@@ -1671,7 +2246,9 @@ def get_timetables():
                         'core_courses': all_core_courses,
                         'elective_courses': all_elective_courses,
                         'is_basket_timetable': True,
-                        'all_basket_courses': basket_courses_map  # Include all basket courses for legends
+                        'all_basket_courses': basket_courses_map,  # Include all basket courses for legends
+                        'has_classroom_allocation': has_classroom_allocation,
+                        'classroom_details': classroom_allocation_details
                     })
                     
                     # Add timetable for Section B
@@ -1682,7 +2259,7 @@ def get_timetables():
                         'filename': filename,
                         'html': html_b,
                         'courses': list(legend_courses_b),  # Use enhanced course list
-                        'baskets': unique_baskets_b,
+                        'baskets': clean_baskets_b,  # Use cleaned basket list
                         'basket_courses_map': basket_courses_map,
                         'course_info': course_info,
                         'course_colors': course_colors,
@@ -1690,11 +2267,14 @@ def get_timetables():
                         'core_courses': all_core_courses,
                         'elective_courses': all_elective_courses,
                         'is_basket_timetable': True,
-                        'all_basket_courses': basket_courses_map  # Include all basket courses for legends
+                        'all_basket_courses': basket_courses_map,  # Include all basket courses for legends
+                        'has_classroom_allocation': has_classroom_allocation,
+                        'classroom_details': classroom_allocation_details
                     })
                     
                     print(f"✅ Loaded BASKET timetable: {filename}")
-                    print(f"   Baskets found: {unique_baskets_a}")
+                    print(f"   Baskets found: {clean_baskets_a}")
+                    print(f"   Classroom allocation: {'✅ YES' if has_classroom_allocation else '❌ NO'}")
                     print(f"   All basket courses: {basket_courses_map}")
                     
                 except Exception as e:
@@ -1955,9 +2535,9 @@ def export_semester_timetable_with_baskets_common(dfs, semester, branch, common_
     
 @app.route('/exam-schedule', methods=['POST'])
 def generate_exam_schedule():
-    """Generate conflict-free exam timetable with configuration"""
+    """Generate conflict-free exam timetable with configuration and classroom allocation"""
     try:
-        print("🔄 Starting exam schedule generation...")
+        print("🔄 Starting exam schedule generation with classroom allocation...")
         
         data = request.json
         exam_period_start = datetime.strptime(data['start_date'], '%d/%m/%Y')
@@ -2001,8 +2581,22 @@ def generate_exam_schedule():
                     'message': 'No exams could be scheduled. Try increasing exam period or reducing constraints.'
                 })
         
+        # ALLOCATE CLASSROOMS for exams
+        if data_frames and 'classroom' in data_frames:
+            print("🏫 Allocating classrooms for exams...")
+            exam_schedule_with_rooms = allocate_classrooms_for_exams(
+                exam_schedule, data_frames['classroom'], data_frames.get('course', pd.DataFrame())
+            )
+            
+            # Add classroom utilization info
+            classroom_usage = calculate_classroom_usage_for_exams(exam_schedule_with_rooms)
+            print(f"   📊 Classroom utilization: {classroom_usage['used_rooms']} rooms used, {classroom_usage['total_sessions']} exam sessions")
+        else:
+            exam_schedule_with_rooms = exam_schedule
+            print("⚠️  No classroom data available for exam allocation")
+        
         # Save to Excel
-        filename = save_exam_schedule(exam_schedule, exam_period_start, exam_period_end, config)
+        filename = save_exam_schedule(exam_schedule_with_rooms, exam_period_start, exam_period_end, config)
         
         # Add this file to the list of schedules to display
         add_exam_schedule_file(filename)
@@ -2010,13 +2604,18 @@ def generate_exam_schedule():
         scheduled_count = len(exam_schedule[exam_schedule['status'] == 'Scheduled'])
         total_days = len(exam_schedule['date'].unique())
         
+        response_message = f'Exam schedule generated successfully! Scheduled {scheduled_count} exams over {total_days} days.'
+        if 'classroom' in data_frames:
+            response_message += ' Classroom allocation completed.'
+        
         return jsonify({
             'success': True,
-            'message': f'Exam schedule generated successfully! Scheduled {scheduled_count} exams over {total_days} days.',
+            'message': response_message,
             'filename': filename,
-            'schedule': exam_schedule.to_dict('records'),
+            'schedule': exam_schedule_with_rooms.to_dict('records'),
             'config_used': config,
-            'is_new_generation': True
+            'is_new_generation': True,
+            'classroom_allocated': 'classroom' in data_frames
         })
         
     except Exception as e:
@@ -2024,7 +2623,7 @@ def generate_exam_schedule():
         traceback.print_exc()
         return jsonify({'success': False, 'message': f'Error: {str(e)}'})
     
-    
+
 def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_day=2, 
                                include_weekends=False, department_conflict='moderate',
                                preference_weight='medium', session_balance='strict', 
@@ -2586,14 +3185,35 @@ def get_time_slot(session):
     else:
         return '14:00 - 17:00'
 
+def create_exam_classroom_summary(exam_schedule_df):
+    """Create summary of classroom allocation for exams"""
+    summary_data = []
+    
+    scheduled_exams = exam_schedule_df[exam_schedule_df['status'] == 'Scheduled']
+    
+    for _, exam in scheduled_exams.iterrows():
+        summary_data.append({
+            'Course Code': exam['course_code'],
+            'Course Name': exam.get('course_name', 'Unknown'),
+            'Date': exam['date'],
+            'Session': exam['session'],
+            'Time Slot': exam.get('time_slot', ''),
+            'Allocated Classrooms': exam.get('classroom', 'Not Allocated'),
+            'Estimated Enrollment': exam.get('capacity_info', 'Unknown'),
+            'Department': exam.get('department', 'Unknown'),
+            'Duration': exam.get('duration', '3 hours')
+        })
+    
+    return pd.DataFrame(summary_data)
+
 def save_exam_schedule(schedule_df, start_date, end_date, config=None):
+    """Save exam schedule with classroom allocation"""
     try:
-        # Use dd-mm-yyyy format in filename as well
         filename = f"exam_schedule_{start_date.strftime('%d-%m-%Y')}_to_{end_date.strftime('%d-%m-%Y')}.xlsx"
         filepath = os.path.join(OUTPUT_DIR, filename)
         
         with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
-            # Organized by date and time slot
+            # Organized exam schedule with classrooms
             organized_data = []
             for date in sorted(schedule_df['date'].unique()):
                 date_exams = schedule_df[schedule_df['date'] == date]
@@ -2611,9 +3231,30 @@ def save_exam_schedule(schedule_df, start_date, end_date, config=None):
             organized_df = pd.DataFrame(organized_data)
             organized_df.to_excel(writer, sheet_name='Exam_Schedule', index=False)
             
-            # ... rest of sheets ...
+            # Add classroom allocation summary
+            if 'classroom' in organized_df.columns:
+                classroom_summary = create_exam_classroom_summary(organized_df)
+                classroom_summary.to_excel(writer, sheet_name='Exam_Classrooms', index=False)
+            
+            # Add configuration sheet
+            if config:
+                config_sheet = create_configuration_sheet(config)
+                config_sheet.to_excel(writer, sheet_name='Configuration', index=False)
+            
+            # Add exam summary
+            exam_summary = create_exam_summary(schedule_df)
+            exam_summary.to_excel(writer, sheet_name='Exam_Summary', index=False)
+            
+            # Add department summary
+            dept_summary = create_department_summary(schedule_df)
+            if not dept_summary.empty:
+                dept_summary.to_excel(writer, sheet_name='Department_Summary', index=False)
         
         return filename
+        
+    except Exception as e:
+        print(f"❌ Error saving exam schedule: {e}")
+        return None
         
     except Exception as e:
         print(f"❌ Error saving exam schedule: {e}")
@@ -2750,22 +3391,36 @@ def get_exam_timetables():
                 # Read exam schedule
                 schedule_df = pd.read_excel(file_path, sheet_name='Exam_Schedule')
                 
-                # Convert to HTML
+                # Check if classrooms are allocated
+                has_classroom_allocation = 'classroom' in schedule_df.columns
+                
+                # Convert to HTML with classroom highlighting
                 html_table = schedule_df.to_html(
                     classes='exam-timetable-table',
                     index=False,
                     escape=False
                 )
                 
-                # Clean HTML
+                # Clean HTML and add classroom styling
                 html_table = clean_exam_table_html(html_table)
+                
+                # Add classroom highlighting if available
+                if has_classroom_allocation:
+                    html_table = html_table.replace('<td>', '<td class="exam-cell">')
+                    # Highlight cells with classroom allocation
+                    html_table = re.sub(
+                        r'<td class="exam-cell">(.*?)(C\d{3}[^<]*)(.*?)</td>',
+                        r'<td class="exam-cell with-classroom"><strong>\1</strong><br><small class="exam-classroom">\2</small></td>',
+                        html_table
+                    )
                 
                 exam_timetables.append({
                     'filename': filename,
                     'html': html_table,
                     'schedule_data': schedule_df.to_dict('records'),
                     'period': filename.replace('exam_schedule_', '').replace('.xlsx', '').replace('_', ' to '),
-                    'file_exists': True
+                    'file_exists': True,
+                    'has_classroom_allocation': has_classroom_allocation
                 })
                 
             except Exception as e:

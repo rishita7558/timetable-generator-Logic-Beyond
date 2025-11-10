@@ -10,7 +10,7 @@ C104,classroom,96,Projector
 L105,Hardware Lab,40,Hardware Equipment
 L106,Software Lab,40,Computers
 L107,Software Lab,40,Computers
-C201,Examination room,nil,Projector
+C201,classroom,96,Projector
 C202,classroom,96,Projector
 C203,classroom,96,Projector
 C204,classroom,96,Projector
@@ -18,19 +18,19 @@ C205,classroom,96,Projector
 L206,Hardware Lab,40,Hardware Equipment
 L207,Software Lab,40,Computers
 L208,Software Lab,40,Computers
-C301,Physics Lab,nil,Projector
+C301,Physics Lab,40,Projector
 C302,classroom,96,Projector
 C303,classroom,96,Projector
 C304,classroom,96,Projector
 C305,classroom,96,Projector
-L306,empty,nil,Computers
+L306,classroom,96,Computers
 L307,Research Scholar Lab,40,Computers
 L308,Research Scholar Lab,40,Computers
-C401,empty,nil,Projector
+C401,classroom,96,Projector
 C402,classroom,96,Projector
-C403,classroom,56+22,Projector
-C404,classroom,56+22,Projector
-C405,classroom,56+22,Projector
-L406,classroom,56+22,Computers
-L407,classroom,56+22,Computers
-L408,classroom without projector,56+22,Computers
+C403,classroom,78,Projector
+C404,classroom,78,Projector
+C405,classroom,78,Projector
+L406,classroom,78,Computers
+L407,classroom,78,Computers
+L408,classroom without projector,78,Computers

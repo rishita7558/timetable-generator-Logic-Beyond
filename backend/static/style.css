@@ -5629,3 +5629,201 @@ body {
 .basket-courses::-webkit-scrollbar-thumb:hover {
     background: #a0aec0;
 }
+
+/* Classroom allocation styles */
+
+.classroom-info {
+    color: #666;
+    font-size: 0.8em;
+    font-weight: normal;
+    display: block;
+    margin-top: 2px;
+    padding: 2px 4px;
+    background-color: #f0f8ff;
+    border-radius: 3px;
+    border-left: 3px solid #4ECDC4;
+}
+
+.regular-course {
+    font-weight: bold;
+}
+
+/* Highlight cells with classroom allocation */
+.timetable-table td:has(.course-with-room) {
+    background-color: #f8fff8 !important;
+    border-left: 3px solid #28a745;
+}
+
+/* Basket styles remain the same */
+.basket-entry.elective-basket {
+    font-weight: bold;
+    color: #2c5aa0;
+    background-color: #e8f4fd;
+    padding: 4px 8px;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+.basket-entry.basket-tutorial {
+    font-weight: bold;
+    color: #8b4513;
+    background-color: #fef5e7;
+    padding: 4px 8px;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+/* Exam timetable classroom styles */
+.exam-cell.with-classroom {
+    background-color: #f8fff8 !important;
+    border-left: 3px solid #28a745;
+}
+
+.exam-classroom {
+    color: #666;
+    font-size: 0.8em;
+    font-weight: normal;
+    display: block;
+    margin-top: 2px;
+    padding: 2px 4px;
+    background-color: #f0f8ff;
+    border-radius: 3px;
+}
+
+/* Enhanced classroom allocation styles */
+.course-with-room {
+    display: block;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+.classroom-info {
+    color: #e74c3c !important;
+    font-size: 0.75em;
+    font-weight: bold;
+    display: block;
+    margin-top: 3px;
+    padding: 3px 5px;
+    background-color: #fff3cd;
+    border-radius: 4px;
+    border: 1px solid #ffeaa7;
+}
+
+/* Highlight cells with classroom allocation */
+.timetable-table td:has(.classroom-info) {
+    background-color: #fffdf6 !important;
+    border-left: 4px solid #f39c12;
+    border-right: 2px solid #f39c12;
+}
+
+/* Basket styles with classroom info */
+.basket-entry.elective-basket .classroom-info,
+.basket-entry.basket-tutorial .classroom-info {
+    color: #8e44ad !important;
+    background-color: #f4ecf7;
+    border: 1px solid #d7bde2;
+}
+
+.regular-course {
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+/* Make classroom info more prominent */
+.has-classroom {
+    position: relative;
+}
+
+.has-classroom::after {
+    content: "🏫";
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 0.7em;
+    opacity: 0.7;
+}
+
+/* Enhanced color coding and classroom styles */
+.course-with-room {
+    display: block;
+    font-weight: bold;
+    color: #2c3e50;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin: 2px 0;
+    border: 1px solid rgba(0,0,0,0.1);
+}
+
+.classroom-info {
+    color: #e74c3c !important;
+    font-size: 0.75em;
+    font-weight: bold;
+    display: block;
+    margin-top: 3px;
+    padding: 3px 5px;
+    background-color: #fff3cd;
+    border-radius: 4px;
+    border: 1px solid #ffeaa7;
+}
+
+/* Basket styles with colors */
+.basket-entry.elective-basket {
+    font-weight: bold;
+    color: #2c3e50;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin: 2px 0;
+    border: 1px solid rgba(0,0,0,0.1);
+    display: block;
+}
+
+.basket-entry.basket-tutorial {
+    font-weight: bold;
+    color: #2c3e50;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin: 2px 0;
+    border: 1px solid rgba(0,0,0,0.1);
+    display: block;
+    font-style: italic;
+}
+
+.regular-course {
+    font-weight: bold;
+    color: #2c3e50;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin: 2px 0;
+    border: 1px solid rgba(0,0,0,0.1);
+    display: block;
+}
+
+/* Highlight cells with classroom allocation */
+.timetable-table td:has(.classroom-info) {
+    border-left: 4px solid #f39c12;
+    border-right: 2px solid #f39c12;
+}
+
+/* Ensure good contrast for text on colored backgrounds */
+.course-with-room,
+.basket-entry.elective-basket,
+.basket-entry.basket-tutorial,
+.regular-course {
+    text-shadow: 0 1px 1px rgba(255,255,255,0.7);
+}
+
+/* Legend styles */
+.course-legend-item {
+    padding: 5px 10px;
+    margin: 2px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+}
+
+.basket-legend-item {
+    padding: 5px 10px;
+    margin: 2px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    font-weight: bold;
+}
