@@ -5827,3 +5827,373 @@ body {
     border: 1px solid #ddd;
     font-weight: bold;
 }
+
+/* Improved List View Styles */
+.view-toggle-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 1.5rem 0;
+    padding: 1rem;
+    background: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+}
+
+.view-toggle-group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.view-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    border: 2px solid var(--border-color);
+    background: var(--card-bg);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.view-toggle-btn:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.view-toggle-btn.active {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+}
+
+.view-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.action-btn {
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    color: var(--text-muted);
+}
+
+.action-btn:hover {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+/* List View Container */
+.list-view-container {
+    background: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+}
+
+.list-view-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.25rem 1.5rem;
+    background: rgba(var(--primary-rgb), 0.05);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.list-view-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.list-view-controls {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.control-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.3s ease;
+    color: var(--text-muted);
+}
+
+.control-btn:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.control-btn.active {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+}
+
+/* Table Container */
+.table-container {
+    overflow-x: auto;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.exam-list-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.9rem;
+}
+
+.exam-list-table th {
+    background: rgba(var(--primary-rgb), 0.08);
+    padding: 1rem 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-color);
+    border-bottom: 2px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.exam-list-table td {
+    padding: 1rem 0.75rem;
+    border-bottom: 1px solid rgba(var(--border-rgb), 0.5);
+    vertical-align: top;
+}
+
+/* Column Widths */
+.date-col { width: 100px; min-width: 100px; }
+.day-col { width: 80px; min-width: 80px; }
+.session-col { width: 120px; min-width: 120px; }
+.time-col { width: 100px; min-width: 100px; }
+.course-col { width: 200px; min-width: 200px; }
+.type-col { width: 90px; min-width: 90px; }
+.duration-col { width: 80px; min-width: 80px; }
+.dept-col { width: 120px; min-width: 120px; }
+.semester-col { width: 80px; min-width: 80px; }
+
+/* Row Styles */
+.exam-list-row {
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.exam-list-row:hover {
+    background: rgba(var(--primary-rgb), 0.05);
+}
+
+.even-row {
+    background: rgba(var(--border-rgb), 0.1);
+}
+
+.odd-row {
+    background: var(--card-bg);
+}
+
+/* Cell Content Styles */
+.date-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.date-main {
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.day-name {
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.session-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    width: fit-content;
+}
+
+.session-indicator.morning {
+    background: rgba(255, 193, 7, 0.15);
+    color: #b38f00;
+    border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.session-indicator.afternoon {
+    background: rgba(33, 150, 243, 0.15);
+    color: #1565c0;
+    border: 1px solid rgba(33, 150, 243, 0.3);
+}
+
+.time-slot {
+    font-family: 'Courier New', monospace;
+    font-weight: 500;
+    color: var(--text-color);
+    font-size: 0.85rem;
+}
+
+.course-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.course-code {
+    font-weight: 700;
+    color: var(--primary-color);
+    font-size: 0.95rem;
+}
+
+.course-name {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    line-height: 1.3;
+}
+
+.exam-type-badge {
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.exam-type-badge.regular {
+    background: rgba(76, 175, 80, 0.15);
+    color: #2e7d32;
+}
+
+.exam-type-badge.internal {
+    background: rgba(156, 39, 176, 0.15);
+    color: #7b1fa2;
+}
+
+.duration-display {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.dept-badge {
+    padding: 0.3rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    background: rgba(var(--border-rgb), 0.3);
+    color: var(--text-color);
+    border: 1px solid rgba(var(--border-rgb), 0.5);
+}
+
+.semester-pill {
+    padding: 0.3rem 0.6rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    background: rgba(var(--primary-rgb), 0.1);
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* Footer */
+.list-view-footer {
+    padding: 1rem 1.5rem;
+    background: rgba(var(--border-rgb), 0.1);
+    border-top: 1px solid var(--border-color);
+}
+
+.footer-stats {
+    display: flex;
+    gap: 2rem;
+}
+
+.footer-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-color);
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+    .view-toggle-container {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: stretch;
+    }
+    
+    .view-actions {
+        justify-content: center;
+    }
+    
+    .list-view-header {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: stretch;
+    }
+    
+    .list-view-controls {
+        justify-content: center;
+    }
+}
+
+@media (max-width: 768px) {
+    .exam-list-table {
+        font-size: 0.8rem;
+    }
+    
+    .exam-list-table th,
+    .exam-list-table td {
+        padding: 0.75rem 0.5rem;
+    }
+    
+    .session-indicator {
+        flex-direction: column;
+        gap: 0.25rem;
+        text-align: center;
+        padding: 0.3rem 0.5rem;
+    }
+    
+    .footer-stats {
+        gap: 1rem;
+    }
+    
+    .stat-value {
+        font-size: 1.25rem;
+    }
+}

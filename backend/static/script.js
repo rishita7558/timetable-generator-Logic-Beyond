@@ -2926,6 +2926,7 @@ async function generateExamSchedule() {
     }
 }
 
+// Enhanced updateExamPreview function with improved list view support
 function updateExamPreview(schedule, config) {
     const previewContent = document.getElementById('exam-preview-content');
     const downloadBtn = document.getElementById('download-preview-btn');
@@ -3023,6 +3024,28 @@ function updateExamPreview(schedule, config) {
             </div>
         </div>
         
+        <!-- View Toggle -->
+        <div class="view-toggle-container">
+            <div class="view-toggle-group">
+                <button class="view-toggle-btn active" data-view="daily">
+                    <i class="fas fa-calendar-day"></i>
+                    <span>Daily View</span>
+                </button>
+                <button class="view-toggle-btn" data-view="list">
+                    <i class="fas fa-list"></i>
+                    <span>List View</span>
+                </button>
+            </div>
+            <div class="view-actions">
+                <button class="action-btn" id="export-list-btn" title="Export to Excel">
+                    <i class="fas fa-file-excel"></i>
+                </button>
+                <button class="action-btn" id="print-list-btn" title="Print List">
+                    <i class="fas fa-print"></i>
+                </button>
+            </div>
+        </div>
+        
         <div class="daily-schedule-full" id="daily-schedule-view">
     `;
     
@@ -3095,23 +3118,215 @@ function updateExamPreview(schedule, config) {
     
     html += `</div>`;
     
+    // Add improved list view (hidden by default)
+    html += `
+        <div class="list-schedule-view" id="list-schedule-view" style="display: none;">
+            ${createListViewTable(scheduledExams)}
+        </div>
+    `;
+    
     previewContent.innerHTML = html;
     
     // Setup exam tooltips after rendering
     setTimeout(() => {
         setupExamTooltips();
+        setupListViewInteractions();
     }, 100);
     
     // Add download functionality
     if (downloadBtn) {
         downloadBtn.onclick = function() {
             showNotification('📥 Preparing exam schedule download...', 'info');
-            // You can implement actual download functionality here
         };
     }
     
     // Add view toggle functionality
     setupViewToggle();
+}
+
+// IMPROVED: Create list view table with better UI
+function createListViewTable(scheduledExams) {
+    // Sort exams by date, then by session
+    const sortedExams = scheduledExams.sort((a, b) => {
+        const dateA = parseDDMMYYYY(a.date);
+        const dateB = parseDDMMYYYY(b.date);
+        
+        if (dateA.getTime() !== dateB.getTime()) {
+            return dateA - dateB;
+        }
+        
+        // If same date, sort by session (Morning before Afternoon)
+        if (a.session === 'Morning' && b.session === 'Afternoon') return -1;
+        if (a.session === 'Afternoon' && b.session === 'Morning') return 1;
+        return 0;
+    });
+    
+    return `
+        <div class="list-view-container">
+            <div class="list-view-header">
+                <div class="list-view-info">
+                    <i class="fas fa-info-circle"></i>
+                    <span>Showing ${sortedExams.length} scheduled exams</span>
+                </div>
+                <div class="list-view-controls">
+                    <button class="control-btn" id="toggle-departments">
+                        <i class="fas fa-layer-group"></i>
+                        <span>Group by Department</span>
+                    </button>
+                    <button class="control-btn" id="filter-session">
+                        <i class="fas fa-filter"></i>
+                        <span>Filter Session</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="table-container">
+                <table class="exam-list-table">
+                    <thead>
+                        <tr>
+                            <th class="date-col">Date</th>
+                            <th class="day-col">Day</th>
+                            <th class="session-col">Session</th>
+                            <th class="time-col">Time</th>
+                            <th class="course-col">Course</th>
+                            <th class="type-col">Type</th>
+                            <th class="duration-col">Duration</th>
+                            <th class="dept-col">Department</th>
+                            <th class="semester-col">Semester</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sortedExams.map((exam, index) => createListViewRow(exam, index)).join('')}
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="list-view-footer">
+                <div class="footer-stats">
+                    <div class="footer-stat">
+                        <span class="stat-value">${new Set(sortedExams.map(e => e.date)).size}</span>
+                        <span class="stat-label">Exam Days</span>
+                    </div>
+                    <div class="footer-stat">
+                        <span class="stat-value">${sortedExams.filter(e => e.session === 'Morning').length}</span>
+                        <span class="stat-label">Morning Exams</span>
+                    </div>
+                    <div class="footer-stat">
+                        <span class="stat-value">${sortedExams.filter(e => e.session === 'Afternoon').length}</span>
+                        <span class="stat-label">Afternoon Exams</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// IMPROVED: Create list view row with better spacing and visual design
+function createListViewRow(exam, index) {
+    const formattedDate = formatDateForDisplay(exam.date);
+    const sessionClass = exam.session.toLowerCase();
+    const deptClass = `dept-${exam.department.toLowerCase().replace(/\s+/g, '-')}`;
+    const rowClass = index % 2 === 0 ? 'even-row' : 'odd-row';
+    
+    return `
+        <tr class="exam-list-row ${rowClass} ${sessionClass}-row" data-exam-id="${exam.course_code}-${exam.date}">
+            <td class="date-cell">
+                <div class="date-content">
+                    <div class="date-main">${formattedDate}</div>
+                </div>
+            </td>
+            <td class="day-cell">
+                <span class="day-name">${exam.day}</span>
+            </td>
+            <td class="session-cell">
+                <div class="session-indicator ${sessionClass}">
+                    <i class="fas ${sessionClass === 'morning' ? 'fa-sun' : 'fa-cloud-sun'}"></i>
+                    <span>${exam.session}</span>
+                </div>
+            </td>
+            <td class="time-cell">
+                <div class="time-slot">${exam.time_slot || '09:00-12:00'}</div>
+            </td>
+            <td class="course-cell">
+                <div class="course-info">
+                    <div class="course-code">${exam.course_code}</div>
+                    <div class="course-name">${exam.course_name}</div>
+                </div>
+            </td>
+            <td class="type-cell">
+                <span class="exam-type-badge ${exam.exam_type.toLowerCase()}">${exam.exam_type}</span>
+            </td>
+            <td class="duration-cell">
+                <div class="duration-display">
+                    <i class="fas fa-clock"></i>
+                    <span>${exam.duration}</span>
+                </div>
+            </td>
+            <td class="dept-cell">
+                <span class="dept-badge ${deptClass}">${exam.department}</span>
+            </td>
+            <td class="semester-cell">
+                <span class="semester-pill">Sem ${exam.semester || 'N/A'}</span>
+            </td>
+        </tr>
+    `;
+}
+
+// NEW: Setup list view interactions
+function setupListViewInteractions() {
+    // Add hover effects and click interactions
+    const examRows = document.querySelectorAll('.exam-list-row');
+    
+    examRows.forEach(row => {
+        row.addEventListener('mouseenter', function() {
+            this.style.transform = 'translateY(-2px)';
+            this.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+        });
+        
+        row.addEventListener('mouseleave', function() {
+            this.style.transform = 'translateY(0)';
+            this.style.boxShadow = 'none';
+        });
+        
+        row.addEventListener('click', function() {
+            // Toggle detailed view
+            this.classList.toggle('expanded');
+        });
+    });
+    
+    // Setup control buttons
+    const toggleDeptBtn = document.getElementById('toggle-departments');
+    const filterSessionBtn = document.getElementById('filter-session');
+    
+    if (toggleDeptBtn) {
+        toggleDeptBtn.addEventListener('click', function() {
+            document.querySelector('.table-container').classList.toggle('group-by-dept');
+            this.classList.toggle('active');
+        });
+    }
+    
+    if (filterSessionBtn) {
+        filterSessionBtn.addEventListener('click', function() {
+            // Implement session filtering
+            showNotification('Session filter functionality coming soon!', 'info');
+        });
+    }
+    
+    // Setup export and print buttons
+    const exportBtn = document.getElementById('export-list-btn');
+    const printBtn = document.getElementById('print-list-btn');
+    
+    if (exportBtn) {
+        exportBtn.addEventListener('click', function() {
+            showNotification('Export to Excel functionality coming soon!', 'info');
+        });
+    }
+    
+    if (printBtn) {
+        printBtn.addEventListener('click', function() {
+            window.print();
+        });
+    }
 }
 
 function getCourseDetails(courseCode, semester, department) {
@@ -3450,20 +3665,22 @@ function setupViewToggle() {
     const dailyViewBtn = document.getElementById('toggle-daily-view');
     const listViewBtn = document.getElementById('toggle-list-view');
     const dailyView = document.getElementById('daily-schedule-view');
+    const listView = document.getElementById('list-schedule-view');
     
-    if (!dailyViewBtn || !listViewBtn || !dailyView) return;
+    if (!dailyViewBtn || !listViewBtn || !dailyView || !listView) return;
     
     dailyViewBtn.addEventListener('click', function() {
         this.classList.add('active');
         listViewBtn.classList.remove('active');
         dailyView.style.display = 'block';
+        listView.style.display = 'none';
     });
     
     listViewBtn.addEventListener('click', function() {
         this.classList.add('active');
         dailyViewBtn.classList.remove('active');
         dailyView.style.display = 'none';
-        // You can implement list view here if needed
+        listView.style.display = 'block';
     });
     
     // Set default active state
