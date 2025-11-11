@@ -293,6 +293,20 @@ def separate_courses_by_type(dfs, semester_id, branch=None):
         return {'core_courses': [], 'elective_courses': []}
     
     try:
+        # Normalize branch name to match Department values in data
+        def normalize_branch_name(branch_raw):
+            if not branch_raw:
+                return None
+            br = str(branch_raw).strip().upper()
+            if br in ['CSE', 'CS', 'COMPUTER SCIENCE', 'COMPUTER SCIENCE AND ENGINEERING']:
+                return 'Computer Science and Engineering'
+            if br in ['ECE', 'EC', 'ELECTRONICS', 'ELECTRONICS AND COMMUNICATION ENGINEERING']:
+                return 'Electronics and Communication Engineering'
+            if br in ['DSAI', 'DS', 'DA', 'DATA SCIENCE', 'DATA SCIENCE AND ARTIFICIAL INTELLIGENCE']:
+                return 'Data Science and Artificial Intelligence'
+            # Fallback: return original for exact matches in data
+            return branch_raw
+
         # Filter courses for the semester
         sem_courses = dfs['course'][
             dfs['course']['Semester'].astype(str).str.strip() == str(semester_id)
@@ -303,14 +317,28 @@ def separate_courses_by_type(dfs, semester_id, branch=None):
         
         # ENHANCED: Filter by department if specified - only include courses for the specific department
         if branch and 'Department' in sem_courses.columns:
-            # Include courses that are either:
-            # 1. Department-specific core courses for this branch
-            # 2. Elective courses (common for all departments)
-            sem_courses = sem_courses[
-                ((sem_courses['Department'] == branch) & 
-                 (sem_courses['Elective (Yes/No)'].str.upper() != 'YES')) |
-                (sem_courses['Elective (Yes/No)'].str.upper() == 'YES')
-            ].copy()
+            normalized_branch = normalize_branch_name(branch)
+
+            # Build robust department mask that tolerates abbreviations and missing/incorrect Department field
+            dept_series = sem_courses['Department'].astype(str).fillna('').str.strip()
+            branch_upper = str(branch).strip().upper()
+
+            # Map by course code prefix as a reliable fallback
+            inferred_departments = sem_courses['Course Code'].apply(map_department_from_course_code)
+
+            # Accept rows where:
+            # - Department equals normalized full name, OR
+            # - Department equals branch abbreviation, OR
+            # - Inferred department from code equals normalized full name
+            dept_match = (
+                (dept_series == normalized_branch) |
+                (dept_series.str.upper() == branch_upper) |
+                (inferred_departments == normalized_branch)
+            )
+
+            # Include department-specific cores and all electives
+            is_elective = sem_courses['Elective (Yes/No)'].astype(str).str.upper() == 'YES'
+            sem_courses = sem_courses[(dept_match & ~is_elective) | is_elective].copy()
         
         if sem_courses.empty:
             return {'core_courses': pd.DataFrame(), 'elective_courses': pd.DataFrame()}
@@ -764,8 +792,12 @@ def schedule_electives_by_baskets(elective_allocations, schedule, used_slots, se
     print(f"   ✅ Scheduled {elective_scheduled} IDENTICAL COMMON elective sessions")
     return used_slots
 
-def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, elective_allocations, branch=None):
-    """Generate schedule with basket-based elective allocation - COMMON slots across branches"""
+def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, elective_allocations, branch=None, time_config=None):
+    """Generate schedule with basket-based elective allocation - COMMON slots across branches.
+    Allows overriding time slots via time_config: {
+        'morning_slots': [..], 'lunch_slots': [..], 'afternoon_slots': [..],
+        'lecture_times': [..], 'tutorial_times': [..]
+    }"""
     branch_info = f", Branch {branch}" if branch else ""
     print(f"   🎯 Generating BASKET-BASED schedule for Semester {semester_id}, Section {section}{branch_info}")
     print(f"   📍 Using COMMON elective basket slots (same for all branches)")
@@ -782,16 +814,27 @@ def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, e
         days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
         
         # Time slot structure
-        morning_slots = ['09:00-10:30', '10:30-12:00']
-        lunch_slots = ['12:00-13:00']
-        afternoon_slots = ['13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00']
+        if time_config:
+            morning_slots = time_config.get('morning_slots', ['09:00-10:30', '10:30-12:00'])
+            lunch_slots = time_config.get('lunch_slots', ['12:00-13:00'])
+            afternoon_slots = time_config.get('afternoon_slots', ['13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00'])
+        else:
+            morning_slots = ['09:00-10:30', '10:30-12:00']
+            lunch_slots = ['12:00-13:00']
+            afternoon_slots = ['13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00']
         all_slots = morning_slots + lunch_slots + afternoon_slots
         
         # Lecture slots (1.5 hours)
-        lecture_times = ['09:00-10:30', '10:30-12:00', '13:00-14:30', '15:30-17:00']
+        if time_config and time_config.get('lecture_times'):
+            lecture_times = time_config['lecture_times']
+        else:
+            lecture_times = ['09:00-10:30', '10:30-12:00', '13:00-14:30', '15:30-17:00']
         
         # Tutorial slots (1 hour)
-        tutorial_times = ['14:30-15:30', '17:00-18:00']
+        if time_config and time_config.get('tutorial_times'):
+            tutorial_times = time_config['tutorial_times']
+        else:
+            tutorial_times = ['14:30-15:30', '17:00-18:00']
         
         # Lab slots (2 hours) - represented as pairs of consecutive 1.5-hour slots
         # Labs will use: ['13:00-14:30', '14:30-15:30'] or ['15:30-17:00', '17:00-18:00']
@@ -799,7 +842,10 @@ def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, e
         
         # Create schedule template
         schedule = pd.DataFrame(index=all_slots, columns=days, dtype=object).fillna('Free')
-        schedule.loc['12:00-13:00'] = 'LUNCH BREAK'
+        # Mark lunch break label across provided lunch slots
+        for lunch_slot in lunch_slots:
+            if lunch_slot in schedule.index:
+                schedule.loc[lunch_slot] = 'LUNCH BREAK'
 
         used_slots = set()
 
@@ -1237,8 +1283,9 @@ def create_classroom_allocation_detail_with_tracking(timetable_schedules, classr
     
     return pd.DataFrame(allocation_data)
 
-def export_semester_timetable_with_baskets(dfs, semester, branch=None):
-    """Export timetable using IDENTICAL COMMON elective slots for ALL branches and sections with classroom allocation"""
+def export_semester_timetable_with_baskets(dfs, semester, branch=None, time_config=None):
+    """Export timetable using IDENTICAL COMMON elective slots for ALL branches and sections with classroom allocation.
+    Accepts optional time_config to override slot timings."""
     branch_info = f", Branch {branch}" if branch else ""
     print(f"\n📊 Generating timetable for Semester {semester}{branch_info}...")
     
@@ -1272,8 +1319,8 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None):
                 print(f"      {basket_name}: {status}")
         
         # Generate schedules - these will have IDENTICAL elective slots
-        section_a = generate_section_schedule_with_elective_baskets(dfs, semester, 'A', elective_allocations, branch)
-        section_b = generate_section_schedule_with_elective_baskets(dfs, semester, 'B', elective_allocations, branch)
+        section_a = generate_section_schedule_with_elective_baskets(dfs, semester, 'A', elective_allocations, branch, time_config=time_config)
+        section_b = generate_section_schedule_with_elective_baskets(dfs, semester, 'B', elective_allocations, branch, time_config=time_config)
         
         if section_a is None or section_b is None:
             return False
@@ -1330,6 +1377,14 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None):
                     [section_a_with_rooms, section_b_with_rooms], classroom_data, semester, branch
                 )
                 classroom_allocation_detail.to_excel(writer, sheet_name='Classroom_Allocation', index=False)
+
+            # Persist configuration if provided
+            if time_config:
+                try:
+                    config_items = [{'Parameter': k, 'Value': str(v)} for k, v in time_config.items()]
+                    pd.DataFrame(config_items).to_excel(writer, sheet_name='Configuration', index=False)
+                except Exception as _:
+                    pass
         
         success_message = f"✅ Timetable saved: {filename}"
         if classroom_data is not None and not classroom_data.empty:
@@ -2829,6 +2884,11 @@ def get_timetables():
                     print(f"   📊 Legend courses A: {len(legend_courses_a)}, Baskets A: {clean_baskets_a}")
                     print(f"   📊 Legend courses B: {len(legend_courses_b)}, Baskets B: {clean_baskets_b}")
                     
+                    # Compute scheduled core courses (non-basket) from the actual timetable
+                    elective_code_set = set(all_elective_courses)
+                    scheduled_core_courses_a = [code for code in unique_courses_a if code not in elective_code_set]
+                    scheduled_core_courses_b = [code for code in unique_courses_b if code not in elective_code_set]
+                    
                     def build_course_legend_entries(course_codes):
                         legend_entries = []
                         for code in sorted(course_codes):
@@ -2860,6 +2920,7 @@ def get_timetables():
                         'basket_colors': basket_colors,
                         'core_courses': all_core_courses,
                         'elective_courses': all_elective_courses,
+                        'scheduled_core_courses': scheduled_core_courses_a,
                         'is_basket_timetable': True,
                         'all_basket_courses': basket_courses_map,  # Include all basket courses for legends
                         'has_classroom_allocation': has_classroom_allocation,
@@ -2883,6 +2944,7 @@ def get_timetables():
                         'basket_colors': basket_colors,
                         'core_courses': all_core_courses,
                         'elective_courses': all_elective_courses,
+                        'scheduled_core_courses': scheduled_core_courses_b,
                         'is_basket_timetable': True,
                         'all_basket_courses': basket_courses_map,  # Include all basket courses for legends
                         'has_classroom_allocation': has_classroom_allocation,
@@ -3261,6 +3323,34 @@ def generate_exam_schedule():
         traceback.print_exc()
         return jsonify({'success': False, 'message': f'Error: {str(e)}'})
     
+@app.route('/generate-timetable', methods=['POST'])
+def generate_timetable_with_config():
+    """Generate regular classroom timetables with optional dynamic time configuration."""
+    try:
+        data = request.json or {}
+        semester = int(data.get('semester'))
+        branch = data.get('branch')
+        time_config = data.get('time_config') or {}
+
+        if not semester or not branch:
+            return jsonify({'success': False, 'message': 'semester and branch are required'}), 400
+
+        # Load latest data
+        dfs = load_all_data(force_reload=True)
+        if dfs is None:
+            return jsonify({'success': False, 'message': 'Failed to load CSV data'}), 500
+
+        # Generate with provided configuration
+        success = export_semester_timetable_with_baskets(dfs, semester, branch, time_config=time_config)
+        filename = f"sem{semester}_{branch}_timetable_baskets.xlsx"
+        filepath = os.path.join(OUTPUT_DIR, filename)
+
+        if success and os.path.exists(filepath):
+            return jsonify({'success': True, 'message': 'Timetable generated', 'file': filename, 'configuration': time_config})
+        return jsonify({'success': False, 'message': 'Failed to generate timetable'}), 500
+    except Exception as e:
+        print(f"❌ Error generating timetable: {e}")
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
 
 def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_day=2, 
                                include_weekends=False, session_duration=180,

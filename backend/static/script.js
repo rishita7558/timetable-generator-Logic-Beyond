@@ -1296,16 +1296,61 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
     const uniqueCoreCourses = getUniqueCourses(coreCourses);
     const uniqueElectiveCourses = getUniqueCourses(electiveCourses);
     
+    // Determine department filter from timetable branch
+    const branchAbbrev = timetable?.branch || null;
+    const mapBranchToDepartment = (abbr) => {
+        if (!abbr) return null;
+        const key = String(abbr).trim().toUpperCase();
+        if (key === 'CSE' || key === 'CS') return 'Computer Science and Engineering';
+        if (key === 'ECE' || key === 'EC') return 'Electronics and Communication Engineering';
+        if (key === 'DSAI' || key === 'DS' || key === 'DA') return 'Data Science and Artificial Intelligence';
+        return null;
+    };
+    const allowedDepartment = mapBranchToDepartment(branchAbbrev);
+
+    // Infer department from course code as a robust fallback
+    const inferDepartmentFromCode = (code) => {
+        if (!code || typeof code !== 'string') return null;
+        const upper = code.trim().toUpperCase();
+        if (upper.startsWith('CS')) return 'Computer Science and Engineering';
+        if (upper.startsWith('EC')) return 'Electronics and Communication Engineering';
+        if (upper.startsWith('DS') || upper.startsWith('DA')) return 'Data Science and Artificial Intelligence';
+        return null;
+    };
+
     // Filter to only include courses that actually exist in the timetable
-    const coreCourseList = uniqueCoreCourses.filter(course => uniqueCourses.includes(course));
+    // Prefer backend-provided scheduled core courses if available
+    let finalCoreCourses = Array.isArray(timetable?.scheduled_core_courses) && timetable.scheduled_core_courses.length > 0
+        ? getUniqueCourses(timetable.scheduled_core_courses)
+        : [];
+
+    // Fallback: derive from timetable courses excluding basket courses
+    if (finalCoreCourses.length === 0) {
+        const gatherBasketCourses = (mapObj) => {
+            if (!mapObj) return [];
+            const out = [];
+            Object.values(mapObj).forEach(list => {
+                if (Array.isArray(list)) out.push(...list);
+            });
+            return out;
+        };
+        const basketCoursesFromMap = gatherBasketCourses(basketCoursesMap);
+        const basketCoursesFromAll = gatherBasketCourses(timetable?.all_basket_courses);
+        const allElectiveCodes = new Set([
+            ...basketCoursesFromMap,
+            ...basketCoursesFromAll
+        ]);
+        finalCoreCourses = uniqueCourses.filter(code => !allElectiveCodes.has(code));
+    }
+
+    // Include all scheduled non-basket courses irrespective of department
     const electiveCourseList = uniqueElectiveCourses.filter(course => uniqueCourses.includes(course));
-    const otherCourses = uniqueCourses.filter(course => 
-        !coreCourseList.includes(course) && !electiveCourseList.includes(course)
-    );
+    // We no longer show "Other Courses" in the legend; keep empty
+    const otherCourses = [];
     
     console.log(`📊 Legend for Semester ${semester}, Section ${section}:`, {
         allCourses: uniqueCourses,
-        coreCourses: coreCourseList,
+        coreCourses: finalCoreCourses,
         electiveCourses: electiveCourseList,
         otherCourses: otherCourses,
         baskets: baskets,
@@ -1314,7 +1359,7 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
     });
     
     // If no courses to display, return empty
-    if (coreCourseList.length === 0 && electiveCourseList.length === 0 && otherCourses.length === 0 && baskets.length === 0) {
+    if (finalCoreCourses.length === 0 && electiveCourseList.length === 0 && baskets.length === 0) {
         console.log('⚠️ No courses to display in legend');
         return '';
     }
@@ -1323,32 +1368,39 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
         <div class="timetable-legend">
             <div class="legend-title">
                 <i class="fas fa-palette"></i>
-                Course Legend - Semester ${semester}, Section ${section}
+                Scheduled Courses - Semester ${semester}, Section ${section}
             </div>
     `;
     
-    // Core Courses Section
-    if (coreCourseList.length > 0) {
-        legendHtml += `
-            <div class="legend-section">
-                <div class="legend-section-title">
-                    <i class="fas fa-book"></i>
-                    Core Courses (${coreCourseList.length})
-                </div>
-                <div class="legend-grid">
-        `;
-        
-        coreCourseList.sort().forEach(courseCode => {
+    // Core Courses Section — always render the section; show a friendly message if empty
+    legendHtml += `
+        <div class="legend-section">
+            <div class="legend-section-title">
+                <i class="fas fa-book"></i>
+                Scheduled Core Courses (${finalCoreCourses.length})
+            </div>
+            <div class="legend-grid">
+    `;
+
+    if (finalCoreCourses.length > 0) {
+        finalCoreCourses.sort().forEach(courseCode => {
             const info = courseInfo[courseCode];
             const color = courseColors[courseCode] || '#CCCCCC';
             legendHtml += createLegendItem(courseCode, info, color, 'core');
         });
-        
+    } else {
         legendHtml += `
-                </div>
+            <div class="legend-empty">
+                <i class="fas fa-info-circle"></i>
+                <span>No core courses detected for this timetable.</span>
             </div>
         `;
     }
+
+    legendHtml += `
+            </div>
+        </div>
+    `;
     
     // Elective Baskets Section - Filter based on semester
     if (baskets.length > 0) {
@@ -1523,28 +1575,7 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
         `;
     }
     
-    // Other Courses Section (if any)
-    if (otherCourses.length > 0) {
-        legendHtml += `
-            <div class="legend-section">
-                <div class="legend-section-title">
-                    <i class="fas fa-graduation-cap"></i>
-                    Other Courses (${otherCourses.length})
-                </div>
-                <div class="legend-grid">
-        `;
-        
-        otherCourses.sort().forEach(courseCode => {
-            const info = courseInfo[courseCode];
-            const color = courseColors[courseCode] || '#CCCCCC';
-            legendHtml += createLegendItem(courseCode, info, color, 'other');
-        });
-        
-        legendHtml += `
-                </div>
-            </div>
-        `;
-    }
+    // Removed "Other Courses" section by design
     
     legendHtml += `</div>`;
     return legendHtml;
@@ -1555,6 +1586,7 @@ function createLegendItem(courseCode, courseInfo, color, type = 'core') {
     const credits = courseInfo ? courseInfo.credits : '?';
     const instructor = courseInfo ? courseInfo.instructor : 'Unknown';
     const courseType = courseInfo ? courseInfo.type : 'Core';
+    const ltpsc = courseInfo && courseInfo.ltpsc ? courseInfo.ltpsc : '';
     
     // Add type-specific icons
     let typeIcon = 'fas fa-book'; // Default for core
@@ -1572,7 +1604,7 @@ function createLegendItem(courseCode, courseInfo, color, type = 'core') {
                 <span class="legend-course-name">${courseName}</span>
                 <div class="legend-course-details">
                     <i class="${typeIcon}"></i>
-                    <span>${instructor} • ${courseType}</span>
+                    <span>${instructor} • ${courseType}${ltpsc ? ` • LTPSC: ${ltpsc}` : ''}</span>
                 </div>
             </div>
         </div>
@@ -1583,6 +1615,7 @@ function createBasketCourseItem(courseCode, courseInfo, basketColor) {
     const courseName = courseInfo ? courseInfo.name : 'Unknown Course';
     const credits = courseInfo ? courseInfo.credits : '?';
     const instructor = courseInfo ? courseInfo.instructor : 'Unknown';
+    const ltpsc = courseInfo && courseInfo.ltpsc ? courseInfo.ltpsc : '';
     
     return `
         <div class="basket-course-item" style="border-left-color: ${basketColor}">
@@ -1593,7 +1626,7 @@ function createBasketCourseItem(courseCode, courseInfo, basketColor) {
             <div class="basket-course-name">${courseName}</div>
             <div class="basket-course-instructor">
                 <i class="fas fa-user-tie"></i>
-                <span>${instructor}</span>
+                <span>${instructor}${ltpsc ? ` • LTPSC: ${ltpsc}` : ''}</span>
             </div>
         </div>
     `;
@@ -1630,10 +1663,12 @@ function enhanceTables() {
                     const semester = parseInt(match[1]);
                     const section = match[2];
                     
-                    // Find the timetable data
-                    const timetable = currentTimetables.find(t => 
-                        t.semester === semester && t.section === section
-                    );
+                    // Find the timetable data - include branch via table id to avoid cross-branch mixups
+                    const tableId = table.getAttribute('id');
+                    const timetable = currentTimetables.find(t => {
+                        const expectedId = t.branch ? `sem${t.semester}_${t.branch}_${section}` : `sem${t.semester}_${section}`;
+                        return expectedId === tableId;
+                    }) || currentTimetables.find(t => t.semester === semester && t.section === section);
                     
                     if (timetable) {
                         // Debug duplicates
