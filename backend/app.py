@@ -466,6 +466,12 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
         T = ltpsc['T']
         P = ltpsc['P']
         
+        # FIX: NEVER schedule labs for MA (Mathematics) courses
+        is_math_course = course_code.startswith('MA') or 'Mathematics' in str(course.get('Department', ''))
+        if is_math_course:
+            P = 0  # Force no labs for math courses
+            print(f"      🚫 MA Course detected: {course_code} - Labs disabled regardless of LTPSC")
+        
         # Determine lectures needed: if L is 2 or 3, schedule 2 lectures
         if L == 2 or L == 3:
             lectures_needed = 2
@@ -479,6 +485,7 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
         tutorials_needed = 1 if T >= 1 else 0
         
         # Determine labs needed: if P is 1, schedule 1 lab (2 hours)
+        # BUT NEVER for MA courses (already handled above)
         labs_needed = 1 if P >= 1 else 0
         
         # Track which days we've used for this course
@@ -541,8 +548,9 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
         
         # Schedule lab (STRICTLY 2 hours) if needed - use consecutive 1.5-hour slots
         # Labs are ALWAYS scheduled for exactly 2 hours using two consecutive slots
+        # BUT NEVER for MA courses
         labs_scheduled = 0
-        if labs_needed > 0:
+        if labs_needed > 0 and not is_math_course:  # ← ADDED MATH COURSE CHECK
             max_lab_attempts = 100
             
             # Define 2-hour lab slot pairs (consecutive 1.5-hour slots that form a 2-hour lab)
@@ -586,13 +594,15 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
                 if not lab_scheduled:
                     # Try next attempt
                     continue
+        elif labs_needed > 0 and is_math_course:
+            print(f"      🚫 Skipping lab for MA course {course_code} (P={P} in LTPSC but labs disabled for Mathematics)")
         
         # Summary
         if lectures_scheduled < lectures_needed:
             print(f"      ❌ Could only schedule {lectures_scheduled}/{lectures_needed} lectures for {course_code}")
         if tutorials_needed > 0 and tutorials_scheduled < tutorials_needed:
             print(f"      ❌ Could only schedule {tutorials_scheduled}/{tutorials_needed} tutorials for {course_code}")
-        if labs_needed > 0 and labs_scheduled < labs_needed:
+        if labs_needed > 0 and labs_scheduled < labs_needed and not is_math_course:
             print(f"      ❌ Could only schedule {labs_scheduled}/{labs_needed} labs for {course_code}")
         if lectures_scheduled == lectures_needed and tutorials_scheduled == tutorials_needed and labs_scheduled == labs_needed:
             print(f"      ✅ Successfully scheduled {course_code} according to LTPSC structure")
@@ -1119,21 +1129,21 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
         
         print(f"   🗂️ Basket '{basket_name}' LTPSC: {ltpsc_str} -> L={L}, T={T}, P={P}")
         print(f"      → Scheduling {lectures_needed} lectures, {tutorials_needed} tutorial")
-        
-        # Get the FIXED common slots for this basket
+
         if basket_name in common_slots_mapping:
             fixed_slots = common_slots_mapping[basket_name]
             # Use only the number of lectures needed based on LTPSC
             lectures_allocated = fixed_slots['lectures'][:lectures_needed]
-            tutorial_allocated = fixed_slots['tutorial'] if tutorials_needed > 0 else None
-        else:
-            # Fallback for baskets not in mapping
-            if lectures_needed >= 2:
-                lectures_allocated = [('Mon', '09:00-10:30'), ('Wed', '09:00-10:30')]
+            
+            # FIX: Ensure tutorial is allocated when needed
+            if tutorials_needed > 0:
+                tutorial_allocated = fixed_slots['tutorial']
+                print(f"      ✅ Tutorial allocation: {tutorial_allocated}")
             else:
-                lectures_allocated = [('Mon', '09:00-10:30')]
-            tutorial_allocated = ('Fri', '14:30-15:30') if tutorials_needed > 0 else None
-            print(f"   ⚠️ Using fallback slots for unknown basket: {basket_name}")
+                tutorial_allocated = None
+                print(f"      ⚠️ No tutorial needed (T={T})")
+        else:
+            print(f"      ❌ No fixed slots found for basket '{basket_name}'")
         
         # Verify day separation
         lecture_days = set(day for day, time in lectures_allocated)
