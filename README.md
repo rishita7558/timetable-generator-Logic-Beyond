@@ -1,41 +1,38 @@
-# 🎓 Automated Timetable Generator - IIIT Dharwad
+# 🎓 Automated Timetable Scheduler – IIIT Dharwad
 
-A **sophisticated web application** that automatically generates academic timetables for IIIT Dharwad.  
-This system creates optimized schedules for multiple semesters and sections based on **course data, faculty availability, and classroom resources**.
+A **smart web-based application** that automates the creation of academic and examination timetables for **IIIT Dharwad**.  
+It intelligently considers faculty availability, classroom capacity, course constraints, and student group schedules to generate **conflict-free and optimized** timetables in seconds.
 
 ---
 
 ## 🏷️ Badges
 
-![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)
-![Python](https://img.shields.io/badge/Python-3.8%2B-green.svg)
-![Flask](https://img.shields.io/badge/Flask-2.3.3-lightgrey.svg)
+![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)  
+![Python](https://img.shields.io/badge/Python-3.8%2B-green.svg)  
+![Flask](https://img.shields.io/badge/Flask-2.3.3-lightgrey.svg)  
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 ---
 
-## ✨ Features
+## ✨ Key Features
 
-🚀 **Automated Generation** – Create timetables for semesters 1, 3, 5, and 7  
-🎨 **Modern Dashboard** – Beautiful, responsive web interface  
-📊 **Multiple Views** – Grid, list, and compact view modes  
-🔍 **Search & Filter** – Search timetables and filter by semester or section  
-🔧 **Smart Filtering** – Filter by semester and section  
-📱 **Responsive Design** – Works perfectly on desktop, tablet, and mobile  
-📤 **Export Options** – Download individual or all timetables as Excel files  
-📈 **Real-time Stats** – Live statistics dashboard  
-⚡ **Quick Actions** – One-click operations for common tasks
-  
+- ✅ Automatic generation of **class and exam timetables**  
+- ⚡ Built-in **conflict detection** for overlapping classes or unavailable faculty  
+- 🏫 Dynamic **classroom allocation** based on student strength *(partially implemented)*  
+- 📤 Export timetables in **PDF / Excel / CSV** formats  
+- 🧭 **User-friendly interface** for administrators and academic coordinators  
+- 🎨 Customizable appearance, layout, and accessibility options  
+- 📅 Supports **multiple semesters (1, 3, 5, 7)** and sections (A & B) for all departments  
+- 🔎 Smart filtering, color coding, and real-time validation
 
 ---
 
 ## 🛠️ Technology Stack
 
-**Backend:** Python, Flask, Pandas  
-**Frontend:** HTML5, CSS3, JavaScript  
-**Data Processing:** Pandas, OpenPyXL  
-**Styling:** Custom CSS with Glass Morphism effects  
-**Icons:** Font Awesome  
+**Backend:** Python | Flask | Pandas | OpenPyXL  
+**Frontend:** HTML5 | CSS3 | JavaScript  
+**Styling:** Custom CSS (Glass Morphism effects)  
+**Icons:** Font Awesome
 
 ---
 
@@ -46,19 +43,41 @@ This system creates optimized schedules for multiple semesters and sections base
 
 ---
 
-## 📦 Installation & Running Locally
+## 📦 Installation & Setup
 
-### **Clone and Run**
+Follow these steps carefully to set up and run the application locally.
 
 ```bash
-# Clone the repository
+# Step 1: Clone the Repository
 git clone https://github.com/your-username/Automated-Time-Table-IIIT-DHARWAD.git
 
-# Navigate to project directory
+# Step 2: Navigate to the Project Directory (backend)
 cd Automated-Time-Table-IIIT-DHARWAD/timetable_generator/backend
 
-# Install dependencies
-pip install -r requirements.txt
+# If you're using a local folder path instead:
+# cd C:\timetable-generator-Logic-Beyond\timetable-generator-Logic-Beyond\backend
 
-# Run the application
+# Step 3: Create a Virtual Environment
+# Windows (recommended)
+py -m venv venv
+# or (cross-platform)
+python -m venv venv
+
+# Step 4: Activate the Virtual Environment
+# On Windows (PowerShell)
+venv\Scripts\Activate.ps1
+# On Windows (cmd)
+venv\Scripts\activate
+# On macOS/Linux
+source venv/bin/activate
+
+# Step 5: Install Dependencies
+# If requirements.txt exists:
+pip install -r requirements.txt
+# If not, install main packages manually:
+pip install flask pandas openpyxl werkzeug
+
+# Step 6: Run the Application
 python app.py
+# or (Windows)
+py app.py
