@@ -792,12 +792,13 @@ def schedule_electives_by_baskets(elective_allocations, schedule, used_slots, se
     print(f"   ✅ Scheduled {elective_scheduled} IDENTICAL COMMON elective sessions")
     return used_slots
 
-def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, elective_allocations, branch=None, time_config=None):
+def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, elective_allocations, branch=None, time_config=None, basket_allocations=None):
     """Generate schedule with basket-based elective allocation - COMMON slots across branches.
     Allows overriding time slots via time_config: {
         'morning_slots': [..], 'lunch_slots': [..], 'afternoon_slots': [..],
         'lecture_times': [..], 'tutorial_times': [..]
-    }"""
+    }
+    basket_allocations: Optional dict of basket allocations to ensure all required baskets are scheduled."""
     branch_info = f", Branch {branch}" if branch else ""
     print(f"   🎯 Generating BASKET-BASED schedule for Semester {semester_id}, Section {section}{branch_info}")
     print(f"   📍 Using COMMON elective basket slots (same for all branches)")
@@ -861,6 +862,32 @@ def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, e
             print(f"   🗂️ Baskets to schedule: {list(unique_baskets)}")
             
             used_slots = schedule_electives_by_baskets(elective_allocations, schedule, used_slots, section, branch)
+        
+        # ENSURE all required baskets are scheduled from basket_allocations
+        # This ensures baskets are scheduled even if courses aren't in elective_allocations
+        if basket_allocations:
+            scheduled_basket_names = set()
+            if elective_allocations:
+                for allocation in elective_allocations.values():
+                    if allocation and allocation.get('basket_name'):
+                        scheduled_basket_names.add(allocation['basket_name'])
+            
+            # Schedule any baskets from basket_allocations that weren't scheduled via elective_allocations
+            for basket_name, basket_allocation in basket_allocations.items():
+                if basket_name not in scheduled_basket_names:
+                    print(f"   🔧 Scheduling basket '{basket_name}' directly from basket_allocations...")
+                    # Create a temporary allocation structure to schedule this basket
+                    temp_allocation = {
+                        'basket_name': basket_name,
+                        'lectures': basket_allocation['lectures'],
+                        'tutorial': basket_allocation.get('tutorial'),
+                        'all_courses_in_basket': basket_allocation.get('courses', []),
+                        'days_separated': basket_allocation.get('days_separated', True)
+                    }
+                    # Schedule using a dummy course code key
+                    dummy_key = f"__BASKET_{basket_name}__"
+                    temp_elective_allocations = {dummy_key: temp_allocation}
+                    used_slots = schedule_electives_by_baskets(temp_elective_allocations, schedule, used_slots, section, branch)
         
         # Schedule core courses AFTER electives - these are branch-specific
         # IMPORTANT: Filter out any elective courses that are already scheduled in baskets
@@ -972,7 +999,9 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
     # Group electives by basket
     basket_groups = {}
     for _, course in elective_courses.iterrows():
-        basket = course.get('Basket', 'ELECTIVE_B1')
+        # Normalize basket name to ensure matching (e.g., 'elective_b4', trailing spaces, etc.)
+        raw_basket = course.get('Basket', 'ELECTIVE_B1')
+        basket = str(raw_basket).strip().upper() if pd.notna(raw_basket) else 'ELECTIVE_B1'
         if basket not in basket_groups:
             basket_groups[basket] = []
         basket_groups[basket].append(course)
@@ -985,9 +1014,18 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
         baskets_to_schedule = [basket for basket in basket_groups.keys() if basket == 'ELECTIVE_B3']
         print(f"   🎯 Semester 3: Scheduling only ELECTIVE_B3, excluding ELECTIVE_B5")
     elif semester_id == 5:
-        # Semester 5: Only ELECTIVE_B5, exclude ELECTIVE_B3
-        baskets_to_schedule = [basket for basket in basket_groups.keys() if basket == 'ELECTIVE_B5']
-        print(f"   🎯 Semester 5: Scheduling only ELECTIVE_B5, excluding ELECTIVE_B3")
+        # Semester 5: Schedule ELECTIVE_B5 and ELECTIVE_B4 - ALWAYS schedule both even if no courses found
+        required_baskets = ['ELECTIVE_B5', 'ELECTIVE_B4']
+        baskets_to_schedule = [basket for basket in basket_groups.keys() if basket in required_baskets]
+        # Ensure both baskets are scheduled even if not found in course data
+        for req_basket in required_baskets:
+            if req_basket not in baskets_to_schedule:
+                print(f"   ⚠️ {req_basket} not found in course data, but will be scheduled anyway for Semester 5")
+                baskets_to_schedule.append(req_basket)
+                # Create empty basket group so it can be scheduled
+                if req_basket not in basket_groups:
+                    basket_groups[req_basket] = []
+        print(f"   🎯 Semester 5: Scheduling BOTH ELECTIVE_B5 and ELECTIVE_B4")
     elif semester_id == 7:
         # FIXED: Semester 7: Schedule BOTH ELECTIVE_B6 and ELECTIVE_B7
         baskets_to_schedule = [basket for basket in basket_groups.keys() if basket in ['ELECTIVE_B6', 'ELECTIVE_B7']]
@@ -1048,16 +1086,25 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
             continue
             
         basket_courses = basket_groups[basket_name]
-        course_codes = [course['Course Code'] for course in basket_courses]
+        course_codes = [course['Course Code'] for course in basket_courses] if basket_courses else []
         
         # Parse LTPSC for the first course in the basket (assume all courses in basket have same LTPSC)
-        # If LTPSC is empty, default to 2 lectures and 1 tutorial
-        first_course = basket_courses[0]
-        ltpsc_str = first_course.get('LTPSC', '')
-        ltpsc = parse_ltpsc(ltpsc_str)
-        L = ltpsc['L']
-        T = ltpsc['T']
-        P = ltpsc['P']
+        # If LTPSC is empty or no courses, default to 2 lectures and 1 tutorial
+        if basket_courses and len(basket_courses) > 0:
+            first_course = basket_courses[0]
+            ltpsc_str = first_course.get('LTPSC', '')
+            ltpsc = parse_ltpsc(ltpsc_str)
+            L = ltpsc['L']
+            T = ltpsc['T']
+            P = ltpsc['P']
+        else:
+            # Empty basket - use default LTPSC: 2 lectures, 1 tutorial
+            ltpsc_str = '2-1-0-0-3'
+            ltpsc = parse_ltpsc(ltpsc_str)
+            L = 2
+            T = 1
+            P = 0
+            print(f"   ⚠️ Basket '{basket_name}' has no courses, using default LTPSC: 2-1-0-0-3")
         
         # Determine lectures needed: if L is 2 or 3, schedule 2 lectures
         if L == 2 or L == 3:
@@ -1094,12 +1141,34 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
         days_separated = tutorial_day not in lecture_days if tutorial_day else True
         
         # Store allocation for ALL courses in this basket
-        for course_code in course_codes:
-            elective_allocations[course_code] = {
+        # If no courses, create a dummy allocation entry to ensure basket is scheduled
+        if course_codes:
+            for course_code in course_codes:
+                elective_allocations[course_code] = {
+                    'basket_name': basket_name,
+                    'lectures': lectures_allocated,
+                    'tutorial': tutorial_allocated,
+                    'all_courses_in_basket': course_codes,
+                    'for_all_branches': True,
+                    'for_both_sections': True,
+                    'common_for_semester': True,
+                    'common_for_all_departments': True,
+                    'lecture_days': list(lecture_days),
+                    'tutorial_day': tutorial_day,
+                    'days_separated': days_separated,
+                    'fixed_common_slots': True,
+                    'ltpsc': ltpsc_str,
+                    'lectures_needed': lectures_needed,
+                    'tutorials_needed': tutorials_needed
+                }
+        else:
+            # Empty basket - create a dummy allocation to ensure it's scheduled
+            dummy_key = f"__BASKET_{basket_name}__"
+            elective_allocations[dummy_key] = {
                 'basket_name': basket_name,
                 'lectures': lectures_allocated,
                 'tutorial': tutorial_allocated,
-                'all_courses_in_basket': course_codes,
+                'all_courses_in_basket': [],
                 'for_all_branches': True,
                 'for_both_sections': True,
                 'common_for_semester': True,
@@ -1112,6 +1181,7 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
                 'lectures_needed': lectures_needed,
                 'tutorials_needed': tutorials_needed
             }
+            print(f"   📝 Created dummy allocation for empty basket '{basket_name}' to ensure scheduling")
         
         basket_allocations[basket_name] = {
             'lectures': lectures_allocated,
@@ -1296,7 +1366,7 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None, time_conf
     if semester == 3:
         print(f"   🎯 SEMESTER 3 RULE: Scheduling only ELECTIVE_B3, excluding ELECTIVE_B5")
     elif semester == 5:
-        print(f"   🎯 SEMESTER 5 RULE: Scheduling only ELECTIVE_B5, excluding ELECTIVE_B3")
+        print(f"   🎯 SEMESTER 5 RULE: Scheduling BOTH ELECTIVE_B5 and ELECTIVE_B4")
     elif semester == 7:
         print(f"   🎯 SEMESTER 7 RULE: Scheduling BOTH ELECTIVE_B6 and ELECTIVE_B7")
     else:
@@ -1319,8 +1389,9 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None, time_conf
                 print(f"      {basket_name}: {status}")
         
         # Generate schedules - these will have IDENTICAL elective slots
-        section_a = generate_section_schedule_with_elective_baskets(dfs, semester, 'A', elective_allocations, branch, time_config=time_config)
-        section_b = generate_section_schedule_with_elective_baskets(dfs, semester, 'B', elective_allocations, branch, time_config=time_config)
+        # Pass basket_allocations to ensure all required baskets are scheduled
+        section_a = generate_section_schedule_with_elective_baskets(dfs, semester, 'A', elective_allocations, branch, time_config=time_config, basket_allocations=basket_allocations)
+        section_b = generate_section_schedule_with_elective_baskets(dfs, semester, 'B', elective_allocations, branch, time_config=time_config, basket_allocations=basket_allocations)
         
         if section_a is None or section_b is None:
             return False
@@ -2851,7 +2922,8 @@ def get_timetables():
                     # ENHANCED: Build comprehensive basket courses map including ALL elective courses for this semester
                     if not course_baskets['elective_courses'].empty and 'Basket' in course_baskets['elective_courses'].columns:
                         for _, course in course_baskets['elective_courses'].iterrows():
-                            basket = course.get('Basket', 'Unknown')
+                            raw_basket = course.get('Basket', 'Unknown')
+                            basket = str(raw_basket).strip().upper() if pd.notna(raw_basket) else 'Unknown'
                             course_code = course['Course Code']
                             if basket not in basket_courses_map:
                                 basket_courses_map[basket] = []
@@ -2867,6 +2939,10 @@ def get_timetables():
                     legend_courses_a = set(unique_courses_a)
                     legend_courses_b = set(unique_courses_b)
                     
+                    supplemental_baskets = []
+                    if sem == 5:
+                        supplemental_baskets = ['ELECTIVE_B4']
+
                     # Add all elective courses from baskets that appear in the schedule
                     for basket_name in unique_baskets_a:
                         if basket_name in basket_courses_map and basket_courses_map[basket_name]:
@@ -2875,10 +2951,25 @@ def get_timetables():
                     for basket_name in unique_baskets_b:
                         if basket_name in basket_courses_map and basket_courses_map[basket_name]:
                             legend_courses_b.update(basket_courses_map[basket_name])
+
+                    # Ensure semester 5 includes ELECTIVE_B4 courses even if slots share across sections
+                    if supplemental_baskets:
+                        for basket_name in supplemental_baskets:
+                            if basket_name in basket_courses_map and basket_courses_map[basket_name]:
+                                legend_courses_a.update(basket_courses_map[basket_name])
+                                legend_courses_b.update(basket_courses_map[basket_name])
                     
                     # FIXED: Create clean basket lists without duplicates
                     clean_baskets_a = [basket for basket in unique_baskets_a if basket in basket_courses_map and basket_courses_map[basket]]
                     clean_baskets_b = [basket for basket in unique_baskets_b if basket in basket_courses_map and basket_courses_map[basket]]
+
+                    if supplemental_baskets:
+                        for basket_name in supplemental_baskets:
+                            if basket_name in basket_courses_map and basket_courses_map[basket_name]:
+                                if basket_name not in clean_baskets_a:
+                                    clean_baskets_a.append(basket_name)
+                                if basket_name not in clean_baskets_b:
+                                    clean_baskets_b.append(basket_name)
                     
                     print(f"   🎨 Color coding: {len(course_colors)} course colors, {len(basket_colors)} basket colors")
                     print(f"   📊 Legend courses A: {len(legend_courses_a)}, Baskets A: {clean_baskets_a}")
@@ -4072,71 +4163,6 @@ def create_department_summary(schedule_df):
     
     return dept_summary
 
-def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, elective_allocations, branch=None):
-    """Generate schedule with basket-based elective allocation"""
-    branch_info = f", Branch {branch}" if branch else ""
-    print(f"   Generating basket-based schedule for Semester {semester_id}, Section {section}{branch_info}...")
-    
-    if 'course' not in dfs:
-        print("❌ Course data not available")
-        return None
-    
-    try:
-        # Get only the core courses for this specific branch
-        course_baskets = separate_courses_by_type(dfs, semester_id, branch)
-        core_courses = course_baskets['core_courses']
-        
-        days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-        
-        # Time slot structure
-        morning_slots = ['09:00-10:30', '10:30-12:00']
-        lunch_slots = ['12:00-13:00']
-        afternoon_slots = ['13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00']
-        all_slots = morning_slots + lunch_slots + afternoon_slots
-        
-        # Create schedule template
-        schedule = pd.DataFrame(index=all_slots, columns=days, dtype=object).fillna('Free')
-        schedule.loc['12:00-13:00'] = 'LUNCH BREAK'
-
-        used_slots = set()
-
-        # Schedule elective courses using basket allocation
-        if elective_allocations:
-            print(f"   🎯 Applying BASKET elective allocation for Section {section}:")
-            used_slots = schedule_electives_by_baskets(elective_allocations, schedule, used_slots, section, branch)
-        
-        # Schedule core courses after electives
-        # IMPORTANT: Filter out any elective courses that are already scheduled in baskets
-        if not core_courses.empty:
-            # Get list of elective course codes from baskets to exclude them
-            elective_course_codes = set()
-            if elective_allocations:
-                for allocation in elective_allocations.values():
-                    if allocation and 'all_courses_in_basket' in allocation:
-                        elective_course_codes.update(allocation['all_courses_in_basket'])
-            
-            # Filter out elective courses from core_courses
-            if elective_course_codes:
-                core_courses_filtered = core_courses[~core_courses['Course Code'].isin(elective_course_codes)].copy()
-                excluded_count = len(core_courses) - len(core_courses_filtered)
-                if excluded_count > 0:
-                    print(f"   🚫 Excluded {excluded_count} elective course(s) already scheduled in baskets: {', '.join(elective_course_codes)}")
-                core_courses = core_courses_filtered
-            
-            if not core_courses.empty:
-                print(f"   📚 Scheduling {len(core_courses)} core courses for Section {section}, Branch {branch}...")
-                used_slots = schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, 
-                                                                ['09:00-10:30', '10:30-12:00', '13:00-14:30', '15:30-17:00'],
-                                                                ['14:30-15:30', '17:00-18:00'], None, branch)
-            else:
-                print(f"   ℹ️ No core courses to schedule after filtering electives")
-        
-        return schedule
-        
-    except Exception as e:
-        print(f"❌ Error generating basket-based schedule: {e}")
-        traceback.print_exc()
-        return None
     
 @app.route('/exam-timetables')
 def get_exam_timetables():

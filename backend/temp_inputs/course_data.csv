@@ -32,10 +32,10 @@ CS309,Statistics for CS,5,CSE,3-1-0-0-4,4,"Sunil C K, Pavan",0,No,No,None,No,No
 CS303,Computer Networks,5,CSE,3-1-2-0-5,5,"Animesh Roy, Dibyajyothi",0,No,No,None,No,No
 CS304,Artificial Intelligence,5,CSE,3-1-0-0-4,4,"Krishendu, Girish",0,No,No,None,No,No
 HS101,Environmental Studies,5,CSE,0-0-0-8-2,2,Aswath Babu H,0,No,Yes,None,No,Yes
-CS463,Parallel computing,5,CSE,3-1-0-0-4,4,Pramod,0,Yes,No,ELECTIVE_B5,No,No
-CS308,Compiler Design,5,CSE,3-1-0-0-4,4,Pavan Kumar,0,Yes,No,ELECTIVE_B5,No,No
-DS301,Graphs and Social Networks,5,CSE,3-1-0-0-4,4,Utkarsh K,0,Yes,No,ELECTIVE_B5,No,No
-CS366,Advanced Algorithms,5,CSE,3-1-0-0-4,4,Suvadip,0,Yes,No,ELECTIVE_B5,No,No
+CS463,Parallel computing,5,CSE,3-1-0-0-4,4,Pramod,0,Yes,No,ELECTIVE_B4,No,No
+CS308,Compiler Design,5,CSE,3-1-0-0-4,4,Pavan Kumar,0,Yes,No,ELECTIVE_B4,No,No
+DS301,Graphs and Social Networks,5,CSE,3-1-0-0-4,4,Utkarsh K,0,Yes,No,ELECTIVE_B4,No,No
+CS366,Advanced Algorithms,5,CSE,3-1-0-0-4,4,Suvadip,0,Yes,No,ELECTIVE_B4,No,No
 DS359,Full Stack Development,5,CSE,3-1-0-0-4,4,Manjunath K V,0,Yes,No,ELECTIVE_B5,No,No
 EC355,Internet of Things,5,CSE,3-1-0-0-4,4,Prakash Pawar,0,Yes,No,ELECTIVE_B5,No,No
 EC364,Semiconductor Devices,5,CSE,3-1-0-0-4,4,Pankaj Kumar,0,Yes,No,ELECTIVE_B5,No,No
@@ -77,10 +77,10 @@ ASD352,User Interaction,3,DSAI,3-1-0-0-4,4,Sandesh P,0,Yes,No,ELECTIVE_B3,No,No
 DS302,Computer Communication,5,DSAI,3-1-2-0-5,5,Shirshendu Layek,0,No,No,None,No,No
 DS303,Algorithms and Data Structures,5,DSAI,3-1-0-0-4,4,Animesh Chaturvedi,0,No,No,None,No,No
 CS307,Machine Learning,5,DSAI,3-0-2-0-4,4,Siddharth,0,No,No,None,No,No
-CS463,Parallel computing,5,DSAI,3-1-0-0-4,4,Pramod,0,Yes,No,ELECTIVE_B5,No,No
-CS308,Compiler Design,5,DSAI,3-1-0-0-4,4,Pavan Kumar,0,Yes,No,ELECTIVE_B5,No,No
-DS301,Graphs and Social Networks,5,DSAI,3-1-0-0-4,4,Utkarsh K,0,Yes,No,ELECTIVE_B5,No,No
-CS366,Advanced Algorithms,5,DSAI,3-1-0-0-4,4,Suvadip,0,Yes,No,ELECTIVE_B5,No,No
+CS463,Parallel computing,5,DSAI,3-1-0-0-4,4,Pramod,0,Yes,No,ELECTIVE_B4,No,No
+CS308,Compiler Design,5,DSAI,3-1-0-0-4,4,Pavan Kumar,0,Yes,No,ELECTIVE_B4,No,No
+DS301,Graphs and Social Networks,5,DSAI,3-1-0-0-4,4,Utkarsh K,0,Yes,No,ELECTIVE_B4,No,No
+CS366,Advanced Algorithms,5,DSAI,3-1-0-0-4,4,Suvadip,0,Yes,No,ELECTIVE_B4,No,No
 DS359,Full Stack Development,5,DSAI,3-1-0-0-4,4,Manjunath K V,0,Yes,No,ELECTIVE_B5,No,No
 EC355,Internet of Things,5,DSAI,3-1-0-0-4,4,Prakash Pawar,0,Yes,No,ELECTIVE_B5,No,No
 EC364,Semiconductor Devices,5,DSAI,3-1-0-0-4,4,Pankaj Kumar,0,Yes,No,ELECTIVE_B5,No,No
@@ -124,10 +124,10 @@ EC261,Signals & Systems,3,ECE,2-1-0-0-3,3,Somen B,0,No,No,None,No,No
 EC262,Semiconductor Devices,3,ECE,3-0-2-0-2,2,Pankaj Kumar,0,No,Yes,None,No,No
 EC263,Analog Electronics,3,ECE,3-0-2-0-2,2,Rajesh Kumar,0,No,Yes,None,Yes,No
 CS307,Machine Learning,3,ECE,3-1-0-0-4,4,Deepak K T,0,No,No,None,No,No
-EC251,Electronics Systems design - 1,3,ECE,2-0-0-0-2,2,Pankaj,0,Yes,Yes,ELECTIVE_B5,No,No
-EC252,Introduction of RFIC,3,ECE,2-0-0-0-2,2,Rajesh Kumar,0,Yes,Yes,ELECTIVE_B5,No,No
-EC253,Introduction to embedded signels,3,ECE,2-0-0-0-2,2,Sibasankar Padhy,0,Yes,Yes,ELECTIVE_B5,Yes,No
-EC254,Electronic Systems engineering,3,ECE,2-0-0-0-2,2,Mallikarjun Kande,0,Yes,Yes,ELECTIVE_B5,No,No
+EC251,Electronics Systems design - 1,3,ECE,2-0-0-0-2,2,Pankaj,0,Yes,Yes,ELECTIVE_B4,No,No
+EC252,Introduction of RFIC,3,ECE,2-0-0-0-2,2,Rajesh Kumar,0,Yes,Yes,ELECTIVE_B4,No,No
+EC253,Introduction to embedded signels,3,ECE,2-0-0-0-2,2,Sibasankar Padhy,0,Yes,Yes,ELECTIVE_B4,Yes,No
+EC254,Electronic Systems engineering,3,ECE,2-0-0-0-2,2,Mallikarjun Kande,0,Yes,Yes,ELECTIVE_B4,No,No
 CS162,Data Science with Python,3,ECE,2-0-0-0-2,2,Abdul Wahid,0,Yes,Yes,ELECTIVE_B5,No,No
 DE352,User Interaction (Minor),3,ECE,3-1-0-0-4,4,Sandesh P,0,Yes,No,ELECTIVE_B5,No,No
 CS251,2D Computer Graphics,3,ECE,2-0-0-0-2,2,Vivekraj,0,Yes,Yes,ELECTIVE_B5,No,No

@@ -1418,15 +1418,14 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
             );
             console.log(`🎯 Semester 3 - Filtered to B3 baskets:`, filteredBaskets);
         } else if (semester === 5) {
-            // For semester 5, show only B5 baskets
+            // For semester 5, show B5 and B4 baskets
             filteredBaskets = baskets.filter(basket => 
-                basket.includes('B5') || 
-                basket.includes('_B5') ||
-                basket === 'ELECTIVE_B5' ||
-                basket === 'HSS_B5' ||
-                basket === 'PROF_B5'
+                basket.includes('B5') || basket.includes('_B5') ||
+                basket.includes('B4') || basket.includes('_B4') ||
+                basket === 'ELECTIVE_B5' || basket === 'ELECTIVE_B4' ||
+                basket === 'HSS_B5' || basket === 'PROF_B5'
             );
-            console.log(`🎯 Semester 5 - Filtered to B5 baskets:`, filteredBaskets);
+            console.log(`🎯 Semester 5 - Filtered to B5 and B4 baskets:`, filteredBaskets);
         }
         // For other semesters, show all baskets
         
@@ -1774,6 +1773,13 @@ function renderTimetables() {
     });
     
     if (!timetablesContainer) return;
+
+    const allowedViews = ['grid', 'list'];
+    if (!allowedViews.includes(currentView)) {
+        console.warn(`⚠️ Invalid view "${currentView}" detected, falling back to grid view`);
+        currentView = 'grid';
+        if (viewMode) viewMode.value = 'grid';
+    }
     
     if (currentTimetables.length === 0) {
         if (emptyState) emptyState.style.display = 'block';
@@ -1806,8 +1812,6 @@ function renderTimetables() {
         renderGridView(filteredTimetables);
     } else if (currentView === 'list') {
         renderListView(filteredTimetables);
-    } else if (currentView === 'compact') {
-        renderCompactView(filteredTimetables);
     }
     
     // Enhance tables with color coding and legends
@@ -1930,7 +1934,11 @@ function filterTimetablesData() {
 
 function changeViewMode() {
     if (viewMode) {
-        currentView = viewMode.value;
+        const selectedView = viewMode.value;
+        currentView = ['grid', 'list'].includes(selectedView) ? selectedView : 'grid';
+        if (currentView !== selectedView) {
+            viewMode.value = currentView;
+        }
         renderTimetables();
     }
 }
@@ -3528,7 +3536,8 @@ function renderExamTimetables() {
     if (emptyState) emptyState.style.display = 'none';
     
     // Get current view mode
-    const activeView = document.querySelector('.toggle-btn.active')?.dataset.view || 'session';
+    const activeViewRaw = document.querySelector('.toggle-btn.active')?.dataset.view || 'session';
+    const activeView = activeViewRaw === 'daily' ? 'daily' : 'session';
     
     let html = '';
     
@@ -3570,10 +3579,8 @@ function renderExamTimetables() {
         
         if (activeView === 'session') {
             html += renderSessionView(timetable, scheduledExams);
-        } else if (activeView === 'daily') {
+        } else {
             html += renderDailyView(timetable, scheduledExams);
-        } else if (activeView === 'compact') {
-            html += renderCompactView(timetable, scheduledExams);
         }
     });
     
@@ -3960,9 +3967,10 @@ function setupViewModeToggle() {
 
 // Add event listener for the toggle view button
 document.getElementById('toggle-view-mode')?.addEventListener('click', function() {
+    const toggleButtons = document.querySelectorAll('.toggle-btn');
     const currentView = document.querySelector('.toggle-btn.active')?.dataset.view;
-    const nextView = currentView === 'session' ? 'daily' : currentView === 'daily' ? 'compact' : 'session';
-    
+    const nextView = currentView === 'session' ? 'daily' : 'session';
+
     const nextButton = document.querySelector(`[data-view="${nextView}"]`);
     if (nextButton) {
         toggleButtons.forEach(b => b.classList.remove('active'));
