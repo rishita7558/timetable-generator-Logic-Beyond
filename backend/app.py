@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify, send_file
 import os
+import re
 import pandas as pd
 import random
 import zipfile
@@ -44,6 +45,8 @@ def initialize_classroom_usage_tracker():
         _CLASSROOM_USAGE_TRACKER[day] = {}
         for time_slot in time_slots:
             _CLASSROOM_USAGE_TRACKER[day][time_slot] = set()
+
+    print(f"   🏫 Initialized classroom tracker: {len(days)} days × {len(time_slots)} time slots")
 
 def reset_classroom_usage_tracker():
     """Reset the classroom usage tracker (call before generating new timetables)"""
@@ -247,7 +250,9 @@ def get_course_info(dfs):
                 'department': department,  # Use mapped department
                 'is_elective': is_elective,
                 'branch': department,  # Use department as branch for compatibility
-                'is_common_elective': is_elective
+                'is_common_elective': is_elective,
+                'ltpsc': course.get('LTPSC', ''),
+                'ltpsc_components': parse_ltpsc(course.get('LTPSC', '')) if 'LTPSC' in course else None
             }
             
             # Debug logging
@@ -342,20 +347,27 @@ def separate_courses_by_type(dfs, semester_id, branch=None):
 
 def parse_ltpsc(ltpsc_string):
     """Parse L-T-P-S-C string and return components"""
+    # Default values: 2 lectures, 1 tutorial, 0 practicals
+    default_ltpsc = {'L': 2, 'T': 1, 'P': 0, 'S': 0, 'C': 2}
+    
+    # Handle empty or None values
+    if not ltpsc_string or pd.isna(ltpsc_string) or str(ltpsc_string).strip() == '':
+        return default_ltpsc
+    
     try:
-        parts = ltpsc_string.split('-')
+        parts = str(ltpsc_string).strip().split('-')
         if len(parts) == 5:
             return {
-                'L': int(parts[0]),  # Lectures per week
-                'T': int(parts[1]),  # Tutorials per week
-                'P': int(parts[2]),  # Practicals per week
-                'S': int(parts[3]),  # S credits
-                'C': int(parts[4])   # Total credits
+                'L': int(parts[0]) if parts[0].strip() else 2,  # Lectures per week
+                'T': int(parts[1]) if parts[1].strip() else 1,  # Tutorials per week
+                'P': int(parts[2]) if parts[2].strip() else 0,  # Practicals per week
+                'S': int(parts[3]) if parts[3].strip() else 0,  # S credits
+                'C': int(parts[4]) if parts[4].strip() else 2   # Total credits
             }
         else:
-            return {'L': 3, 'T': 0, 'P': 0, 'S': 0, 'C': 3}
+            return default_ltpsc
     except:
-        return {'L': 3, 'T': 0, 'P': 0, 'S': 0, 'C': 3}
+        return default_ltpsc
 
 def enforce_elective_day_separation(basket_allocations):
     """Enforce that elective lectures and tutorials are on different days"""
@@ -391,12 +403,15 @@ def enforce_elective_day_separation(basket_allocations):
     
     return basket_allocations
 
-def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times, branch=None):
-    """Schedule core courses with exactly 2 lectures and 1 tutorial per course"""
+def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times, lab_times=None, branch=None):
+    """Schedule core courses strictly adhering to LTPSC structure"""
     if core_courses.empty:
         return used_slots
     
     course_day_usage = {}
+    
+    # Lab times are handled as consecutive slot pairs (2-hour labs use 2 consecutive 1.5-hour slots)
+    # No need for separate lab_times parameter - handled internally
     
     # ENHANCED: Filter core courses to only include department-specific ones
     if branch and 'Department' in core_courses.columns:
@@ -412,20 +427,39 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
         print(f"   ℹ️ No department-specific core courses found for {branch}")
         return used_slots
     
-    # Parse LTPSC for core courses - ENFORCE 2 lectures + 1 tutorial
+    # Parse LTPSC for core courses - STRICTLY ADHERE TO LTPSC STRUCTURE
     for _, course in dept_core_courses.iterrows():
         course_code = course['Course Code']
+        ltpsc_str = course.get('LTPSC', '')
         
-        # ENFORCE: Each course gets exactly 2 lectures and 1 tutorial
-        lectures_needed = 2
-        tutorials_needed = 1
+        # Parse LTPSC - defaults to 2 lectures, 1 tutorial if empty
+        ltpsc = parse_ltpsc(ltpsc_str)
+        L = ltpsc['L']
+        T = ltpsc['T']
+        P = ltpsc['P']
+        
+        # Determine lectures needed: if L is 2 or 3, schedule 2 lectures
+        if L == 2 or L == 3:
+            lectures_needed = 2
+        elif L == 1:
+            lectures_needed = 1
+        else:
+            # For other values, schedule min(L, 2) lectures
+            lectures_needed = min(L, 2)
+        
+        # Determine tutorials needed: if T is 1, schedule 1 tutorial
+        tutorials_needed = 1 if T >= 1 else 0
+        
+        # Determine labs needed: if P is 1, schedule 1 lab (2 hours)
+        labs_needed = 1 if P >= 1 else 0
         
         # Track which days we've used for this course
-        course_day_usage[course_code] = {'lectures': set(), 'tutorials': set()}
+        course_day_usage[course_code] = {'lectures': set(), 'tutorials': set(), 'labs': set()}
         
-        print(f"      Scheduling {lectures_needed} lectures and {tutorials_needed} tutorial for {course_code} (Department: {course.get('Department', 'General')})...")
+        print(f"      Scheduling {course_code} (LTPSC: {ltpsc_str} -> L={L}, T={T}, P={P}):")
+        print(f"         → {lectures_needed} lectures, {tutorials_needed} tutorial, {labs_needed} lab")
         
-        # Schedule lectures (1.5 hours each) - ENFORCE 2 lectures on different days
+        # Schedule lectures (1.5 hours each)
         lectures_scheduled = 0
         max_lecture_attempts = 200
         
@@ -435,7 +469,6 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
             # Find days where this course doesn't have a lecture yet
             available_days = [d for d in days if d not in course_day_usage[course_code]['lectures']]
             if not available_days:
-                # If no available days left, we can't schedule without violating the rule
                 print(f"      ⚠️ Cannot schedule more lectures for {course_code} - no available days left")
                 break
             
@@ -450,9 +483,10 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
                 lectures_scheduled += 1
                 print(f"      ✅ Scheduled lecture {lectures_scheduled} for {course_code} on {day} at {time_slot}")
         
-        # Schedule tutorial (1 hour) - ENFORCE 1 tutorial on a different day
+        # Schedule tutorial (1 hour) if needed
         tutorials_scheduled = 0
-        max_tutorial_attempts = 100
+        if tutorials_needed > 0:
+            max_tutorial_attempts = 100
         
         while tutorials_scheduled < tutorials_needed and max_tutorial_attempts > 0:
             max_tutorial_attempts -= 1
@@ -477,12 +511,63 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
                 tutorials_scheduled += 1
                 print(f"      ✅ Scheduled tutorial for {course_code} on {day} at {time_slot}")
         
+        # Schedule lab (STRICTLY 2 hours) if needed - use consecutive 1.5-hour slots
+        # Labs are ALWAYS scheduled for exactly 2 hours using two consecutive slots
+        labs_scheduled = 0
+        if labs_needed > 0:
+            max_lab_attempts = 100
+            
+            # Define 2-hour lab slot pairs (consecutive 1.5-hour slots that form a 2-hour lab)
+            # Labs MUST be scheduled for exactly 2 hours - no exceptions
+            lab_slot_pairs = [
+                (['13:00-14:30', '14:30-15:30'], '13:00-15:30'),  # 2 hours: 13:00-15:30
+                (['15:30-17:00', '17:00-18:00'], '15:30-18:00'),  # 2 hours: 15:30-18:00
+            ]
+            
+            while labs_scheduled < labs_needed and max_lab_attempts > 0:
+                max_lab_attempts -= 1
+                
+                # Find days where this course doesn't have a lab
+                available_days = [d for d in days if d not in course_day_usage[course_code]['labs']]
+                if not available_days:
+                    print(f"      ⚠️ Cannot schedule lab for {course_code} - no available days left")
+                    break
+                
+                day = random.choice(available_days)
+                # Try each lab slot pair
+                lab_scheduled = False
+                for slot_pair, lab_display_time in lab_slot_pairs:
+                    # Check if both consecutive slots are free
+                    slot1, slot2 = slot_pair
+                    key1 = (day, slot1)
+                    key2 = (day, slot2)
+                    
+                    if (key1 not in used_slots and key2 not in used_slots and
+                        schedule.loc[slot1, day] == 'Free' and schedule.loc[slot2, day] == 'Free'):
+                        # Mark both slots as lab
+                        schedule.loc[slot1, day] = f"{course_code} (Lab)"
+                        schedule.loc[slot2, day] = f"{course_code} (Lab)"
+                        used_slots.add(key1)
+                        used_slots.add(key2)
+                        course_day_usage[course_code]['labs'].add(day)
+                        labs_scheduled += 1
+                        lab_scheduled = True
+                        print(f"      ✅ Scheduled lab for {course_code} on {day} at {lab_display_time} (using slots {slot1} and {slot2})")
+                        break
+                
+                if not lab_scheduled:
+                    # Try next attempt
+                    continue
+        
+        # Summary
         if lectures_scheduled < lectures_needed:
             print(f"      ❌ Could only schedule {lectures_scheduled}/{lectures_needed} lectures for {course_code}")
-        if tutorials_scheduled < tutorials_needed:
+        if tutorials_needed > 0 and tutorials_scheduled < tutorials_needed:
             print(f"      ❌ Could only schedule {tutorials_scheduled}/{tutorials_needed} tutorials for {course_code}")
-        if lectures_scheduled == lectures_needed and tutorials_scheduled == tutorials_needed:
-            print(f"      ✅ Successfully scheduled {course_code} with 2 lectures and 1 tutorial")
+        if labs_needed > 0 and labs_scheduled < labs_needed:
+            print(f"      ❌ Could only schedule {labs_scheduled}/{labs_needed} labs for {course_code}")
+        if lectures_scheduled == lectures_needed and tutorials_scheduled == tutorials_needed and labs_scheduled == labs_needed:
+            print(f"      ✅ Successfully scheduled {course_code} according to LTPSC structure")
 
     return used_slots
 
@@ -656,7 +741,7 @@ def schedule_electives_by_baskets(elective_allocations, schedule, used_slots, se
             else:
                 print(f"         ❌ LECTURE CONFLICT: {day} {time_slot} - {schedule.loc[time_slot, day]}")
         
-        # Schedule tutorial - IDENTICAL for all branches and sections
+        # Schedule tutorial - IDENTICAL for all branches and sections (only if T >= 1)
         if tutorial:
             day, time_slot = tutorial
             slot_key = (basket_name, day, time_slot, 'tutorial')
@@ -673,6 +758,8 @@ def schedule_electives_by_baskets(elective_allocations, schedule, used_slots, se
                     print(f"                SAME for ALL branches & sections")
                 else:
                     print(f"         ❌ TUTORIAL CONFLICT: {day} {time_slot} - {schedule.loc[time_slot, day]}")
+        else:
+            print(f"         ℹ️ No tutorial scheduled (T=0 in LTPSC)")
     
     print(f"   ✅ Scheduled {elective_scheduled} IDENTICAL COMMON elective sessions")
     return used_slots
@@ -706,6 +793,10 @@ def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, e
         # Tutorial slots (1 hour)
         tutorial_times = ['14:30-15:30', '17:00-18:00']
         
+        # Lab slots (2 hours) - represented as pairs of consecutive 1.5-hour slots
+        # Labs will use: ['13:00-14:30', '14:30-15:30'] or ['15:30-17:00', '17:00-18:00']
+        lab_times = None  # Will be handled as slot pairs in the scheduling function
+        
         # Create schedule template
         schedule = pd.DataFrame(index=all_slots, columns=days, dtype=object).fillna('Free')
         schedule.loc['12:00-13:00'] = 'LUNCH BREAK'
@@ -726,10 +817,29 @@ def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, e
             used_slots = schedule_electives_by_baskets(elective_allocations, schedule, used_slots, section, branch)
         
         # Schedule core courses AFTER electives - these are branch-specific
+        # IMPORTANT: Filter out any elective courses that are already scheduled in baskets
         if not core_courses.empty:
-            print(f"   📚 Scheduling {len(core_courses)} BRANCH-SPECIFIC core courses for {branch}...")
-            used_slots = schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, 
-                                                            lecture_times, tutorial_times, branch)
+            # Get list of elective course codes from baskets to exclude them
+            elective_course_codes = set()
+            if elective_allocations:
+                for allocation in elective_allocations.values():
+                    if allocation and 'all_courses_in_basket' in allocation:
+                        elective_course_codes.update(allocation['all_courses_in_basket'])
+            
+            # Filter out elective courses from core_courses
+            if elective_course_codes:
+                core_courses_filtered = core_courses[~core_courses['Course Code'].isin(elective_course_codes)].copy()
+                excluded_count = len(core_courses) - len(core_courses_filtered)
+                if excluded_count > 0:
+                    print(f"   🚫 Excluded {excluded_count} elective course(s) already scheduled in baskets: {', '.join(elective_course_codes)}")
+                core_courses = core_courses_filtered
+            
+            if not core_courses.empty:
+                print(f"   📚 Scheduling {len(core_courses)} BRANCH-SPECIFIC core courses for {branch}...")
+                used_slots = schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, 
+                                                                    lecture_times, tutorial_times, None, branch)
+            else:
+                print(f"   ℹ️ No core courses to schedule after filtering electives")
         
         return schedule
         
@@ -894,21 +1004,48 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
         basket_courses = basket_groups[basket_name]
         course_codes = [course['Course Code'] for course in basket_courses]
         
+        # Parse LTPSC for the first course in the basket (assume all courses in basket have same LTPSC)
+        # If LTPSC is empty, default to 2 lectures and 1 tutorial
+        first_course = basket_courses[0]
+        ltpsc_str = first_course.get('LTPSC', '')
+        ltpsc = parse_ltpsc(ltpsc_str)
+        L = ltpsc['L']
+        T = ltpsc['T']
+        P = ltpsc['P']
+        
+        # Determine lectures needed: if L is 2 or 3, schedule 2 lectures
+        if L == 2 or L == 3:
+            lectures_needed = 2
+        elif L == 1:
+            lectures_needed = 1
+        else:
+            lectures_needed = min(L, 2)
+        
+        # Determine tutorials needed: if T is 1, schedule 1 tutorial
+        tutorials_needed = 1 if T >= 1 else 0
+        
+        print(f"   🗂️ Basket '{basket_name}' LTPSC: {ltpsc_str} -> L={L}, T={T}, P={P}")
+        print(f"      → Scheduling {lectures_needed} lectures, {tutorials_needed} tutorial")
+        
         # Get the FIXED common slots for this basket
         if basket_name in common_slots_mapping:
             fixed_slots = common_slots_mapping[basket_name]
-            lectures_allocated = fixed_slots['lectures']
-            tutorial_allocated = fixed_slots['tutorial']
+            # Use only the number of lectures needed based on LTPSC
+            lectures_allocated = fixed_slots['lectures'][:lectures_needed]
+            tutorial_allocated = fixed_slots['tutorial'] if tutorials_needed > 0 else None
         else:
             # Fallback for baskets not in mapping
-            lectures_allocated = [('Mon', '09:00-10:30'), ('Wed', '09:00-10:30')]
-            tutorial_allocated = ('Fri', '14:30-15:30')
+            if lectures_needed >= 2:
+                lectures_allocated = [('Mon', '09:00-10:30'), ('Wed', '09:00-10:30')]
+            else:
+                lectures_allocated = [('Mon', '09:00-10:30')]
+            tutorial_allocated = ('Fri', '14:30-15:30') if tutorials_needed > 0 else None
             print(f"   ⚠️ Using fallback slots for unknown basket: {basket_name}")
         
         # Verify day separation
         lecture_days = set(day for day, time in lectures_allocated)
-        tutorial_day = tutorial_allocated[0]
-        days_separated = tutorial_day not in lecture_days
+        tutorial_day = tutorial_allocated[0] if tutorial_allocated else None
+        days_separated = tutorial_day not in lecture_days if tutorial_day else True
         
         # Store allocation for ALL courses in this basket
         for course_code in course_codes:
@@ -924,7 +1061,10 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
                 'lecture_days': list(lecture_days),
                 'tutorial_day': tutorial_day,
                 'days_separated': days_separated,
-                'fixed_common_slots': True
+                'fixed_common_slots': True,
+                'ltpsc': ltpsc_str,
+                'lectures_needed': lectures_needed,
+                'tutorials_needed': tutorials_needed
             }
         
         basket_allocations[basket_name] = {
@@ -935,14 +1075,18 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
             'lecture_days': list(lecture_days),
             'tutorial_day': tutorial_day,
             'days_separated': days_separated,
-            'fixed_common_slots': True
+            'fixed_common_slots': True,
+            'ltpsc': ltpsc_str,
+            'lectures_needed': lectures_needed,
+            'tutorials_needed': tutorials_needed
         }
         
         print(f"   🗂️ FIXED COMMON SLOTS for Basket '{basket_name}':")
-        print(f"      📍 SAME FOR ALL BRANCHES & SECTIONS")
+        print(f"      📍 SAME FOR ALL BRANCHES & SECTIONS (LTPSC-based)")
         for i, (day, time_slot) in enumerate(lectures_allocated, 1):
             print(f"      Lecture {i}: {day} {time_slot}")
-        print(f"      Tutorial: {tutorial_allocated[0]} {tutorial_allocated[1]}")
+        if tutorial_allocated:
+            print(f"      Tutorial: {tutorial_allocated[0]} {tutorial_allocated[1]}")
         print(f"      Days Separation: {'✅ DIFFERENT DAYS' if days_separated else '❌ SAME DAY'}")
         print(f"      Courses: {', '.join(course_codes)}")
     
@@ -1623,18 +1767,62 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
         (classrooms_df['Type'].str.contains('auditorium', case=False, na=False))
     ].copy()
     
+    # Filter lab rooms separately (rooms starting with "L")
+    available_lab_rooms = classrooms_df[
+        classrooms_df['Room Number'].astype(str).str.startswith('L', na=False)
+    ].copy()
+    
     # Convert capacity to numeric, handle 'nil' values
     available_classrooms['Capacity'] = pd.to_numeric(available_classrooms['Capacity'], errors='coerce')
     available_classrooms = available_classrooms.dropna(subset=['Capacity'])
+    
+    available_lab_rooms['Capacity'] = pd.to_numeric(available_lab_rooms['Capacity'], errors='coerce')
+    available_lab_rooms = available_lab_rooms.dropna(subset=['Capacity'])
     
     if available_classrooms.empty:
         print("   ⚠️ No suitable classrooms found after filtering")
         return schedule_df
     
     print(f"   Available classrooms: {len(available_classrooms)}")
+    print(f"   Available lab rooms: {len(available_lab_rooms)}")
+    
+    non_lab_mask = ~available_classrooms['Room Number'].astype(str).str.startswith('L', na=False)
+    primary_classrooms = available_classrooms[non_lab_mask].copy()
+    fallback_lab_classrooms = available_classrooms[~non_lab_mask].copy()
+    
+    print(f"   Primary classrooms (non-L prefix): {len(primary_classrooms)}")
+    print(f"   Fallback classrooms (L prefix): {len(fallback_lab_classrooms)}")
     
     # Create a copy of schedule with classroom allocation
     schedule_with_rooms = schedule_df.copy()
+    course_preferred_classrooms = {}
+
+    def room_available(room_number, day_key, slot_key):
+        return room_number not in _CLASSROOM_USAGE_TRACKER.get(day_key, {}).get(slot_key, set())
+
+    def reserve_room(room_number, day_key, slot_key):
+        if day_key not in _CLASSROOM_USAGE_TRACKER:
+            _CLASSROOM_USAGE_TRACKER[day_key] = {}
+        if slot_key not in _CLASSROOM_USAGE_TRACKER[day_key]:
+            _CLASSROOM_USAGE_TRACKER[day_key][slot_key] = set()
+        _CLASSROOM_USAGE_TRACKER[day_key][slot_key].add(room_number)
+
+    def room_available_for_lab_pair(room_number, day_key, slot_one, slot_two):
+        return room_available(room_number, day_key, slot_one) and room_available(room_number, day_key, slot_two)
+    
+    def allocate_regular_classroom(enrollment_value, day_key, slot_key):
+        classroom_choice = None
+        if not primary_classrooms.empty:
+            classroom_choice = find_suitable_classroom_with_tracking(
+                primary_classrooms, enrollment_value, day_key, slot_key, _CLASSROOM_USAGE_TRACKER
+            )
+        if classroom_choice is None and not fallback_lab_classrooms.empty:
+            classroom_choice = find_suitable_classroom_with_tracking(
+                fallback_lab_classrooms, enrollment_value, day_key, slot_key, _CLASSROOM_USAGE_TRACKER
+            )
+            if classroom_choice:
+                print(f"         ⚠️ Falling back to lab-prefixed room {classroom_choice} for {day_key} {slot_key}")
+        return classroom_choice
     
     # Estimate student numbers for courses
     course_enrollment = estimate_course_enrollment(course_info)
@@ -1643,6 +1831,15 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
     timetable_key = f"{branch}_sem{semester}_sec{section}"
     if timetable_key not in _TIMETABLE_CLASSROOM_ALLOCATIONS:
         _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key] = {}
+    
+    # Track which lab slots have been processed to avoid double allocation
+    processed_lab_slots = set()
+    
+    # Define lab slot pairs (consecutive slots that form a 2-hour lab)
+    lab_slot_pairs = {
+        '13:00-14:30': '14:30-15:30',  # First slot -> Second slot
+        '15:30-17:00': '17:00-18:00',  # First slot -> Second slot
+    }
     
     # Allocate classrooms for each time slot
     allocation_count = 0
@@ -1654,44 +1851,256 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
             if course_value in ['Free', 'LUNCH BREAK']:
                 continue
             
+            # Skip if this slot was already processed as part of a lab pair
+            if (day, time_slot) in processed_lab_slots:
+                continue
+            
             # Handle both regular courses and basket entries
             if isinstance(course_value, str):
+                # Check if this is a lab slot
+                is_lab = ' (Lab)' in course_value
+                
                 # For basket entries, use a standard enrollment
                 if any(basket in course_value for basket in ['ELECTIVE_B', 'HSS_B', 'PROF_B', 'OE_B']):
                     enrollment = 40  # Standard enrollment for elective baskets
                     course_display = course_value
                 else:
-                    # Regular course - extract clean course code
-                    clean_course_code = course_value.replace(' (Tutorial)', '')
+                    # Regular course - extract clean course code (handle Tutorial, Lab suffixes)
+                    clean_course_code = course_value.replace(' (Tutorial)', '').replace(' (Lab)', '')
                     enrollment = course_enrollment.get(clean_course_code, 50)
                     course_display = course_value
             else:
                 continue
             
-            # Find suitable classroom with global usage tracking
-            suitable_classroom = find_suitable_classroom_with_tracking(
-                available_classrooms, enrollment, day, time_slot, _CLASSROOM_USAGE_TRACKER
-            )
+            course_key = course_display
+            preferred_classroom = course_preferred_classrooms.get(course_key)
             
-            if suitable_classroom:
-                # Update schedule with classroom in format "Course [Room]"
-                schedule_with_rooms.loc[time_slot, day] = f"{course_display} [{suitable_classroom}]"
+            # If this is a lab and it's the first slot of a lab pair, find a classroom available for BOTH slots
+            if is_lab and time_slot in lab_slot_pairs:
+                second_slot = lab_slot_pairs[time_slot]
+                second_course_value = schedule_df.loc[second_slot, day]
                 
-                # Track this allocation
-                allocation_key = f"{day}_{time_slot}"
-                _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key] = {
-                    'course': course_display,
-                    'classroom': suitable_classroom,
-                    'enrollment': enrollment
-                }
-                
-                allocation_count += 1
-                print(f"      ✅ {day} {time_slot}: {course_display} → {suitable_classroom} ({enrollment} students)")
+                # Check if second slot also has the same lab course
+                if isinstance(second_course_value, str) and second_course_value == course_value:
+                    if preferred_classroom and room_available_for_lab_pair(preferred_classroom, day, time_slot, second_slot):
+                        reserve_room(preferred_classroom, day, time_slot)
+                        reserve_room(preferred_classroom, day, second_slot)
+                        schedule_with_rooms.loc[time_slot, day] = f"{course_display} [{preferred_classroom}]"
+                        schedule_with_rooms.loc[second_slot, day] = f"{course_display} [{preferred_classroom}]"
+                        
+                        allocation_key_1 = f"{day}_{time_slot}"
+                        allocation_key_2 = f"{day}_{second_slot}"
+                        _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key_1] = {
+                            'course': course_display,
+                            'classroom': preferred_classroom,
+                            'enrollment': enrollment
+                        }
+                        _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key_2] = {
+                            'course': course_display,
+                            'classroom': preferred_classroom,
+                            'enrollment': enrollment
+                        }
+                        
+                        processed_lab_slots.add((day, second_slot))
+                        
+                        allocation_count += 2
+                        print(f"      🔁 Reusing {preferred_classroom} for lab pair {day} {time_slot} & {second_slot} ({enrollment} students)")
+                    else:
+                        # Find a LAB ROOM (starting with "L") that's available for BOTH slots
+                        # Labs must use lab rooms, not regular classrooms
+                        suitable_classroom = find_suitable_classroom_for_lab_pair(
+                            available_lab_rooms, enrollment, day, time_slot, second_slot, _CLASSROOM_USAGE_TRACKER
+                        )
+                        
+                        if suitable_classroom:
+                            # Allocate the same classroom to BOTH slots
+                            # Mark both slots as used in the tracker
+                            reserve_room(suitable_classroom, day, time_slot)
+                            reserve_room(suitable_classroom, day, second_slot)
+                            
+                            # Update schedule with same classroom for both slots
+                            schedule_with_rooms.loc[time_slot, day] = f"{course_display} [{suitable_classroom}]"
+                            schedule_with_rooms.loc[second_slot, day] = f"{course_display} [{suitable_classroom}]"
+                            if course_key not in course_preferred_classrooms:
+                                course_preferred_classrooms[course_key] = suitable_classroom
+                            
+                            # Track both allocations
+                            allocation_key_1 = f"{day}_{time_slot}"
+                            allocation_key_2 = f"{day}_{second_slot}"
+                            _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key_1] = {
+                                'course': course_display,
+                                'classroom': suitable_classroom,
+                                'enrollment': enrollment
+                            }
+                            _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key_2] = {
+                                'course': course_display,
+                                'classroom': suitable_classroom,
+                                'enrollment': enrollment
+                            }
+                            
+                            # Mark second slot as processed
+                            processed_lab_slots.add((day, second_slot))
+                            
+                            allocation_count += 2
+                            print(f"      ✅ {day} {time_slot} & {second_slot}: {course_display} → {suitable_classroom} ({enrollment} students) [Lab pair - same room]")
+                        else:
+                            print(f"      ⚠️  {day} {time_slot}: No classroom available for lab pair ({time_slot} & {second_slot})")
+                else:
+                    # Not a proper lab pair, treat as regular course
+                    if preferred_classroom and room_available(preferred_classroom, day, time_slot):
+                        reserve_room(preferred_classroom, day, time_slot)
+                        schedule_with_rooms.loc[time_slot, day] = f"{course_display} [{preferred_classroom}]"
+                        allocation_key = f"{day}_{time_slot}"
+                        _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key] = {
+                            'course': course_display,
+                            'classroom': preferred_classroom,
+                            'enrollment': enrollment
+                        }
+                        allocation_count += 1
+                        print(f"      🔁 Reusing {preferred_classroom} for {course_display} on {day} {time_slot} ({enrollment} students)")
+                    else:
+                        suitable_classroom = allocate_regular_classroom(enrollment, day, time_slot)
+                        if suitable_classroom:
+                            schedule_with_rooms.loc[time_slot, day] = f"{course_display} [{suitable_classroom}]"
+                            allocation_key = f"{day}_{time_slot}"
+                            _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key] = {
+                                'course': course_display,
+                                'classroom': suitable_classroom,
+                                'enrollment': enrollment
+                            }
+                            if course_key not in course_preferred_classrooms:
+                                course_preferred_classrooms[course_key] = suitable_classroom
+                            allocation_count += 1
+                            print(f"      ✅ {day} {time_slot}: {course_display} → {suitable_classroom} ({enrollment} students)")
             else:
-                print(f"      ⚠️  {day} {time_slot}: No classroom available for {course_display} ({enrollment} students)")
+                # Regular course (not a lab pair) - find classroom normally
+                if preferred_classroom and room_available(preferred_classroom, day, time_slot):
+                    reserve_room(preferred_classroom, day, time_slot)
+                    schedule_with_rooms.loc[time_slot, day] = f"{course_display} [{preferred_classroom}]"
+                    
+                    allocation_key = f"{day}_{time_slot}"
+                    _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key] = {
+                        'course': course_display,
+                        'classroom': preferred_classroom,
+                        'enrollment': enrollment
+                    }
+                    
+                    allocation_count += 1
+                    print(f"      🔁 Reusing {preferred_classroom} for {course_display} on {day} {time_slot} ({enrollment} students)")
+                else:
+                    suitable_classroom = allocate_regular_classroom(enrollment, day, time_slot)
+                    
+                    if suitable_classroom:
+                        # Update schedule with classroom in format "Course [Room]"
+                        schedule_with_rooms.loc[time_slot, day] = f"{course_display} [{suitable_classroom}]"
+                        
+                        # Track this allocation
+                        allocation_key = f"{day}_{time_slot}"
+                        _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key] = {
+                            'course': course_display,
+                            'classroom': suitable_classroom,
+                            'enrollment': enrollment
+                        }
+                        if course_key not in course_preferred_classrooms:
+                            course_preferred_classrooms[course_key] = suitable_classroom
+                        
+                        allocation_count += 1
+                        print(f"      ✅ {day} {time_slot}: {course_display} → {suitable_classroom} ({enrollment} students)")
+                    else:
+                        print(f"      ⚠️  {day} {time_slot}: No classroom available for {course_display} ({enrollment} students)")
     
     print(f"   🏫 Total classroom allocations: {allocation_count}")
     return schedule_with_rooms
+
+def find_suitable_classroom_for_lab_pair(lab_rooms_df, enrollment, day, time_slot1, time_slot2, classroom_usage_tracker):
+    """Find a suitable LAB ROOM (starting with "L") that's available for BOTH slots of a lab pair"""
+    if lab_rooms_df.empty:
+        print(f"         ⚠️ No lab rooms available for lab pair")
+        return None
+    
+    # Ensure we only use lab rooms (rooms starting with "L")
+    lab_rooms_df = lab_rooms_df[
+        lab_rooms_df['Room Number'].astype(str).str.startswith('L', na=False)
+    ].copy()
+    
+    if lab_rooms_df.empty:
+        print(f"         ⚠️ No lab rooms (starting with 'L') found")
+        return None
+    
+    # Filter lab rooms that can accommodate the enrollment
+    suitable_rooms = lab_rooms_df[lab_rooms_df['Capacity'] >= enrollment].copy()
+    
+    if suitable_rooms.empty:
+        # If no room can accommodate, find the largest available lab room
+        suitable_rooms = lab_rooms_df.nlargest(3, 'Capacity')
+        if suitable_rooms.empty:
+            print(f"         ⚠️ No lab rooms available for {enrollment} students")
+            return None
+        print(f"         ⚠️ Using largest available lab room for {enrollment} students (lab pair)")
+    
+    # Sort by capacity (prefer smallest adequate room first)
+    suitable_rooms = suitable_rooms.sort_values('Capacity')
+    
+    # Shuffle to ensure variety
+    suitable_rooms = suitable_rooms.sample(frac=1).reset_index(drop=True)
+    
+    # Check availability in global tracker for BOTH slots
+    for _, room in suitable_rooms.iterrows():
+        room_number = room['Room Number']
+        
+        # Check if room is available for BOTH time slots
+        available_slot1 = (day in classroom_usage_tracker and 
+                          time_slot1 in classroom_usage_tracker[day] and
+                          room_number not in classroom_usage_tracker[day][time_slot1])
+        
+        available_slot2 = (day in classroom_usage_tracker and 
+                          time_slot2 in classroom_usage_tracker[day] and
+                          room_number not in classroom_usage_tracker[day][time_slot2])
+        
+        if available_slot1 and available_slot2:
+            # Mark room as used in global tracker for BOTH slots
+            if day not in classroom_usage_tracker:
+                classroom_usage_tracker[day] = {}
+            if time_slot1 not in classroom_usage_tracker[day]:
+                classroom_usage_tracker[day][time_slot1] = set()
+            if time_slot2 not in classroom_usage_tracker[day]:
+                classroom_usage_tracker[day][time_slot2] = set()
+            
+            classroom_usage_tracker[day][time_slot1].add(room_number)
+            classroom_usage_tracker[day][time_slot2].add(room_number)
+            print(f"         📍 Allocated {room_number} for lab pair {day} {time_slot1} & {time_slot2} (Capacity: {room['Capacity']})")
+            return room_number
+    
+    # If all suitable rooms are booked, try larger lab rooms
+    larger_rooms = lab_rooms_df[lab_rooms_df['Capacity'] > enrollment].copy()
+    if not larger_rooms.empty:
+        larger_rooms = larger_rooms.sort_values('Capacity')
+        larger_rooms = larger_rooms.sample(frac=1).reset_index(drop=True)
+        for _, room in larger_rooms.iterrows():
+            room_number = room['Room Number']
+            
+            available_slot1 = (day in classroom_usage_tracker and 
+                              time_slot1 in classroom_usage_tracker[day] and
+                              room_number not in classroom_usage_tracker[day][time_slot1])
+            
+            available_slot2 = (day in classroom_usage_tracker and 
+                              time_slot2 in classroom_usage_tracker[day] and
+                              room_number not in classroom_usage_tracker[day][time_slot2])
+            
+            if available_slot1 and available_slot2:
+                if day not in classroom_usage_tracker:
+                    classroom_usage_tracker[day] = {}
+                if time_slot1 not in classroom_usage_tracker[day]:
+                    classroom_usage_tracker[day][time_slot1] = set()
+                if time_slot2 not in classroom_usage_tracker[day]:
+                    classroom_usage_tracker[day][time_slot2] = set()
+                
+                classroom_usage_tracker[day][time_slot1].add(room_number)
+                classroom_usage_tracker[day][time_slot2].add(room_number)
+                print(f"         🔄 Using larger room {room_number} for lab pair {day} {time_slot1} & {time_slot2} (Capacity: {room['Capacity']})")
+                return room_number
+    
+    return None
 
 def find_suitable_classroom_with_tracking(classrooms_df, enrollment, day, time_slot, classroom_usage_tracker):
     """Find a suitable classroom based on capacity and availability with global tracking"""
@@ -1711,26 +2120,44 @@ def find_suitable_classroom_with_tracking(classrooms_df, enrollment, day, time_s
     # Sort by capacity (prefer smallest adequate room first to preserve larger rooms)
     suitable_rooms = suitable_rooms.sort_values('Capacity')
     
+    # Shuffle to ensure different classrooms are selected for different slots
+    # This prevents always selecting the same first available room
+    suitable_rooms = suitable_rooms.sample(frac=1).reset_index(drop=True)
+    
     # Check availability in global tracker
     for _, room in suitable_rooms.iterrows():
         room_number = room['Room Number']
         
-        # Check if room is already booked at this time in global tracker
-        if room_number not in classroom_usage_tracker[day][time_slot]:
-            # Mark room as used in global tracker
+        # Check if room is already booked at this SPECIFIC day and time_slot in global tracker
+        if day in classroom_usage_tracker and time_slot in classroom_usage_tracker[day]:
+            if room_number not in classroom_usage_tracker[day][time_slot]:
+                # Mark room as used in global tracker for this specific day and time slot
+                classroom_usage_tracker[day][time_slot].add(room_number)
+                print(f"         📍 Allocated {room_number} for {day} {time_slot} (Capacity: {room['Capacity']})")
+                return room_number
+        else:
+            # Initialize if not exists (shouldn't happen, but safety check)
+            if day not in classroom_usage_tracker:
+                classroom_usage_tracker[day] = {}
+            if time_slot not in classroom_usage_tracker[day]:
+                classroom_usage_tracker[day][time_slot] = set()
             classroom_usage_tracker[day][time_slot].add(room_number)
+            print(f"         📍 Allocated {room_number} for {day} {time_slot} (Capacity: {room['Capacity']}) - initialized")
             return room_number
     
     # If all suitable rooms are booked, try larger rooms
     larger_rooms = classrooms_df[classrooms_df['Capacity'] > enrollment].copy()
     if not larger_rooms.empty:
         larger_rooms = larger_rooms.sort_values('Capacity')
+        # Shuffle to ensure variety
+        larger_rooms = larger_rooms.sample(frac=1).reset_index(drop=True)
         for _, room in larger_rooms.iterrows():
             room_number = room['Room Number']
-            if room_number not in classroom_usage_tracker[day][time_slot]:
-                classroom_usage_tracker[day][time_slot].add(room_number)
-                print(f"         🔄 Using larger room {room_number} for {enrollment} students")
-                return room_number
+            if day in classroom_usage_tracker and time_slot in classroom_usage_tracker[day]:
+                if room_number not in classroom_usage_tracker[day][time_slot]:
+                    classroom_usage_tracker[day][time_slot].add(room_number)
+                    print(f"         🔄 Using larger room {room_number} for {enrollment} students (Capacity: {room['Capacity']})")
+                    return room_number
     
     return None
 
@@ -2112,6 +2539,49 @@ def convert_dataframe_to_html_with_baskets(df, table_id, course_colors, basket_c
     # Create a copy to avoid modifying the original
     df_display = df.copy()
     
+    basket_keywords = ['ELECTIVE_', 'HSS_', 'PROF_', 'OE_']
+
+    def is_basket_entry(text):
+        if not isinstance(text, str):
+            return False
+        normalized = text.upper().replace(' (TUTORIAL)', '')
+        return any(keyword in normalized for keyword in basket_keywords)
+
+    def should_hide_classroom_info(course_label):
+        if not isinstance(course_label, str):
+            return False
+        base_label = course_label.replace(' (Tutorial)', '').strip()
+        # Hide for basket labels (elective groupings)
+        if is_basket_entry(base_label):
+            return True
+        
+        course_code = extract_course_code(base_label)
+        if course_code and course_code in course_info:
+            return course_info[course_code].get('is_elective', False)
+        return False
+    
+    def build_course_title(course_label):
+        """
+        Build a tooltip/title for regular courses including Course Name and LTPSC if available.
+        For basket entries, provide a concise basket tooltip.
+        """
+        if not isinstance(course_label, str):
+            return ""
+        if is_basket_entry(course_label):
+            base = course_label.replace(' (Tutorial)', '')
+            return f"{base} • Elective basket"
+        base = course_label.replace(' (Tutorial)', '').replace(' (Lab)', '').strip()
+        code = extract_course_code(base) or base
+        info = course_info.get(code, {})
+        name = info.get('name', '').strip()
+        ltpsc = info.get('ltpsc', '').strip()
+        parts = []
+        if name:
+            parts.append(name)
+        if ltpsc:
+            parts.append(f"LTPSC: {ltpsc}")
+        return " • ".join(parts)
+
     def style_cell_with_classroom_and_colors(val):
         if isinstance(val, str) and val not in ['Free', 'LUNCH BREAK']:
             # Check for classroom allocation format "Course [Room]"
@@ -2121,40 +2591,47 @@ def convert_dataframe_to_html_with_baskets(df, table_id, course_colors, basket_c
                     course_part = val.split('[')[0].strip()
                     room_part = '[' + val.split('[')[1]  # Get everything after first [
                     
-                    # Check if it's a basket
-                    basket_names = ['ELECTIVE_B1', 'ELECTIVE_B2', 'ELECTIVE_B3', 'ELECTIVE_B4', 'ELECTIVE_B5', 'ELECTIVE_B6', 'ELECTIVE_B7', 'HSS_B1', 'HSS_B2']
-                    is_basket = any(basket in course_part for basket in basket_names)
+                    # Determine if classroom info should be hidden
+                    hide_classroom = should_hide_classroom_info(course_part)
+                    
+                    # Check if it's a basket entry
+                    is_basket = is_basket_entry(course_part)
+                    title_attr = build_course_title(course_part)
                     
                     if is_basket:
-                        # Get basket color
-                        basket_color = basket_colors.get(course_part.replace(' (Tutorial)', ''), '#cccccc')
+                        basket_key = course_part.replace(' (Tutorial)', '')
+                        basket_color = basket_colors.get(basket_key, '#cccccc')
                         if '(Tutorial)' in course_part:
-                            return f'<span class="basket-entry basket-tutorial" style="background-color: {basket_color}">{course_part}<br><small class="classroom-info">{room_part}</small></span>'
-                        else:
-                            return f'<span class="basket-entry elective-basket" style="background-color: {basket_color}">{course_part}<br><small class="classroom-info">{room_part}</small></span>'
+                            if hide_classroom:
+                                return f'<span class="basket-entry basket-tutorial" style="background-color: {basket_color}" title="{title_attr}">{course_part}</span>'
+                            return f'<span class="basket-entry basket-tutorial" style="background-color: {basket_color}" title="{title_attr}">{course_part}<br><small class="classroom-info">{room_part}</small></span>'
+                        if hide_classroom:
+                            return f'<span class="basket-entry elective-basket" style="background-color: {basket_color}" title="{title_attr}">{course_part}</span>'
+                        return f'<span class="basket-entry elective-basket" style="background-color: {basket_color}" title="{title_attr}">{course_part}<br><small class="classroom-info">{room_part}</small></span>'
                     else:
                         # Regular course with classroom - get course color
                         clean_course = course_part.replace(' (Tutorial)', '')
                         course_color = course_colors.get(clean_course, '#cccccc')
-                        return f'<span class="course-with-room" style="background-color: {course_color}">{course_part}<br><small class="classroom-info">{room_part}</small></span>'
+                        if hide_classroom:
+                            return f'<span class="regular-course" style="background-color: {course_color}" title="{title_attr}">{course_part}</span>'
+                        return f'<span class="course-with-room" style="background-color: {course_color}" title="{title_attr}">{course_part}<br><small class="classroom-info">{room_part}</small></span>'
                 except:
                     return val
             
             # Handle courses without classroom allocation but with color coding
-            basket_names = ['ELECTIVE_B1', 'ELECTIVE_B2', 'ELECTIVE_B3', 'ELECTIVE_B4', 'ELECTIVE_B5', 'ELECTIVE_B6', 'ELECTIVE_B7', 'HSS_B1', 'HSS_B2']
-            for basket_name in basket_names:
-                if basket_name in val and '(Tutorial)' not in val:
-                    basket_color = basket_colors.get(basket_name, '#cccccc')
-                    return f'<span class="basket-entry elective-basket" style="background-color: {basket_color}">{val}</span>'
-                elif basket_name in val and '(Tutorial)' in val:
-                    basket_color = basket_colors.get(basket_name.replace(' (Tutorial)', ''), '#cccccc')
-                    return f'<span class="basket-entry basket-tutorial" style="background-color: {basket_color}">{val}</span>'
+            for basket_keyword in basket_keywords:
+                if basket_keyword in val.upper():
+                    basket_key = val.replace(' (Tutorial)', '')
+                    basket_color = basket_colors.get(basket_key, '#cccccc')
+                    if '(Tutorial)' in val:
+                        return f'<span class="basket-entry basket-tutorial" style="background-color: {basket_color}" title="{build_course_title(val)}">{val}</span>'
+                    return f'<span class="basket-entry elective-basket" style="background-color: {basket_color}" title="{build_course_title(val)}">{val}</span>'
             
             # Regular courses without classrooms - apply course color
             if val not in ['Free', 'LUNCH BREAK']:
                 clean_course = val.replace(' (Tutorial)', '')
                 course_color = course_colors.get(clean_course, '#cccccc')
-                return f'<span class="regular-course" style="background-color: {course_color}">{val}</span>'
+                return f'<span class="regular-course" style="background-color: {course_color}" title="{build_course_title(val)}">{val}</span>'
                 
         return val
     
@@ -2292,6 +2769,19 @@ def get_timetables():
                     except:
                         print(f"   ⚠️ No classroom allocation sheet found in {filename}")
                     
+                    # Try to read configuration details to reflect current settings
+                    configuration_summary = {}
+                    try:
+                        config_df = pd.read_excel(file_path, sheet_name='Configuration')
+                        if not config_df.empty and {'Parameter', 'Value'}.issubset(config_df.columns):
+                            configuration_summary = dict(zip(config_df['Parameter'], config_df['Value']))
+                        else:
+                            configuration_summary = config_df.to_dict('records')
+                        print(f"   ⚙️ Loaded configuration details for {filename}")
+                    except:
+                        print(f"   ⚠️ No configuration sheet found in {filename}")
+                        configuration_summary = {}
+                    
                     # Convert to HTML tables with basket-aware, classroom-aware, and color-aware processing
                     html_a = convert_dataframe_to_html_with_baskets(df_a, f"sem{sem}_{branch}_A" if branch else f"sem{sem}_A", course_colors, basket_colors, course_info)
                     html_b = convert_dataframe_to_html_with_baskets(df_b, f"sem{sem}_{branch}_B" if branch else f"sem{sem}_B", course_colors, basket_colors, course_info)
@@ -2339,6 +2829,22 @@ def get_timetables():
                     print(f"   📊 Legend courses A: {len(legend_courses_a)}, Baskets A: {clean_baskets_a}")
                     print(f"   📊 Legend courses B: {len(legend_courses_b)}, Baskets B: {clean_baskets_b}")
                     
+                    def build_course_legend_entries(course_codes):
+                        legend_entries = []
+                        for code in sorted(course_codes):
+                            info = course_info.get(code, {})
+                            ltpsc_value = info.get('ltpsc', '') if info else ''
+                            legend_entries.append({
+                                'code': code,
+                                'name': info.get('name', ''),
+                                'ltpsc': ltpsc_value,
+                                'display': f"{code} ({ltpsc_value})" if ltpsc_value else code
+                            })
+                        return legend_entries
+                    
+                    course_legends_a = build_course_legend_entries(legend_courses_a)
+                    course_legends_b = build_course_legend_entries(legend_courses_b)
+                    
                     # Add timetable for Section A
                     timetables.append({
                         'semester': sem,
@@ -2357,7 +2863,9 @@ def get_timetables():
                         'is_basket_timetable': True,
                         'all_basket_courses': basket_courses_map,  # Include all basket courses for legends
                         'has_classroom_allocation': has_classroom_allocation,
-                        'classroom_details': classroom_allocation_details
+                        'classroom_details': classroom_allocation_details,
+                        'configuration': configuration_summary,
+                        'course_legends': course_legends_a
                     })
                     
                     # Add timetable for Section B
@@ -2378,7 +2886,9 @@ def get_timetables():
                         'is_basket_timetable': True,
                         'all_basket_courses': basket_courses_map,  # Include all basket courses for legends
                         'has_classroom_allocation': has_classroom_allocation,
-                        'classroom_details': classroom_allocation_details
+                        'classroom_details': classroom_allocation_details,
+                        'configuration': configuration_summary,
+                        'course_legends': course_legends_b
                     })
                     
                     print(f"✅ Loaded BASKET timetable: {filename}")
@@ -2677,9 +3187,24 @@ def generate_exam_schedule():
         print(f"📋 Found {len(exams_df)} exams in CSV data")
         
         # Generate exam schedule with configuration
+        session_duration = int(config.get('session_duration', 180) or 180)
+        department_conflict = config.get('department_conflict', 'moderate')
+        preference_weight = config.get('preference_weight', 'medium')
+        session_balance = config.get('session_balance', 'strict')
+        constraints = config.get('constraints')
+        morning_start = config.get('morning_start', '09:00')
+        afternoon_start = config.get('afternoon_start', '14:00')
+        
         exam_schedule = schedule_exams_conflict_free(
             exams_df, exam_period_start, exam_period_end, 
-            max_exams_per_day, include_weekends
+            max_exams_per_day, include_weekends,
+            session_duration=session_duration,
+            department_conflict=department_conflict,
+            preference_weight=preference_weight,
+            session_balance=session_balance,
+            constraints=constraints,
+            morning_start=morning_start,
+            afternoon_start=afternoon_start
         )
         
         # Check if DataFrame is empty properly
@@ -2738,16 +3263,40 @@ def generate_exam_schedule():
     
 
 def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_day=2, 
-                               include_weekends=False, department_conflict='moderate',
-                               preference_weight='medium', session_balance='strict', 
-                               constraints=None):
+                               include_weekends=False, session_duration=180,
+                               department_conflict='moderate', preference_weight='medium',
+                               session_balance='strict', constraints=None,
+                               morning_start='09:00', afternoon_start='14:00'):
     """Generate conflict-free exam schedule with multiple exams per slot"""
     try:
+        try:
+            session_duration = int(session_duration)
+        except (TypeError, ValueError):
+            session_duration = 180
+        session_duration = max(60, session_duration)
+        
+        def build_time_slot(start_time_str, fallback):
+            try:
+                start_dt = datetime.strptime(start_time_str, '%H:%M')
+            except Exception:
+                start_dt = datetime.strptime(fallback, '%H:%M')
+            end_dt = start_dt + timedelta(minutes=session_duration)
+            return f"{start_dt.strftime('%H:%M')} - {end_dt.strftime('%H:%M')}"
+        
+        morning_slot = build_time_slot(morning_start or '09:00', '09:00')
+        afternoon_slot = build_time_slot(afternoon_start or '14:00', '14:00')
+        
+        time_slots = {
+            'Morning': morning_slot,
+            'Afternoon': afternoon_slot
+        }
+        
         # VALIDATE max_exams_per_day parameter
         max_exams_per_day = max(1, min(4, max_exams_per_day))  # Ensure between 1-4
         
         print("📅 Generating conflict-free exam schedule with multiple exams per slot...")
         print(f"⚙️ Configuration: {max_exams_per_day} exams/slot, weekends: {include_weekends}")
+        print(f"⌛ Session duration: {session_duration} minutes | Slots → Morning: {morning_slot}, Afternoon: {afternoon_slot}")
         print(f"⚙️ Conflict: {department_conflict}, Preference: {preference_weight}, Balance: {session_balance}")
         
         # Set default constraints if none provided
@@ -2758,14 +3307,9 @@ def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_d
                 'rules': ['gapDays', 'sessionLimit', 'preferMorning']
             }
         
-        # Define time slots
-        time_slots = {
-            'Morning': '09:00 - 12:00',
-            'Afternoon': '14:00 - 17:00'
-        }
-        
         # Convert date strings to datetime objects
         exams_df = exams_df.copy()
+        exams_df['Exam Duration (minutes)'] = session_duration
         
         # Parse dates and handle missing values
         exams_df['Preferred Exam Date'] = pd.to_datetime(
@@ -2945,11 +3489,13 @@ def schedule_exams_conflict_free(exams_df, start_date, end_date, max_exams_per_d
                         break
                 
                 if scheduled_date and scheduled_session:
+                    duration_hours_value = float(duration_hours)
+                    duration_hours_label = f"{duration_hours_value:.2f}".rstrip('0').rstrip('.')
                     exam_slot = {
                         'course_code': exam_code,
                         'course_name': exam.get('Course Name', 'Unknown Course'),
                         'exam_type': exam_type,
-                        'duration': f"{duration_hours} hours",
+                        'duration': f"{duration_hours_label} hours",
                         'duration_minutes': exam['Exam Duration (minutes)'],
                         'department': department,
                         'semester': exam.get('Semester', 'N/A'),
@@ -3470,11 +4016,30 @@ def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, e
             used_slots = schedule_electives_by_baskets(elective_allocations, schedule, used_slots, section, branch)
         
         # Schedule core courses after electives
+        # IMPORTANT: Filter out any elective courses that are already scheduled in baskets
         if not core_courses.empty:
-            print(f"   📚 Scheduling {len(core_courses)} core courses for Section {section}, Branch {branch}...")
-            used_slots = schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, 
-                                                            ['09:00-10:30', '10:30-12:00', '13:00-14:30', '15:30-17:00'],
-                                                            ['14:30-15:30', '17:00-18:00'], branch)
+            # Get list of elective course codes from baskets to exclude them
+            elective_course_codes = set()
+            if elective_allocations:
+                for allocation in elective_allocations.values():
+                    if allocation and 'all_courses_in_basket' in allocation:
+                        elective_course_codes.update(allocation['all_courses_in_basket'])
+            
+            # Filter out elective courses from core_courses
+            if elective_course_codes:
+                core_courses_filtered = core_courses[~core_courses['Course Code'].isin(elective_course_codes)].copy()
+                excluded_count = len(core_courses) - len(core_courses_filtered)
+                if excluded_count > 0:
+                    print(f"   🚫 Excluded {excluded_count} elective course(s) already scheduled in baskets: {', '.join(elective_course_codes)}")
+                core_courses = core_courses_filtered
+            
+            if not core_courses.empty:
+                print(f"   📚 Scheduling {len(core_courses)} core courses for Section {section}, Branch {branch}...")
+                used_slots = schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, 
+                                                                ['09:00-10:30', '10:30-12:00', '13:00-14:30', '15:30-17:00'],
+                                                                ['14:30-15:30', '17:00-18:00'], None, branch)
+            else:
+                print(f"   ℹ️ No core courses to schedule after filtering electives")
         
         return schedule
         
@@ -3503,6 +4068,18 @@ def get_exam_timetables():
             try:
                 # Read exam schedule
                 schedule_df = pd.read_excel(file_path, sheet_name='Exam_Schedule')
+                
+                # Try to read configuration
+                configuration_summary = {}
+                try:
+                    config_df = pd.read_excel(file_path, sheet_name='Configuration')
+                    if not config_df.empty and {'Parameter', 'Value'}.issubset(config_df.columns):
+                        configuration_summary = dict(zip(config_df['Parameter'], config_df['Value']))
+                    else:
+                        configuration_summary = config_df.to_dict('records')
+                    print(f"   ⚙️ Loaded configuration for {filename}")
+                except:
+                    configuration_summary = {}
                 
                 # Check if classrooms are allocated
                 has_classroom_allocation = 'classroom' in schedule_df.columns
@@ -3533,7 +4110,8 @@ def get_exam_timetables():
                     'schedule_data': schedule_df.to_dict('records'),
                     'period': filename.replace('exam_schedule_', '').replace('.xlsx', '').replace('_', ' to '),
                     'file_exists': True,
-                    'has_classroom_allocation': has_classroom_allocation
+                    'has_classroom_allocation': has_classroom_allocation,
+                    'configuration': configuration_summary
                 })
                 
             except Exception as e:
@@ -3561,6 +4139,18 @@ def get_all_exam_timetables():
                 # Read exam schedule
                 schedule_df = pd.read_excel(file_path, sheet_name='Exam_Schedule')
                 
+                # Try to read configuration
+                configuration_summary = {}
+                try:
+                    config_df = pd.read_excel(file_path, sheet_name='Configuration')
+                    if not config_df.empty and {'Parameter', 'Value'}.issubset(config_df.columns):
+                        configuration_summary = dict(zip(config_df['Parameter'], config_df['Value']))
+                    else:
+                        configuration_summary = config_df.to_dict('records')
+                    print(f"   ⚙️ Loaded configuration for {filename}")
+                except:
+                    configuration_summary = {}
+                
                 # Convert to HTML
                 html_table = schedule_df.to_html(
                     classes='exam-timetable-table',
@@ -3580,7 +4170,8 @@ def get_all_exam_timetables():
                     'schedule_data': schedule_df.to_dict('records'),
                     'period': filename.replace('exam_schedule_', '').replace('.xlsx', '').replace('_', ' to '),
                     'is_currently_displayed': is_currently_displayed,
-                    'file_exists': True
+                    'file_exists': True,
+                    'configuration': configuration_summary
                 })
                 
             except Exception as e:
