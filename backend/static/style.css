@@ -1643,6 +1643,36 @@ body {
     border: 1px solid #4cc9f0;
 }
 
+/* Timetable type badges */
+.timetable-type-badge {
+    display: inline-block;
+    padding: 0.25rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    margin-left: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.timetable-type-badge.pre-mid {
+    background: rgba(255, 193, 7, 0.15);
+    color: #f57c00;
+    border: 1px solid #ff9800;
+}
+
+.timetable-type-badge.post-mid {
+    background: rgba(76, 175, 80, 0.15);
+    color: #2e7d32;
+    border: 1px solid #4caf50;
+}
+
+.timetable-type-badge.basket {
+    background: rgba(67, 97, 238, 0.1);
+    color: #4361ee;
+    border: 1px solid #4361ee;
+}
+
 /* Enhanced Time Slot Styling - Unified Colors */
 .time-slot {
     position: relative;

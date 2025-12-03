@@ -1,4 +1,4 @@
-Course Code,Course Name,Semester,Department,LTPSC,Credits,Faculty,Registered Students,Elective (Yes/No),Half Semester (Yes/No),Basket,Post mid-sem,Common
+Course Code,Course Name,Semester,Department,LTPSC,Credits,Faculty,Registered Students,Elective (Yes/No),Half Semester (Yes/No),Basket,Post mid-sem,Comman
 MA161,Statistics,1,CSE,2-0-0-0-2,2,Ramesh Athe,0,No,Yes,None,No,Yes
 DS161,Introduction to data science and artifical inteligance,1,CSE,2-0-0-0-2,2,Abdul Wahid,0,No,Yes,None,No,Yes
 MA162,Probability,1,CSE,2-0-0-0-2,2,Chinmayananda,0,No,Yes,None,Yes,Yes

@@ -1635,20 +1635,32 @@ function enhanceTables() {
     console.log("🎨 Enhancing tables with color coding and time slots...");
     
     document.querySelectorAll('.timetable-table').forEach(table => {
-        // Remove "Unnamed: 0" from the first header cell
-        const firstHeaderCell = table.querySelector('th:first-child');
-        if (firstHeaderCell && firstHeaderCell.textContent.includes('Unnamed: 0')) {
-            firstHeaderCell.textContent = ''; // Leave it blank
-            firstHeaderCell.classList.add('empty-header');
-        }
+        // Enhanced "Unnamed: 0" removal - more comprehensive approach
+        const allCells = table.querySelectorAll('th, td');
         
-        // Remove "Unnamed: 0" from the first cell of each row
+        allCells.forEach(cell => {
+            const text = cell.textContent.trim();
+            // Remove any cell containing "Unnamed:" or "Unnamed: 0"
+            if (text.includes('Unnamed:') || text === 'Unnamed: 0' || text === 'Unnamed:0') {
+                cell.textContent = ''; // Make it completely empty
+                cell.classList.add('empty-header');
+                
+                // Add minimal styling to ensure it looks clean
+                cell.style.padding = '2px';
+                cell.style.minWidth = '10px';
+            }
+        });
+
+        // Additional cleanup for the first column (time slots)
         const rows = table.querySelectorAll('tr');
         rows.forEach(row => {
-            const firstCell = row.querySelector('td:first-child');
-            if (firstCell && firstCell.textContent.includes('Unnamed: 0')) {
-                firstCell.textContent = ''; // Leave it blank
-                firstCell.classList.add('empty-header');
+            const firstCell = row.querySelector('th:first-child, td:first-child');
+            if (firstCell && firstCell.textContent.trim() === '') {
+                firstCell.classList.add('time-slot-header');
+                // Ensure proper styling for time slot headers
+                firstCell.style.fontWeight = 'bold';
+                firstCell.style.textAlign = 'right';
+                firstCell.style.paddingRight = '12px';
             }
         });
 
@@ -1838,10 +1850,20 @@ function renderGridView(timetables) {
         const branchClass = `branch-${timetable.branch?.toLowerCase() || 'general'}`;
         const branchBadge = timetable.branch ? `<span class="branch-badge ${timetable.branch.toLowerCase()}">${timetable.branch}</span>` : '';
         
+        // Add timetable type badge
+        let typeBadge = '';
+        if (timetable.is_pre_mid_timetable || timetable.timetable_type === 'pre_mid') {
+            typeBadge = '<span class="timetable-type-badge pre-mid">PRE-MID</span>';
+        } else if (timetable.is_post_mid_timetable || timetable.timetable_type === 'post_mid') {
+            typeBadge = '<span class="timetable-type-badge post-mid">POST-MID</span>';
+        } else if (timetable.is_basket_timetable || timetable.timetable_type === 'basket') {
+            typeBadge = '<span class="timetable-type-badge basket">REGULAR</span>';
+        }
+        
         html += `
             <div class="timetable-card ${branchClass}">
                 <div class="timetable-header">
-                    <h3>Semester ${timetable.semester} - Section ${timetable.section} ${branchBadge}</h3>
+                    <h3>Semester ${timetable.semester} - Section ${timetable.section} ${branchBadge} ${typeBadge}</h3>
                     <div class="timetable-actions">
                         <button class="action-btn" onclick="downloadTimetable('${timetable.filename}')" title="Download">
                             <i class="fas fa-download"></i>
@@ -1868,10 +1890,20 @@ function renderListView(timetables) {
     timetables.forEach(timetable => {
         const branchBadge = timetable.branch ? `<span class="branch-badge ${timetable.branch.toLowerCase()}">${timetable.branch}</span>` : '';
         
+        // Add timetable type badge
+        let typeBadge = '';
+        if (timetable.is_pre_mid_timetable || timetable.timetable_type === 'pre_mid') {
+            typeBadge = '<span class="timetable-type-badge pre-mid">PRE-MID</span>';
+        } else if (timetable.is_post_mid_timetable || timetable.timetable_type === 'post_mid') {
+            typeBadge = '<span class="timetable-type-badge post-mid">POST-MID</span>';
+        } else if (timetable.is_basket_timetable || timetable.timetable_type === 'basket') {
+            typeBadge = '<span class="timetable-type-badge basket">REGULAR</span>';
+        }
+        
         html += `
             <div class="timetable-item" style="background: white; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 1.5rem; overflow: hidden;">
                 <div class="timetable-header" style="background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: white; padding: 1.25rem; display: flex; justify-content: space-between; align-items: center;">
-                    <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Semester ${timetable.semester} - Section ${timetable.section} ${branchBadge}</h3>
+                    <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Semester ${timetable.semester} - Section ${timetable.section} ${branchBadge} ${typeBadge}</h3>
                     <div class="timetable-actions">
                         <button class="btn btn-outline" onclick="downloadTimetable('${timetable.filename}')" style="background: rgba(255, 255, 255, 0.2); color: white; border: 1px solid rgba(255, 255, 255, 0.5);">
                             <i class="fas fa-download"></i> Download
@@ -1895,10 +1927,20 @@ function renderCompactView(timetables) {
     timetables.forEach(timetable => {
         const branchBadge = timetable.branch ? `<span class="branch-badge ${timetable.branch.toLowerCase()}">${timetable.branch}</span>` : '';
         
+        // Add timetable type badge
+        let typeBadge = '';
+        if (timetable.is_pre_mid_timetable || timetable.timetable_type === 'pre_mid') {
+            typeBadge = '<span class="timetable-type-badge pre-mid">PRE-MID</span>';
+        } else if (timetable.is_post_mid_timetable || timetable.timetable_type === 'post_mid') {
+            typeBadge = '<span class="timetable-type-badge post-mid">POST-MID</span>';
+        } else if (timetable.is_basket_timetable || timetable.timetable_type === 'basket') {
+            typeBadge = '<span class="timetable-type-badge basket">REGULAR</span>';
+        }
+        
         html += `
             <div class="compact-card" style="background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.5rem; margin-bottom: 1rem;">
                 <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 1rem;">
-                    <h4 style="margin: 0; color: var(--dark);">Semester ${timetable.semester} - Section ${timetable.section} ${branchBadge}</h4>
+                    <h4 style="margin: 0; color: var(--dark);">Semester ${timetable.semester} - Section ${timetable.section} ${branchBadge} ${typeBadge}</h4>
                     <div>
                         <button class="btn btn-outline btn-sm" onclick="downloadTimetable('${timetable.filename}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">
                             <i class="fas fa-download"></i>
