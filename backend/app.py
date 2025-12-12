@@ -374,7 +374,14 @@ def separate_courses_by_type(dfs, semester_id, branch=None):
         return {'core_courses': pd.DataFrame(), 'elective_courses': pd.DataFrame()}
 
 def separate_courses_by_mid_semester(dfs, semester_id, branch=None):
-    """Separate courses into pre-mid and post-mid based on Post mid-sem column and credits"""
+    """Separate courses into pre-mid and post-mid based on Half Semester and Post mid-sem columns
+    
+    Logic:
+    - If Half Semester = Yes: Schedule in BOTH pre-mid and post-mid
+    - If Half Semester = No:
+        - If Post mid-sem = No: Schedule in PRE-MID ONLY
+        - If Post mid-sem = Yes: Schedule in POST-MID ONLY
+    """
     if 'course' not in dfs:
         return {'pre_mid_courses': pd.DataFrame(), 'post_mid_courses': pd.DataFrame()}
     
@@ -419,122 +426,75 @@ def separate_courses_by_mid_semester(dfs, semester_id, branch=None):
                 post_mid_col = col
                 break
         
+        half_sem_col = None
+        for col in sem_courses.columns:
+            if 'half' in str(col).lower() and 'semester' in str(col).lower():
+                half_sem_col = col
+                break
+        
         if post_mid_col is None:
             print(f"[WARN] 'Post mid-sem' column not found for semester {semester_id}")
             print(f"   Available columns: {list(sem_courses.columns)}")
             return {'pre_mid_courses': pd.DataFrame(), 'post_mid_courses': pd.DataFrame()}
         
-        if 'Credits' not in sem_courses.columns:
-            print(f"[WARN] 'Credits' column not found for semester {semester_id}")
+        if half_sem_col is None:
+            print(f"[WARN] 'Half Semester' column not found for semester {semester_id}")
             print(f"   Available columns: {list(sem_courses.columns)}")
             return {'pre_mid_courses': pd.DataFrame(), 'post_mid_courses': pd.DataFrame()}
         
-        # Debug: Print sample of Post mid-sem values
-        print(f"   [DEBUG] Debug - Using column '{post_mid_col}' for Post mid-sem")
-        sample_values = sem_courses[post_mid_col].astype(str).str.strip().str.upper().unique()[:10]
-        print(f"      Unique values found: {list(sample_values)}")
+        # Debug: Print sample of column values
+        print(f"   [DEBUG] Using columns:")
+        print(f"      - Half Semester: '{half_sem_col}'")
+        print(f"      - Post mid-sem: '{post_mid_col}'")
+        sample_half = sem_courses[half_sem_col].astype(str).str.strip().str.upper().unique()[:10]
+        sample_post = sem_courses[post_mid_col].astype(str).str.strip().str.upper().unique()[:10]
+        print(f"      Half Semester values: {list(sample_half)}")
+        print(f"      Post mid-sem values: {list(sample_post)}")
         print(f"      Total courses: {len(sem_courses)}")
-        no_count = len(sem_courses[sem_courses[post_mid_col].astype(str).str.strip().str.upper() == 'NO'])
-        yes_count = len(sem_courses[sem_courses[post_mid_col].astype(str).str.strip().str.upper() == 'YES'])
-        print(f"      Courses with 'NO': {no_count}")
-        print(f"      Courses with 'YES': {yes_count}")
         
-        # Convert Credits to numeric
-        sem_courses['Credits'] = pd.to_numeric(sem_courses['Credits'], errors='coerce')
+        # Normalize column values
+        sem_courses[half_sem_col] = sem_courses[half_sem_col].astype(str).str.strip().str.upper()
+        sem_courses[post_mid_col] = sem_courses[post_mid_col].astype(str).str.strip().str.upper()
         
         # ======================================================
-        # UPDATED LOGIC:
+        # CORRECTED LOGIC (Based on Half Semester):
         # ======================================================
         
-        # 1. PRE-MID: All courses where Post mid-sem = "No" (regardless of credits)
-        pre_mid_courses = sem_courses[
-            sem_courses[post_mid_col].astype(str).str.strip().str.upper() == 'NO'
+        # RULE 1: Courses with Half Semester = NO
+        # These go in BOTH pre-mid and post-mid
+        half_sem_no_courses = sem_courses[
+            sem_courses[half_sem_col] == 'NO'
         ].copy()
         
-        # 2. POST-MID: 
-        #    a. All courses with credits != 2 (3, 4, etc.) - ALL of them, regardless of Post mid-sem
-        #    b. PLUS 2-credit courses with Post mid-sem = "Yes"
-        
-        # Get all courses with credits != 2 (non-2-credit courses)
-        non_two_credit_courses = sem_courses[
-            sem_courses['Credits'] != 2
+        # RULE 2: Courses with Half Semester = YES
+        # Rule 2a: Post mid-sem = NO → PRE-MID ONLY
+        half_sem_yes_pre_mid = sem_courses[
+            (sem_courses[half_sem_col] == 'YES') &
+            (sem_courses[post_mid_col] == 'NO')
         ].copy()
         
-        # Get 2-credit courses with Post mid-sem = "Yes"
-        two_credit_yes_courses = sem_courses[
-            (sem_courses['Credits'] == 2) &
-            (sem_courses[post_mid_col].astype(str).str.strip().str.upper() == 'YES')
+        # Rule 2b: Post mid-sem = YES → POST-MID ONLY
+        half_sem_yes_post_mid = sem_courses[
+            (sem_courses[half_sem_col] == 'YES') &
+            (sem_courses[post_mid_col] == 'YES')
         ].copy()
         
-        # Combine for post-mid timetable
-        post_mid_courses = pd.concat([non_two_credit_courses, two_credit_yes_courses], ignore_index=True)
-        # Remove duplicates (in case any course appears in both - shouldn't happen)
+        # FINAL SEPARATION:
+        # PRE-MID: Half Sem = NO courses + Half Sem = YES with Post mid = NO courses
+        pre_mid_courses = pd.concat([half_sem_no_courses, half_sem_yes_pre_mid], ignore_index=True)
+        pre_mid_courses = pre_mid_courses.drop_duplicates(subset=['Course Code'])
+        
+        # POST-MID: Half Sem = NO courses + Half Sem = YES with Post mid = YES courses
+        post_mid_courses = pd.concat([half_sem_no_courses, half_sem_yes_post_mid], ignore_index=True)
         post_mid_courses = post_mid_courses.drop_duplicates(subset=['Course Code'])
         
         print(f"   [STATS] Course separation for Semester {semester_id}, Department {branch or 'All'}:")
         print(f"      Total courses: {len(sem_courses)}")
-        print(f"      Pre-mid courses: {len(pre_mid_courses)}")
-        print(f"      Post-mid courses: {len(post_mid_courses)}")
-        print(f"      Non-2-credit courses: {len(non_two_credit_courses)}")
-        print(f"      2-credit courses with Post mid-sem='Yes': {len(two_credit_yes_courses)}")
-        
-        # Print detailed breakdown for debugging
-        print(f"\n   [LIST] Detailed breakdown:")
-        
-        # Non-2-credit courses (go to post-mid regardless of Post mid-sem)
-        if not non_two_credit_courses.empty:
-            print(f"      Non-2-credit courses ({len(non_two_credit_courses)} - ALL go to POST-MID):")
-            for _, row in non_two_credit_courses.iterrows():
-                credits = row.get('Credits', 'N/A')
-                post_mid = row.get('Post mid-sem', 'N/A')
-                print(f"        {row['Course Code']} - Credits: {credits} - Post mid-sem: {post_mid}")
-        
-        # 2-credit courses breakdown
-        two_credit_courses = sem_courses[sem_courses['Credits'] == 2]
-        if not two_credit_courses.empty:
-            print(f"      2-credit courses ({len(two_credit_courses)}):")
-            
-            # 2-credit with Post mid-sem = "No" (pre-mid only)
-            two_credit_no = two_credit_courses[
-                two_credit_courses[post_mid_col].astype(str).str.strip().str.upper() == 'NO'
-            ]
-            if not two_credit_no.empty:
-                print(f"        Pre-Mid only ({len(two_credit_no)}):")
-                for _, row in two_credit_no.iterrows():
-                    post_mid = row.get(post_mid_col, 'N/A')
-                    print(f"          {row['Course Code']} - Post mid-sem: {post_mid}")
-            
-            # 2-credit with Post mid-sem = "Yes" (post-mid only)
-            two_credit_yes = two_credit_courses[
-                two_credit_courses[post_mid_col].astype(str).str.strip().str.upper() == 'YES'
-            ]
-            if not two_credit_yes.empty:
-                print(f"        Post-Mid only ({len(two_credit_yes)}):")
-                for _, row in two_credit_yes.iterrows():
-                    post_mid = row.get(post_mid_col, 'N/A')
-                    print(f"          {row['Course Code']} - Post mid-sem: {post_mid}")
-        
-        # Pre-mid courses details (includes non-2-credit with Post mid-sem="No" and 2-credit with Post mid-sem="No")
-        if not pre_mid_courses.empty:
-            print(f"      Pre-mid courses ({len(pre_mid_courses)} total):")
-            for _, row in pre_mid_courses.iterrows():
-                credits = row.get('Credits', 'N/A')
-                post_mid = row.get(post_mid_col, 'N/A')
-                if credits == 2:
-                    print(f"        {row['Course Code']} - Credits: {credits} - Post mid-sem: {post_mid} (2-credit + 'No')")
-                else:
-                    print(f"        {row['Course Code']} - Credits: {credits} - Post mid-sem: {post_mid} (non-2-credit + 'No')")
-        
-        # Post-mid courses details
-        if not post_mid_courses.empty:
-            print(f"      Post-mid courses ({len(post_mid_courses)} total):")
-            for _, row in post_mid_courses.iterrows():
-                credits = row.get('Credits', 'N/A')
-                post_mid = row.get(post_mid_col, 'N/A')
-                if credits == 2:
-                    print(f"        {row['Course Code']} - Credits: {credits} - Post mid-sem: {post_mid} (2-credit + 'Yes')")
-                else:
-                    print(f"        {row['Course Code']} - Credits: {credits} - Post mid-sem: {post_mid} (non-2-credit, any)")
+        print(f"      Half Semester = NO (both pre & post): {len(half_sem_no_courses)}")
+        print(f"      Half Semester = YES, Post mid = NO (pre-mid only): {len(half_sem_yes_pre_mid)}")
+        print(f"      Half Semester = YES, Post mid = YES (post-mid only): {len(half_sem_yes_post_mid)}")
+        print(f"      → Pre-mid courses total: {len(pre_mid_courses)}")
+        print(f"      → Post-mid courses total: {len(post_mid_courses)}")
         
         return {
             'pre_mid_courses': pre_mid_courses,
@@ -657,8 +617,9 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
         # Determine tutorials needed: if T is 1, schedule 1 tutorial
         tutorials_needed = 1 if T >= 1 else 0
         
-        # Determine labs needed: if P is 1, schedule 1 lab (2 hours)
+        # Determine labs needed: if P is 1 or more, schedule 1 lab (2 hours)
         # BUT NEVER for MA courses (already handled above)
+        # If P is 0, do NOT schedule any labs regardless of other factors
         labs_needed = 1 if P >= 1 else 0
         
         # Track which days we've used for this course
@@ -720,10 +681,11 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
                 print(f"      [OK] Scheduled tutorial for {course_code} on {day} at {time_slot}")
         
         # Schedule lab (STRICTLY 2 hours) if needed - use consecutive 1.5-hour slots
+        # NOTE: If P=0 in LTPSC, NO labs will be scheduled for this course
         # Labs are ALWAYS scheduled for exactly 2 hours using two consecutive slots
         # BUT NEVER for MA courses
         labs_scheduled = 0
-        if labs_needed > 0 and not is_math_course:  # ← ADDED MATH COURSE CHECK
+        if labs_needed > 0 and P > 0 and not is_math_course:
             max_lab_attempts = 100
             
             # Define 2-hour lab slot pairs (consecutive 1.5-hour slots that form a 2-hour lab)
@@ -767,7 +729,9 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
                 if not lab_scheduled:
                     # Try next attempt
                     continue
-        elif labs_needed > 0 and is_math_course:
+        elif P == 0:
+            print(f"      [SKIP] No labs scheduled for {course_code} (P=0 in LTPSC)")
+        elif is_math_course:
             print(f"      [DISABLE] Skipping lab for MA course {course_code} (P={P} in LTPSC but labs disabled for Mathematics)")
         
         # Summary
@@ -1015,8 +979,8 @@ def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, e
         traceback.print_exc()
         return None
 
-def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch=None, time_config=None, schedule_type='pre_mid'):
-    """Generate pre-mid or post-mid schedule"""
+def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch=None, time_config=None, schedule_type='pre_mid', elective_allocations=None):
+    """Generate pre-mid or post-mid schedule with elective basket support"""
     schedule_type_name = "PRE-MID" if schedule_type == 'pre_mid' else "POST-MID"
     branch_info = f", Branch {branch}" if branch else ""
     print(f"   [TARGET] Generating {schedule_type_name} schedule for Semester {semester_id}, Section {section}{branch_info}")
@@ -1060,11 +1024,31 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
 
         used_slots = set()
         
-        # For mid-semester schedules, we schedule all courses without basket logic
-        print(f"   [COURSES] Scheduling {len(courses_df)} courses for {schedule_type_name}...")
+        # SEPARATE courses into core and electives
+        if 'Elective (Yes/No)' in courses_df.columns:
+            core_courses = courses_df[
+                courses_df['Elective (Yes/No)'].astype(str).str.upper() != 'YES'
+            ].copy()
+            elective_courses = courses_df[
+                courses_df['Elective (Yes/No)'].astype(str).str.upper() == 'YES'
+            ].copy()
+        else:
+            core_courses = courses_df.copy()
+            elective_courses = pd.DataFrame()
         
-        # Parse LTPSC for courses - STRICTLY ADHERE TO LTPSC STRUCTURE
-        for _, course in courses_df.iterrows():
+        print(f"   [COURSES] Scheduling {len(courses_df)} courses for {schedule_type_name}...")
+        print(f"      Core courses: {len(core_courses)}, Elective courses: {len(elective_courses)}")
+        
+        # SCHEDULE ELECTIVES FIRST using basket logic
+        if not elective_courses.empty and elective_allocations:
+            print(f"   [BASKET] Scheduling elective baskets for {schedule_type_name}...")
+            used_slots = schedule_electives_by_baskets(elective_allocations, schedule, used_slots, section, branch)
+        elif not elective_courses.empty:
+            print(f"   [WARN] No basket allocations provided for electives, scheduling as core courses")
+        
+        # SCHEDULE CORE COURSES - iterate over core_courses only
+        print(f"   [CORE] Scheduling {len(core_courses)} core courses...")
+        for _, course in core_courses.iterrows():
             course_code = course['Course Code']
             ltpsc_str = course.get('LTPSC', '')
             
@@ -1092,8 +1076,9 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
             # Determine tutorials needed: if T is 1, schedule 1 tutorial
             tutorials_needed = 1 if T >= 1 else 0
             
-            # Determine labs needed: if P is 1, schedule 1 lab (2 hours)
+            # Determine labs needed: if P is 1 or more, schedule 1 lab (2 hours)
             # BUT NEVER for MA courses (already handled above)
+            # If P is 0, do NOT schedule any labs regardless of other factors
             labs_needed = 1 if P >= 1 else 0
             
             print(f"      Scheduling {course_code} ({schedule_type_name}) - LTPSC: {ltpsc_str} -> L={L}, T={T}, P={P}:")
@@ -1155,8 +1140,9 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
                     print(f"      [OK] Scheduled tutorial for {course_code} on {day} at {time_slot}")
             
             # Schedule lab (STRICTLY 2 hours) if needed - use consecutive 1.5-hour slots
+            # NOTE: If P=0 in LTPSC, NO labs will be scheduled for this course
             labs_scheduled = 0
-            if labs_needed > 0 and not is_math_course:
+            if labs_needed > 0 and P > 0 and not is_math_course:
                 max_lab_attempts = 50
                 
                 # Define 2-hour lab slot pairs (consecutive 1.5-hour slots that form a 2-hour lab)
@@ -1199,7 +1185,9 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
                     if not lab_scheduled:
                         # Try next attempt
                         continue
-            elif labs_needed > 0 and is_math_course:
+            elif P == 0:
+                print(f"      [SKIP] No labs scheduled for {course_code} (P=0 in LTPSC)")
+            elif is_math_course:
                 print(f"      [DISABLE] Skipping lab for MA course {course_code} (P={P} in LTPSC but labs disabled for Mathematics)")
             
             # Summary
@@ -1838,8 +1826,162 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None, time_conf
         traceback.print_exc()
         return False
 
+def allocate_mid_semester_electives_by_baskets(elective_courses, semester_id):
+    """Allocate elective courses in pre-mid/post-mid to COMMON time slots for ALL branches and sections
+    
+    Similar to allocate_electives_by_baskets but for mid-semester courses
+    """
+    if elective_courses.empty:
+        print(f"   [INFO] No elective courses to allocate for Semester {semester_id}")
+        return {}
+    
+    print(f"   [BASKET] Allocating elective slots for mid-semester, Semester {semester_id}...")
+    
+    # Group electives by basket
+    basket_groups = {}
+    for _, course in elective_courses.iterrows():
+        raw_basket = course.get('Basket', 'ELECTIVE_B1')
+        basket = str(raw_basket).strip().upper() if pd.notna(raw_basket) else 'ELECTIVE_B1'
+        if basket not in basket_groups:
+            basket_groups[basket] = []
+        basket_groups[basket].append(course)
+    
+    print(f"      Found {len(basket_groups)} elective baskets: {list(basket_groups.keys())}")
+    
+    # FILTER BASKETS BY SEMESTER (same logic as regular timetables)
+    if semester_id == 3:
+        baskets_to_schedule = [basket for basket in basket_groups.keys() if basket == 'ELECTIVE_B3']
+        print(f"      [TARGET] Semester 3: Scheduling only ELECTIVE_B3")
+    elif semester_id == 5:
+        required_baskets = ['ELECTIVE_B5', 'ELECTIVE_B4']
+        baskets_to_schedule = [basket for basket in basket_groups.keys() if basket in required_baskets]
+        for req_basket in required_baskets:
+            if req_basket not in baskets_to_schedule:
+                baskets_to_schedule.append(req_basket)
+                if req_basket not in basket_groups:
+                    basket_groups[req_basket] = []
+        print(f"      [TARGET] Semester 5: Scheduling BOTH ELECTIVE_B5 and ELECTIVE_B4")
+    elif semester_id == 7:
+        baskets_to_schedule = [basket for basket in basket_groups.keys() if basket in ['ELECTIVE_B6', 'ELECTIVE_B7']]
+        print(f"      [TARGET] Semester 7: Scheduling BOTH ELECTIVE_B6 and ELECTIVE_B7")
+    else:
+        baskets_to_schedule = list(basket_groups.keys())
+        print(f"      [TARGET] Semester {semester_id}: Scheduling all baskets")
+    
+    # COMMON SLOTS mapping (same as regular timetables)
+    common_slots_mapping = {
+        'ELECTIVE_B1': {
+            'lectures': [('Mon', '09:00-10:30'), ('Wed', '09:00-10:30')],
+            'tutorial': ('Fri', '14:30-15:30')
+        },
+        'ELECTIVE_B2': {
+            'lectures': [('Tue', '09:00-10:30'), ('Thu', '09:00-10:30')],
+            'tutorial': ('Mon', '14:30-15:30')
+        },
+        'ELECTIVE_B3': {
+            'lectures': [('Mon', '13:00-14:30'), ('Wed', '13:00-14:30')],
+            'tutorial': ('Tue', '14:30-15:30')
+        },
+        'ELECTIVE_B4': {
+            'lectures': [('Tue', '13:00-14:30'), ('Thu', '13:00-14:30')],
+            'tutorial': ('Wed', '14:30-15:30')
+        },
+        'ELECTIVE_B5': {
+            'lectures': [('Mon', '15:30-17:00'), ('Wed', '15:30-17:00')],
+            'tutorial': ('Thu', '14:30-15:30')
+        },
+        'ELECTIVE_B6': {
+            'lectures': [('Mon', '09:00-10:30'), ('Wed', '13:00-14:30')],
+            'tutorial': ('Tue', '14:30-15:30')
+        },
+        'ELECTIVE_B7': {
+            'lectures': [('Tue', '09:00-10:30'), ('Thu', '13:00-14:30')],
+            'tutorial': ('Wed', '14:30-15:30')
+        },
+        'HSS_B1': {
+            'lectures': [('Mon', '15:30-17:00'), ('Wed', '15:30-17:00')],
+            'tutorial': ('Thu', '14:30-15:30')
+        },
+        'HSS_B2': {
+            'lectures': [('Tue', '15:30-17:00'), ('Thu', '15:30-17:00')],
+            'tutorial': ('Fri', '14:30-15:30')
+        }
+    }
+    
+    elective_allocations = {}
+    
+    for basket_name in sorted(baskets_to_schedule):
+        if basket_name not in basket_groups:
+            continue
+        
+        basket_courses = basket_groups[basket_name]
+        course_codes = [course['Course Code'] for course in basket_courses] if basket_courses else []
+        
+        # Parse LTPSC from first course in basket
+        if basket_courses and len(basket_courses) > 0:
+            first_course = basket_courses[0]
+            ltpsc_str = first_course.get('LTPSC', '')
+            ltpsc = parse_ltpsc(ltpsc_str)
+            L = ltpsc['L']
+            T = ltpsc['T']
+        else:
+            ltpsc_str = '2-1-0-0-3'
+            ltpsc = parse_ltpsc(ltpsc_str)
+            L = 2
+            T = 1
+        
+        # Determine lectures and tutorials needed
+        if L == 2 or L == 3:
+            lectures_needed = 2
+        elif L == 1:
+            lectures_needed = 1
+        else:
+            lectures_needed = min(L, 2)
+        
+        tutorials_needed = 1 if T >= 1 else 0
+        
+        print(f"      [BASKET] Basket '{basket_name}' LTPSC: {ltpsc_str} -> L={L}, T={T}")
+        print(f"         → Scheduling {lectures_needed} lectures, {tutorials_needed} tutorial")
+        
+        if basket_name in common_slots_mapping:
+            fixed_slots = common_slots_mapping[basket_name]
+            lectures_allocated = fixed_slots['lectures'][:lectures_needed]
+            tutorial_allocated = fixed_slots['tutorial'] if tutorials_needed > 0 else None
+            
+            # Calculate if lectures and tutorials are on separate days
+            if tutorial_allocated:
+                lecture_days = set([day for day, _ in lectures_allocated])
+                tutorial_day = tutorial_allocated[0]
+                days_separated = tutorial_day not in lecture_days
+            else:
+                days_separated = True  # No tutorial, so separation doesn't apply
+            
+            # Build allocation for this basket - ENSURE all_courses_in_basket is a list of strings
+            allocation = {
+                'basket_name': basket_name,
+                'lectures': lectures_allocated,
+                'tutorial': tutorial_allocated,
+                'courses': course_codes,
+                'all_courses_in_basket': course_codes,  # Use course codes list, not series objects
+                'lecture_days': list(set([day for day, _ in lectures_allocated])),
+                'tutorial_day': tutorial_allocated[0] if tutorial_allocated else None,
+                'days_separated': days_separated
+            }
+            
+            elective_allocations[basket_name] = allocation
+            print(f"         → Lectures: {lectures_allocated}, Tutorial: {tutorial_allocated}, Days Separated: {days_separated}")
+        else:
+            print(f"      [WARN] Basket '{basket_name}' not in common slots mapping")
+    
+    print(f"   [OK] Elective allocation complete: {len(elective_allocations)} baskets allocated")
+    return elective_allocations
+
 def export_mid_semester_timetables(dfs, semester, branch=None, time_config=None):
-    """Export separate pre-mid and post-mid timetables"""
+    """Export separate pre-mid and post-mid timetables
+    
+    Note: CSE has Section A and Section B
+           DSAI and ECE are treated as a whole (no sections)
+    """
     branch_info = f", Branch {branch}" if branch else ""
     print(f"\n[STATS] Generating MID-SEMESTER timetables for Semester {semester}{branch_info}...")
     
@@ -1853,47 +1995,70 @@ def export_mid_semester_timetables(dfs, semester, branch=None, time_config=None)
         print(f"   Pre-mid courses: {len(pre_mid_courses)}")
         print(f"   Post-mid courses: {len(post_mid_courses)}")
         
+        # ALLOCATE ELECTIVES TO BASKETS for pre-mid and post-mid
+        print(f"\n[BASKET] Allocating electives to baskets...")
+        if not pre_mid_courses.empty:
+            pre_mid_electives = pre_mid_courses[
+                pre_mid_courses['Elective (Yes/No)'].astype(str).str.upper() == 'YES'
+            ] if 'Elective (Yes/No)' in pre_mid_courses.columns else pd.DataFrame()
+            pre_mid_elective_allocations = allocate_mid_semester_electives_by_baskets(pre_mid_electives, semester)
+        else:
+            pre_mid_elective_allocations = {}
+        
+        if not post_mid_courses.empty:
+            post_mid_electives = post_mid_courses[
+                post_mid_courses['Elective (Yes/No)'].astype(str).str.upper() == 'YES'
+            ] if 'Elective (Yes/No)' in post_mid_courses.columns else pd.DataFrame()
+            post_mid_elective_allocations = allocate_mid_semester_electives_by_baskets(post_mid_electives, semester)
+        else:
+            post_mid_elective_allocations = {}
+        
+        # Determine if this branch has sections (only CSE has sections A and B)
+        has_sections = (branch == 'CSE')
+        if has_sections:
+            sections = ['A', 'B']
+            print(f"[INFO] CSE branch detected - will generate timetables for Section A and Section B")
+        else:
+            sections = ['Whole']
+            print(f"[INFO] {branch} branch detected - will generate single timetable (no sections)")
+        
         # Generate pre-mid timetables
-        pre_mid_section_a = None
-        pre_mid_section_b = None
+        pre_mid_sections = {}
         if not pre_mid_courses.empty:
             print(f"[RESET] Generating PRE-MID timetables...")
             print(f"   Courses to schedule: {pre_mid_courses['Course Code'].tolist()}")
-            try:
-                pre_mid_section_a = generate_mid_semester_schedule(dfs, semester, 'A', pre_mid_courses, branch, time_config, 'pre_mid')
-                print(f"   [OK] Pre-mid Section A: {'Generated' if pre_mid_section_a is not None else 'Failed'}")
-            except Exception as e:
-                print(f"   [FAIL] Error generating pre-mid Section A: {e}")
-                traceback.print_exc()
             
-            try:
-                pre_mid_section_b = generate_mid_semester_schedule(dfs, semester, 'B', pre_mid_courses, branch, time_config, 'pre_mid')
-                print(f"   [OK] Pre-mid Section B: {'Generated' if pre_mid_section_b is not None else 'Failed'}")
-            except Exception as e:
-                print(f"   [FAIL] Error generating pre-mid Section B: {e}")
-                traceback.print_exc()
+            for section in sections:
+                section_label = f"Section {section}" if has_sections else "Whole Branch"
+                try:
+                    pre_mid_sections[section] = generate_mid_semester_schedule(
+                        dfs, semester, section, pre_mid_courses, branch, time_config, 'pre_mid', pre_mid_elective_allocations
+                    )
+                    print(f"   [OK] Pre-mid {section_label}: {'Generated' if pre_mid_sections[section] is not None else 'Failed'}")
+                except Exception as e:
+                    print(f"   [FAIL] Error generating pre-mid {section_label}: {e}")
+                    traceback.print_exc()
+                    pre_mid_sections[section] = None
         else:
             print(f"[WARN] No pre-mid courses to schedule for Semester {semester}, Branch {branch}")
         
         # Generate post-mid timetables
-        post_mid_section_a = None
-        post_mid_section_b = None
+        post_mid_sections = {}
         if not post_mid_courses.empty:
             print(f"[RESET] Generating POST-MID timetables...")
             print(f"   Courses to schedule: {post_mid_courses['Course Code'].tolist()}")
-            try:
-                post_mid_section_a = generate_mid_semester_schedule(dfs, semester, 'A', post_mid_courses, branch, time_config, 'post_mid')
-                print(f"   [OK] Post-mid Section A: {'Generated' if post_mid_section_a is not None else 'Failed'}")
-            except Exception as e:
-                print(f"   [FAIL] Error generating post-mid Section A: {e}")
-                traceback.print_exc()
             
-            try:
-                post_mid_section_b = generate_mid_semester_schedule(dfs, semester, 'B', post_mid_courses, branch, time_config, 'post_mid')
-                print(f"   [OK] Post-mid Section B: {'Generated' if post_mid_section_b is not None else 'Failed'}")
-            except Exception as e:
-                print(f"   [FAIL] Error generating post-mid Section B: {e}")
-                traceback.print_exc()
+            for section in sections:
+                section_label = f"Section {section}" if has_sections else "Whole Branch"
+                try:
+                    post_mid_sections[section] = generate_mid_semester_schedule(
+                        dfs, semester, section, post_mid_courses, branch, time_config, 'post_mid', post_mid_elective_allocations
+                    )
+                    print(f"   [OK] Post-mid {section_label}: {'Generated' if post_mid_sections[section] is not None else 'Failed'}")
+                except Exception as e:
+                    print(f"   [FAIL] Error generating post-mid {section_label}: {e}")
+                    traceback.print_exc()
+                    post_mid_sections[section] = None
         else:
             print(f"[WARN] No post-mid courses to schedule for Semester {semester}, Branch {branch}")
         
@@ -1905,42 +2070,153 @@ def export_mid_semester_timetables(dfs, semester, branch=None, time_config=None)
         pre_mid_filepath = os.path.join(OUTPUT_DIR, pre_mid_filename)
         post_mid_filepath = os.path.join(OUTPUT_DIR, post_mid_filename)
         
+        # Determine sheet names based on whether this branch has sections
+        if has_sections:
+            sheet_names = {'A': 'Section_A', 'B': 'Section_B', 'Whole': 'Timetable'}
+        else:
+            sheet_names = {'A': 'Timetable', 'B': None, 'Whole': 'Timetable'}
+        
         # Save pre-mid timetable
-        if pre_mid_section_a is not None and pre_mid_section_b is not None:
+        pre_mid_all_valid = all(pre_mid_sections.get(s) is not None for s in sections)
+        if pre_mid_all_valid:
             try:
                 with pd.ExcelWriter(pre_mid_filepath, engine='openpyxl') as writer:
-                    # Reset index to ensure Time Slot is a column, not index
-                    pre_mid_a_reset = pre_mid_section_a.reset_index()
-                    pre_mid_a_reset = pre_mid_a_reset.rename(columns={'index': 'Time Slot'})
-                    pre_mid_a_reset.to_excel(writer, sheet_name='Section_A', index=False)
+                    for section in sections:
+                        pre_mid_data = pre_mid_sections[section]
+                        # Reset index to ensure Time Slot is a column, not index
+                        pre_mid_reset = pre_mid_data.reset_index()
+                        pre_mid_reset = pre_mid_reset.rename(columns={'index': 'Time Slot'})
+                        sheet_name = sheet_names.get(section, f'Section_{section}')
+                        pre_mid_reset.to_excel(writer, sheet_name=sheet_name, index=False)
                     
-                    pre_mid_b_reset = pre_mid_section_b.reset_index()
-                    pre_mid_b_reset = pre_mid_b_reset.rename(columns={'index': 'Time Slot'})
-                    pre_mid_b_reset.to_excel(writer, sheet_name='Section_B', index=False)
+                    # ========== ADDED: VERIFICATION STATISTICS ==========
+                    print(f"[STATS] Generating PRE-MID verification sheets...")
+                    
+                    # Get course info for verification
+                    course_info = get_course_info(dfs) if dfs else {}
+                    classroom_data = dfs.get('classroom', None) if dfs else None
+                    
+                    # Create verification sheets for each section
+                    for section in sections:
+                        pre_mid_reset = pre_mid_sections[section].reset_index().rename(columns={'index': 'Time Slot'})
+                        if not pre_mid_reset.empty:
+                            section_label = f"Section {section}" if has_sections else "Timetable"
+                            print(f"   Creating Pre-Mid Verification sheet for {section_label}...")
+                            verification = create_timetable_verification_sheet(
+                                pre_mid_reset, course_info, classroom_data, semester, branch, section
+                            )
+                            if not verification.empty:
+                                sheet_name = f'Verification_{section}' if has_sections else 'Verification'
+                                verification.to_excel(writer, sheet_name=sheet_name, index=False)
+                                print(f"   [OK] Created Pre-Mid Verification sheet with {len(verification)} entries")
+                    
+                    # Create room allocation summary
+                    if classroom_data is not None and not classroom_data.empty:
+                        print(f"   Creating room allocation summary...")
+                        all_sections_data = [pre_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
+                        room_summary = create_room_allocation_summary_verification(
+                            all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame(), classroom_data
+                        )
+                        if not room_summary.empty:
+                            room_summary.to_excel(writer, sheet_name='Room_Allocation', index=False)
+                            print(f"   [OK] Created Room_Allocation sheet with {len(room_summary)} rooms")
+                    
+                    # Create LTPSC compliance summary
+                    print(f"   Creating LTPSC compliance summary...")
+                    all_sections_data = [pre_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
+                    ltpsc_summary = create_ltpsc_compliance_summary(
+                        dfs, semester, branch, all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame()
+                    )
+                    if not ltpsc_summary.empty:
+                        ltpsc_summary.to_excel(writer, sheet_name='LTPSC_Compliance', index=False)
+                        print(f"   [OK] Created LTPSC_Compliance sheet with {len(ltpsc_summary)} courses")
+                    
+                    # Create executive summary
+                    print(f"   Creating executive summary...")
+                    all_sections_data = [pre_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
+                    exec_summary = create_executive_summary(
+                        dfs, semester, branch, all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame(), {}
+                    )
+                    if not exec_summary.empty:
+                        exec_summary.to_excel(writer, sheet_name='Executive_Summary', index=False)
+                        print(f"   [OK] Created Executive_Summary sheet")
                     
                     # Add course summary
                     pre_mid_summary = create_mid_semester_summary(pre_mid_courses, 'Pre-Mid', semester, branch)
                     pre_mid_summary.to_excel(writer, sheet_name='Course_Summary', index=False)
                     
+                    print(f"[STATS] Added PRE-MID verification sheets for easy inspection")
                     print(f"[OK] PRE-MID timetable saved: {pre_mid_filename}")
             except Exception as e:
                 print(f"[FAIL] Error saving pre-mid timetable: {e}")
                 traceback.print_exc()
         else:
-            print(f"[WARN] Cannot save pre-mid timetable - Section A: {pre_mid_section_a is not None}, Section B: {pre_mid_section_b is not None}")
+            print(f"[WARN] Cannot save pre-mid timetable - Not all sections generated successfully")
         
         # Save post-mid timetable
-        if post_mid_section_a is not None and post_mid_section_b is not None:
+        post_mid_all_valid = all(post_mid_sections.get(s) is not None for s in sections)
+        if post_mid_all_valid:
             try:
                 with pd.ExcelWriter(post_mid_filepath, engine='openpyxl') as writer:
-                    # Reset index to ensure Time Slot is a column, not index
-                    post_mid_a_reset = post_mid_section_a.reset_index()
-                    post_mid_a_reset = post_mid_a_reset.rename(columns={'index': 'Time Slot'})
-                    post_mid_a_reset.to_excel(writer, sheet_name='Section_A', index=False)
+                    for section in sections:
+                        post_mid_data = post_mid_sections[section]
+                        # Reset index to ensure Time Slot is a column, not index
+                        post_mid_reset = post_mid_data.reset_index()
+                        post_mid_reset = post_mid_reset.rename(columns={'index': 'Time Slot'})
+                        sheet_name = sheet_names.get(section, f'Section_{section}')
+                        post_mid_reset.to_excel(writer, sheet_name=sheet_name, index=False)
                     
-                    post_mid_b_reset = post_mid_section_b.reset_index()
-                    post_mid_b_reset = post_mid_b_reset.rename(columns={'index': 'Time Slot'})
-                    post_mid_b_reset.to_excel(writer, sheet_name='Section_B', index=False)
+                    # ========== ADDED: VERIFICATION STATISTICS ==========
+                    print(f"[STATS] Generating POST-MID verification sheets...")
+                    
+                    # Get course info for verification
+                    course_info = get_course_info(dfs) if dfs else {}
+                    classroom_data = dfs.get('classroom', None) if dfs else None
+                    
+                    # Create verification sheets for each section
+                    for section in sections:
+                        post_mid_reset = post_mid_sections[section].reset_index().rename(columns={'index': 'Time Slot'})
+                        if not post_mid_reset.empty:
+                            section_label = f"Section {section}" if has_sections else "Timetable"
+                            print(f"   Creating Post-Mid Verification sheet for {section_label}...")
+                            verification = create_timetable_verification_sheet(
+                                post_mid_reset, course_info, classroom_data, semester, branch, section
+                            )
+                            if not verification.empty:
+                                sheet_name = f'Verification_{section}' if has_sections else 'Verification'
+                                verification.to_excel(writer, sheet_name=sheet_name, index=False)
+                                print(f"   [OK] Created Post-Mid Verification sheet with {len(verification)} entries")
+                    
+                    # Create room allocation summary
+                    if classroom_data is not None and not classroom_data.empty:
+                        print(f"   Creating room allocation summary...")
+                        all_sections_data = [post_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
+                        room_summary = create_room_allocation_summary_verification(
+                            all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame(), classroom_data
+                        )
+                        if not room_summary.empty:
+                            room_summary.to_excel(writer, sheet_name='Room_Allocation', index=False)
+                            print(f"   [OK] Created Room_Allocation sheet with {len(room_summary)} rooms")
+                    
+                    # Create LTPSC compliance summary
+                    print(f"   Creating LTPSC compliance summary...")
+                    all_sections_data = [post_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
+                    ltpsc_summary = create_ltpsc_compliance_summary(
+                        dfs, semester, branch, all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame()
+                    )
+                    if not ltpsc_summary.empty:
+                        ltpsc_summary.to_excel(writer, sheet_name='LTPSC_Compliance', index=False)
+                        print(f"   [OK] Created LTPSC_Compliance sheet with {len(ltpsc_summary)} courses")
+                    
+                    # Create executive summary
+                    print(f"   Creating executive summary...")
+                    all_sections_data = [post_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
+                    exec_summary = create_executive_summary(
+                        dfs, semester, branch, all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame(), {}
+                    )
+                    if not exec_summary.empty:
+                        exec_summary.to_excel(writer, sheet_name='Executive_Summary', index=False)
+                        print(f"   [OK] Created Executive_Summary sheet")
                     
                     # Add course summary
                     post_mid_summary = create_mid_semester_summary(post_mid_courses, 'Post-Mid', semester, branch)
@@ -1958,18 +2234,19 @@ def export_mid_semester_timetables(dfs, semester, branch=None, time_config=None)
                     )
                     combined_sheet.to_excel(writer, sheet_name='All_Courses_Overview', index=False)
                     
+                    print(f"[STATS] Added POST-MID verification sheets for easy inspection")
                     print(f"[OK] POST-MID timetable saved: {post_mid_filename}")
             except Exception as e:
                 print(f"[FAIL] Error saving post-mid timetable: {e}")
                 traceback.print_exc()
         else:
-            print(f"[WARN] Cannot save post-mid timetable - Section A: {post_mid_section_a is not None}, Section B: {post_mid_section_b is not None}")
+            print(f"[WARN] Cannot save post-mid timetable - Not all sections generated successfully")
         
         return {
-            'pre_mid_success': pre_mid_section_a is not None and pre_mid_section_b is not None,
-            'post_mid_success': post_mid_section_a is not None and post_mid_section_b is not None,
-            'pre_mid_filename': pre_mid_filename if (pre_mid_section_a is not None and pre_mid_section_b is not None) else None,
-            'post_mid_filename': post_mid_filename if (post_mid_section_a is not None and post_mid_section_b is not None) else None
+            'pre_mid_success': pre_mid_all_valid,
+            'post_mid_success': post_mid_all_valid,
+            'pre_mid_filename': pre_mid_filename if pre_mid_all_valid else None,
+            'post_mid_filename': post_mid_filename if post_mid_all_valid else None
         }
         
     except Exception as e:
@@ -1983,7 +2260,10 @@ def export_mid_semester_timetables(dfs, semester, branch=None, time_config=None)
         }
 
 def create_mid_semester_summary(courses_df, schedule_type, semester, branch=None):
-    """Create summary sheet for mid-semester timetable"""
+    """Create summary sheet for mid-semester timetable
+    
+    Shows inclusion reasoning based on Half Semester and Post mid-sem values
+    """
     if courses_df.empty:
         return pd.DataFrame()
     
@@ -1993,19 +2273,21 @@ def create_mid_semester_summary(courses_df, schedule_type, semester, branch=None
         ltpsc_str = course.get('LTPSC', '')
         ltpsc = parse_ltpsc(ltpsc_str)
         credits = course.get('Credits', 'N/A')
+        half_sem = course.get('Half Semester (Yes/No)', 'N/A')
         post_mid = course.get('Post mid-sem', 'N/A')
         
-        # Add reasoning based on schedule type
-        if schedule_type == 'Pre-Mid':
-            if credits == 2:
-                reasoning = "2-credit course with Post mid-sem = 'No'"
+        # Add reasoning based on new logic
+        if str(half_sem).upper().strip() == 'YES':
+            reasoning = "Half Semester = Yes (scheduled in both pre-mid and post-mid)"
+        elif str(half_sem).upper().strip() == 'NO':
+            if str(post_mid).upper().strip() == 'NO':
+                reasoning = f"Half Semester = No, Post mid-sem = No (pre-mid only)"
+            elif str(post_mid).upper().strip() == 'YES':
+                reasoning = f"Half Semester = No, Post mid-sem = Yes (post-mid only)"
             else:
-                reasoning = f"{credits}-credit course with Post mid-sem = 'No'"
-        else:  # Post-Mid
-            if credits == 2:
-                reasoning = "2-credit course with Post mid-sem = 'Yes'"
-            else:
-                reasoning = f"All {credits}-credit courses (non-2-credit) regardless of Post mid-sem"
+                reasoning = "Half Semester = No (check Post mid-sem value)"
+        else:
+            reasoning = f"Check Half Semester ({half_sem}) and Post mid-sem ({post_mid}) values"
         
         summary_data.append({
             'Schedule Type': schedule_type,
@@ -2020,8 +2302,8 @@ def create_mid_semester_summary(courses_df, schedule_type, semester, branch=None
             'Practicals/Week': ltpsc['P'],
             'Faculty': course.get('Faculty', 'Unknown'),
             'Department': course.get('Department', 'Unknown'),
+            'Half Semester': half_sem,
             'Post mid-sem': post_mid,
-            'Half Semester': course.get('Half Semester (Yes/No)', 'N/A'),
             'Elective': course.get('Elective (Yes/No)', 'N/A'),
             'Inclusion Reasoning': reasoning
         })

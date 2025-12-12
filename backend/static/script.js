@@ -4,6 +4,7 @@ let currentView = 'grid';
 let currentSemesterFilter = 'all';
 let currentSectionFilter = 'all';
 let currentBranchFilter = 'all';
+let currentTimetableTypeFilter = 'all';
 let uploadedFiles = [];
 let isUploadSectionVisible = false;
 let currentExamTimetables = [];
@@ -29,6 +30,7 @@ const sectionTitle = document.getElementById('section-title');
 const branchFilter = document.getElementById('branch-filter');
 const semesterFilter = document.getElementById('semester-filter');
 const sectionFilter = document.getElementById('section-filter');
+const timetableTypeFilter = document.getElementById('timetable-type-filter');
 const viewMode = document.getElementById('view-mode');
 
 // Helper Functions
@@ -137,6 +139,14 @@ function initializeApp() {
         updateSectionTitle();
         renderTimetables();
     });
+    
+    if (timetableTypeFilter) {
+        timetableTypeFilter.addEventListener('change', function() {
+            currentTimetableTypeFilter = this.value;
+            updateSectionTitle();
+            renderTimetables();
+        });
+    }
     
     viewMode.addEventListener('change', changeViewMode);
     
@@ -1834,10 +1844,12 @@ function resetFilters() {
     currentBranchFilter = 'all';
     currentSemesterFilter = 'all';
     currentSectionFilter = 'all';
+    currentTimetableTypeFilter = 'all';
     
     if (branchFilter) branchFilter.value = 'all';
     if (semesterFilter) semesterFilter.value = 'all';
     if (sectionFilter) sectionFilter.value = 'all';
+    if (timetableTypeFilter) timetableTypeFilter.value = 'all';
     
     updateSectionTitle();
     renderTimetables();
@@ -1970,7 +1982,20 @@ function filterTimetablesData() {
         const branchMatch = currentBranchFilter === 'all' || timetable.branch === currentBranchFilter;
         const semesterMatch = currentSemesterFilter === 'all' || timetable.semester === parseInt(currentSemesterFilter);
         const sectionMatch = currentSectionFilter === 'all' || timetable.section === currentSectionFilter;
-        return branchMatch && semesterMatch && sectionMatch;
+        
+        // Determine timetable type
+        let timetableType = 'regular';
+        if (timetable.is_pre_mid_timetable || timetable.timetable_type === 'pre_mid') {
+            timetableType = 'pre_mid';
+        } else if (timetable.is_post_mid_timetable || timetable.timetable_type === 'post_mid') {
+            timetableType = 'post_mid';
+        }
+        
+        const typeMatch = currentTimetableTypeFilter === 'all' || 
+                         timetableType === currentTimetableTypeFilter ||
+                         (currentTimetableTypeFilter === 'regular' && timetable.timetable_type === 'basket');
+        
+        return branchMatch && semesterMatch && sectionMatch && typeMatch;
     });
 }
 
