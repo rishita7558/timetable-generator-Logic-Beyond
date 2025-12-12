@@ -4557,17 +4557,24 @@ def get_timetables():
                 
                 # Read both sections from the Excel file
                 # For mid-semester timetables, check if both sections exist
+                # Try to read Section_A; if missing, fall back to a generic 'Timetable' sheet
                 try:
                     df_a = pd.read_excel(file_path, sheet_name='Section_A')
-                except:
-                    print(f"   [WARN] No Section_A sheet in {filename}")
-                    continue
-                
+                except Exception:
+                    try:
+                        # Some exported timetables use a single sheet named 'Timetable'
+                        df_a = pd.read_excel(file_path, sheet_name='Timetable')
+                        print(f"   [INFO] Using 'Timetable' sheet as Section_A for {filename}")
+                    except Exception:
+                        print(f"   [WARN] No Section_A or Timetable sheet in {filename}")
+                        continue
+
+                # Section_B may be absent for single-sheet timetables; treat as empty
                 try:
                     df_b = pd.read_excel(file_path, sheet_name='Section_B')
-                except:
-                    print(f"   [WARN] No Section_B sheet in {filename}")
-                    df_b = pd.DataFrame()  # Create empty DataFrame
+                except Exception:
+                    # Not an error — many timetables have only one sheet
+                    df_b = pd.DataFrame()
                 
                 # Clean any unintended index columns like "Unnamed: 0" and set proper index
                 def _clean_section_df(df):
