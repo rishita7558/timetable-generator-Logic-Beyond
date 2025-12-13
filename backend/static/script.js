@@ -1679,17 +1679,27 @@ function enhanceTables() {
         if (timetableCard) {
             const header = timetableCard.querySelector('.timetable-header h3');
             if (header) {
-                const match = header.textContent.match(/Semester (\d+) - Section ([AB])/);
-                if (match) {
-                    const semester = parseInt(match[1]);
-                    const section = match[2];
+                    // Extract semester and section from the header. Section can appear as 'Section A' or 'Whole Branch'
+                    const semMatch = header.textContent.match(/Semester\s+(\d+)/i);
+                    const sectionABMatch = header.textContent.match(/Section\s+(A|B)/i);
+                    const wholeMatch = header.textContent.match(/Whole\s+Branch/i);
+                    if (semMatch) {
+                    const semester = parseInt(semMatch[1]);
+                    let section = null;
+                    if (sectionABMatch) section = sectionABMatch[1];
+                    else if (wholeMatch) section = 'Whole';
                     
                     // Find the timetable data - include branch via table id to avoid cross-branch mixups
                     const tableId = table.getAttribute('id');
                     const timetable = currentTimetables.find(t => {
-                        const expectedId = t.branch ? `sem${t.semester}_${t.branch}_${section}` : `sem${t.semester}_${section}`;
+                        const normalizedSectionId = (section.toLowerCase && section.toLowerCase() === 'whole') ? 'whole' : section;
+                        const expectedId = t.branch ? `sem${t.semester}_${t.branch}_${normalizedSectionId}` : `sem${t.semester}_${normalizedSectionId}`;
                         return expectedId === tableId;
-                    }) || currentTimetables.find(t => t.semester === semester && t.section === section);
+                    }) || currentTimetables.find(t => t.semester === semester && String(t.section || '').toLowerCase() === String(section || '').toLowerCase()) || currentTimetables.find(t => {
+                        // Extra fallback: normalize timetable table id and compare to tableId directly
+                        const normalized = (t.branch ? `sem${t.semester}_${t.branch}_${String(t.section || '').toLowerCase()}` : `sem${t.semester}_${String(t.section || '').toLowerCase()}`);
+                        return normalized === (tableId || '').toLowerCase();
+                    });
                     
                     if (timetable) {
                         // Debug duplicates
@@ -1701,6 +1711,7 @@ function enhanceTables() {
                             
                             // Create enhanced legend with course type separation
                             if (timetable.courses) {
+                                console.log(`📋 Found ${timetable.courses.length} courses for Semester ${semester} Section ${section} (Branch: ${timetable.branch})`);
                                 const legend = createEnhancedLegend(
                                     semester, 
                                     section, 
@@ -1872,10 +1883,12 @@ function renderGridView(timetables) {
             typeBadge = '<span class="timetable-type-badge basket">REGULAR</span>';
         }
         
+        // Determine display label for section
+        const sectionLabelDisplay = (timetable.section === 'A' || timetable.section === 'B') ? ` - Section ${timetable.section}` : (timetable.section === 'Whole' ? ' - Whole Branch' : '');
         html += `
             <div class="timetable-card ${branchClass}">
                 <div class="timetable-header">
-                    <h3>Semester ${timetable.semester} - Section ${timetable.section} ${branchBadge} ${typeBadge}</h3>
+                    <h3>Semester ${timetable.semester}${sectionLabelDisplay} ${branchBadge} ${typeBadge}</h3>
                     <div class="timetable-actions">
                         <button class="action-btn" onclick="downloadTimetable('${timetable.filename}')" title="Download">
                             <i class="fas fa-download"></i>
@@ -1901,6 +1914,8 @@ function renderListView(timetables) {
     
     timetables.forEach(timetable => {
         const branchBadge = timetable.branch ? `<span class="branch-badge ${timetable.branch.toLowerCase()}">${timetable.branch}</span>` : '';
+        // Determine display label for section (List view)
+        const sectionLabelDisplay = (timetable.section === 'A' || timetable.section === 'B') ? ` - Section ${timetable.section}` : (timetable.section === 'Whole' ? ' - Whole Branch' : '');
         
         // Add timetable type badge
         let typeBadge = '';
@@ -1915,7 +1930,7 @@ function renderListView(timetables) {
         html += `
             <div class="timetable-item" style="background: white; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 1.5rem; overflow: hidden;">
                 <div class="timetable-header" style="background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: white; padding: 1.25rem; display: flex; justify-content: space-between; align-items: center;">
-                    <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Semester ${timetable.semester} - Section ${timetable.section} ${branchBadge} ${typeBadge}</h3>
+                    <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Semester ${timetable.semester}${sectionLabelDisplay} ${branchBadge} ${typeBadge}</h3>
                     <div class="timetable-actions">
                         <button class="btn btn-outline" onclick="downloadTimetable('${timetable.filename}')" style="background: rgba(255, 255, 255, 0.2); color: white; border: 1px solid rgba(255, 255, 255, 0.5);">
                             <i class="fas fa-download"></i> Download
@@ -1938,6 +1953,8 @@ function renderCompactView(timetables) {
     
     timetables.forEach(timetable => {
         const branchBadge = timetable.branch ? `<span class="branch-badge ${timetable.branch.toLowerCase()}">${timetable.branch}</span>` : '';
+        // Determine display label for section (Compact view)
+        const sectionLabelDisplay = (timetable.section === 'A' || timetable.section === 'B') ? ` - Section ${timetable.section}` : (timetable.section === 'Whole' ? ' - Whole Branch' : '');
         
         // Add timetable type badge
         let typeBadge = '';
@@ -1952,7 +1969,7 @@ function renderCompactView(timetables) {
         html += `
             <div class="compact-card" style="background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.5rem; margin-bottom: 1rem;">
                 <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 1rem;">
-                    <h4 style="margin: 0; color: var(--dark);">Semester ${timetable.semester} - Section ${timetable.section} ${branchBadge} ${typeBadge}</h4>
+                    <h4 style="margin: 0; color: var(--dark);">Semester ${timetable.semester}${sectionLabelDisplay} ${branchBadge} ${typeBadge}</h4>
                     <div>
                         <button class="btn btn-outline btn-sm" onclick="downloadTimetable('${timetable.filename}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">
                             <i class="fas fa-download"></i>
@@ -2051,7 +2068,8 @@ function downloadTimetable(filename) {
 }
 
 function printTimetable(semester, section) {
-    showNotification(`🖨️ Printing Semester ${semester} - Section ${section}`, 'info');
+    const sectionLabel = (section === 'A' || section === 'B') ? `Section ${section}` : (section === 'Whole' ? 'Whole Branch' : '');
+    showNotification(`🖨️ Printing Semester ${semester} ${sectionLabel}`, 'info');
     
     // Create a print-friendly version
     const printWindow = window.open('', '_blank');
@@ -2076,7 +2094,7 @@ function printTimetable(semester, section) {
             </head>
             <body>
                 <div class="timetable-header">
-                    <h1>IIIT Dharwad - Semester ${semester} - Section ${section}</h1>
+                    <h1>IIIT Dharwad - Semester ${semester}${sectionLabel ? ' - ' + sectionLabel : ''}</h1>
                     <p>Generated on ${new Date().toLocaleDateString()}</p>
                 </div>
                 ${timetable.html}
