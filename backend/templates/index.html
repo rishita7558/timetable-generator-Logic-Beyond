@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Timetable Dashboard - IIIT Dharwad</title>
     <link rel="stylesheet" href="/static/style.css">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/fontawesome.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%234F46E5'/><text x='50' y='65' font-size='60' font-weight='bold' fill='white' text-anchor='middle' font-family='Arial'>T</text></svg>">
 </head>
 <body>
     <!-- Navigation Sidebar -->
@@ -150,14 +151,12 @@
             </li>
             <li class="nav-item">
                 <a href="#" id="settings-nav-btn">
-                    <i class="fas fa-cog"></i>
-                    <span>Settings</span>
+                    <span>⚙️ Settings</span>
                 </a>
             </li>
             <li class="nav-item">
                 <a href="#" id="help-nav-btn">
-                    <i class="fas fa-question-circle"></i>
-                    <span>Help & Support</span>
+                    <span>❓ Help & Support</span>
                 </a>
             </li>
         </ul>
@@ -205,7 +204,7 @@
                 </div>
                 <div class="stat-info">
                     <h3 id="total-timetables">0</h3>
-                    <p>Total Timetables</p>
+                    <p>📅 Total Timetables</p>
                 </div>
             </div>
             <div class="stat-card">
@@ -214,7 +213,7 @@
                 </div>
                 <div class="stat-info">
                     <h3 id="total-courses">0</h3>
-                    <p>Total Courses</p>
+                    <p>📚 Total Courses</p>
                 </div>
             </div>
             <div class="stat-card">
@@ -223,7 +222,7 @@
                 </div>
                 <div class="stat-info">
                     <h3 id="total-faculty">0</h3>
-                    <p>Faculty Members</p>
+                    <p>👨‍🏫 Faculty Members</p>
                 </div>
             </div>
             <div class="stat-card">
@@ -232,7 +231,7 @@
                 </div>
                 <div class="stat-info">
                     <h3 id="total-classrooms">0</h3>
-                    <p>Total Classrooms</p>
+                    <p>🏛️ Total Classrooms</p>
                     <small id="usable-classrooms-hint" style="color: #666; font-size: 0.9em;"></small>
                 </div>
             </div>
@@ -242,8 +241,8 @@
         <section class="upload-section" id="upload-section" style="display: none;">
             <div class="upload-container">
                 <div class="upload-header">
-                    <h2>Upload CSV Files</h2>
-                    <p>Drag and drop your CSV files or click to browse</p>
+                    <h2><i class="fas fa-upload me-2"></i>Upload CSV Files</h2>
+                    <p><i class="fas fa-info-circle me-2"></i>Drag and drop your CSV files or click to browse</p>
                 </div>
                 
                 <div class="upload-area" id="upload-area">
@@ -260,7 +259,7 @@
                 </div>
                 
                 <div class="file-list" id="file-list">
-                    <h4>Required Files:</h4>
+                    <h4><i class="fas fa-list me-2"></i>Required Files:</h4>
                     <div class="required-files">
                         <div class="file-item required" data-file="course_data.csv">
                             <i class="fas fa-file-csv"></i>
@@ -287,10 +286,15 @@
                             <span>exams_data.csv</span>
                             <span class="file-status"></span>
                         </div>
+                        <div class="file-item" data-file="minor_data.csv">
+                            <i class="fas fa-file-csv"></i>
+                            <span>minor_data.csv (Optional)</span>
+                            <span class="file-status"></span>
+                        </div>
                     </div>
                     
                     <div class="uploaded-files" id="uploaded-files">
-                        <h4>Uploaded Files:</h4>
+                        <h4><i class="fas fa-check-circle me-2"></i>Uploaded Files:</h4>
                         <!-- Uploaded files will appear here -->
                     </div>
                 </div>
@@ -312,7 +316,7 @@
         <section class="controls-section">
             <div class="control-group">
                 <div class="control-item">
-                    <label for="branch-filter">Branch</label>
+                    <label for="branch-filter"><i class="fas fa-laptop-code me-2"></i>Branch</label>
                     <select id="branch-filter" class="control-select">
                         <option value="all">All Branches</option>
                         <option value="CSE">Computer Science</option>
@@ -321,7 +325,7 @@
                     </select>
                 </div>
                 <div class="control-item">
-                    <label for="semester-filter">Semester</label>
+                    <label for="semester-filter"><i class="fas fa-book me-2"></i>Semester</label>
                     <select id="semester-filter" class="control-select">
                         <option value="all">All Semesters</option>
                         <option value="1">Semester 1</option>
@@ -331,7 +335,7 @@
                     </select>
                 </div>
                 <div class="control-item">
-                    <label for="section-filter">Section</label>
+                    <label for="section-filter"><i class="fas fa-layer-group me-2"></i>Section</label>
                     <select id="section-filter" class="control-select">
                         <option value="all">All Sections</option>
                         <option value="A">Section A</option>
@@ -340,7 +344,7 @@
                     </select>
                 </div>
                 <div class="control-item">
-                    <label for="timetable-type-filter">Timetable Type</label>
+                    <label for="timetable-type-filter"><i class="fas fa-calendar-alt me-2"></i>Timetable Type</label>
                     <select id="timetable-type-filter" class="control-select">
                         <option value="all">All Types</option>
                         <option value="regular">Regular Timetables</option>
@@ -349,7 +353,7 @@
                     </select>
                 </div>
                 <div class="control-item">
-                    <label for="view-mode">View Mode</label>
+                    <label for="view-mode"><i class="fas fa-eye me-2"></i>View Mode</label>
                     <select id="view-mode" class="control-select">
                         <option value="grid">Grid View</option>
                         <option value="list">List View</option>
@@ -375,7 +379,7 @@
         <!-- Timetables Section -->
         <section class="timetables-section">
             <div class="section-header">
-                <h2 id="section-title">All Timetables</h2>
+                <h2 id="section-title"><i class="fas fa-calendar-alt me-2"></i>All Timetables</h2>
                 <div class="section-actions">
                     <div class="view-toggle">
                         <button class="view-btn active" data-view="grid">
@@ -408,8 +412,8 @@
 <!-- Exam Schedule Generation Section -->
 <section class="exam-section" id="exam-generate-section" style="display: none;">
     <div class="section-header">
-        <h2>Generate Exam Schedule</h2>
-        <p>Create conflict-free exam timetable with intelligent scheduling</p>
+        <h2><i class="fas fa-calendar-alt me-2\"></i>Generate Exam Schedule</h2>
+        <p><i class="fas fa-info-circle me-2\"></i>Create conflict-free exam timetable with intelligent scheduling</p>
     </div>
     
     <!-- Configuration Form - Full Width -->
@@ -640,14 +644,14 @@
         <!-- Exam Timetables View Section -->
         <section class="exam-section" id="exam-view-section" style="display: none;">
             <div class="section-header">
-                <h2>Exam Schedules</h2>
-                <p>View and manage generated exam timetables organized by sessions</p>
+                <h2><i class="fas fa-calendar-alt me-2\"></i>Exam Schedules</h2>
+                <p><i class="fas fa-eye me-2\"></i>View and manage generated exam timetables organized by sessions</p>
             </div>
             
             <div class="exam-controls">
                 <div class="control-group">
                     <div class="control-item">
-                        <label for="exam-period-filter">Exam Period</label>
+                        <label for="exam-period-filter\"><i class="fas fa-calendar-alt me-2\"></i>Exam Period</label>
                         <select id="exam-period-filter" class="control-select">
                             <option value="all">All Periods</option>
                         </select>
@@ -727,23 +731,19 @@
         </section>
         <!-- Quick Actions Panel -->
         <section class="quick-actions">
-            <h3>Quick Actions</h3>
+            <h3><i class="fas fa-bolt me-2\"></i>Quick Actions</h3>
             <div class="action-grid">
                 <div class="action-card" data-action="upload">
-                    <i class="fas fa-cloud-upload-alt"></i>
-                    <span>Upload Files</span>
+                    <span>📤 Upload Files</span>
                 </div>
                 <div class="action-card" data-action="export">
-                    <i class="fas fa-file-export"></i>
-                    <span>Export Data</span>
+                    <span>📊 Export Data</span>
                 </div>
                 <div class="action-card" data-action="settings">
-                    <i class="fas fa-cogs"></i>
-                    <span>Settings</span>
+                    <span>⚙️ Settings</span>
                 </div>
                 <div class="action-card" data-action="help">
-                    <i class="fas fa-question-circle"></i>
-                    <span>Help & Support</span>
+                    <span>❓ Help & Support</span>
                 </div>
             </div>
         </section>
@@ -811,7 +811,7 @@
                     <h4><i class="fas fa-eye me-2"></i>Appearance</h4>
                     <div class="settings-grid">
                         <div class="setting-item">
-                            <label class="setting-label">Font Size</label>
+                            <label class="setting-label"><i class="fas fa-text-size me-1\"></i>Font Size</label>
                             <select class="setting-control" id="font-size" onchange="uiConfig.setFontSize(this.value)">
                                 <option value="small">Small</option>
                                 <option value="medium" selected>Medium</option>
@@ -820,7 +820,7 @@
                             </select>
                         </div>
                         <div class="setting-item">
-                            <label class="setting-label">Density</label>
+                            <label class="setting-label"><i class="fas fa-compress-alt me-1\"></i>Density</label>
                             <select class="setting-control" id="density" onchange="uiConfig.setDensity(this.value)">
                                 <option value="compact">Compact</option>
                                 <option value="comfortable" selected>Comfortable</option>
@@ -835,7 +835,7 @@
                     <h4><i class="fas fa-universal-access me-2"></i>Accessibility</h4>
                     <div class="settings-grid">
                         <div class="setting-item">
-                            <label class="setting-label">High Contrast Mode</label>
+                            <label class="setting-label"><i class="fas fa-adjust me-1"></i>High Contrast Mode</label>
                             <div class="toggle-switch">
                                 <input type="checkbox" id="high-contrast-toggle" onchange="uiConfig.toggleHighContrast()">
                                 <label for="high-contrast-toggle" class="toggle-slider"></label>
@@ -843,7 +843,7 @@
                             </div>
                         </div>
                         <div class="setting-item">
-                            <label class="setting-label">Reduce Animations</label>
+                            <label class="setting-label"><i class="fas fa-video me-1"></i>Reduce Animations</label>
                             <div class="toggle-switch">
                                 <input type="checkbox" id="animations-toggle" onchange="uiConfig.toggleAnimations()">
                                 <label for="animations-toggle" class="toggle-slider"></label>
@@ -858,7 +858,7 @@
                     <h4><i class="fas fa-layer-group me-2"></i>Layout</h4>
                     <div class="settings-grid">
                         <div class="setting-item">
-                            <label class="setting-label">Compact Mode</label>
+                            <label class="setting-label"><i class="fas fa-compress-alt me-1"></i>Compact Mode</label>
                             <div class="toggle-switch">
                                 <input type="checkbox" id="compact-toggle" onchange="uiConfig.toggleCompactMode()">
                                 <label for="compact-toggle" class="toggle-slider"></label>
@@ -866,7 +866,7 @@
                             </div>
                         </div>
                         <div class="setting-item">
-                            <label class="setting-label">Collapse Sidebar</label>
+                            <label class="setting-label"><i class="fas fa-bars me-1"></i>Collapse Sidebar</label>
                             <div class="toggle-switch">
                                 <input type="checkbox" id="sidebar-toggle" onchange="uiConfig.toggleSidebar()">
                                 <label for="sidebar-toggle" class="toggle-slider"></label>
@@ -909,28 +909,28 @@
                         <div class="step" style="display: flex; gap: 1rem; padding: 1rem; background: var(--light); border-radius: 8px;">
                             <div class="step-number" style="background: var(--primary); color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">1</div>
                             <div>
-                                <strong>Upload Required CSV Files</strong>
+                                <strong>📤 Upload Required CSV Files</strong>
                                 <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Upload course_data.csv, faculty_availability.csv, classroom_data.csv, student_data.csv, and exams_data.csv</p>
                             </div>
                         </div>
                         <div class="step" style="display: flex; gap: 1rem; padding: 1rem; background: var(--light); border-radius: 8px;">
                             <div class="step-number" style="background: var(--primary); color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">2</div>
                             <div>
-                                <strong>Generate Timetables</strong>
+                                <strong>🔄 Generate Timetables</strong>
                                 <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Click "Generate All Timetables" to create schedules for all semesters and departments</p>
                             </div>
                         </div>
                         <div class="step" style="display: flex; gap: 1rem; padding: 1rem; background: var(--light); border-radius: 8px;">
                             <div class="step-number" style="background: var(--primary); color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">3</div>
                             <div>
-                                <strong>Generate Exam Schedules</strong>
+                                <strong>📋 Generate Exam Schedules</strong>
                                 <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Navigate to "Generate Exam Schedule" to create conflict-free exam timetables</p>
                             </div>
                         </div>
                         <div class="step" style="display: flex; gap: 1rem; padding: 1rem; background: var(--light); border-radius: 8px;">
                             <div class="step-number" style="background: var(--primary); color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">4</div>
                             <div>
-                                <strong>View & Download</strong>
+                                <strong>💾 View & Download</strong>
                                 <p style="margin: 0.5rem 0 0 0; color: var(--gray);">Use filters to view specific timetables and download individual or all schedules</p>
                             </div>
                         </div>
@@ -945,19 +945,19 @@
                     </h4>
                     <div class="file-requirements" style="display: grid; gap: 1rem;">
                         <div class="file-item" style="padding: 1rem; background: rgba(67, 97, 238, 0.05); border-radius: 8px; border-left: 4px solid var(--primary);">
-                            <strong>course_data.csv</strong>
+                            <strong>📚 course_data.csv</strong>
                             <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">
                                 Required columns: Course Code, Course Name, Semester, Department, LTPSC, Credits, Instructor, Elective (Yes/No)
                             </p>
                         </div>
                         <div class="file-item" style="padding: 1rem; background: rgba(67, 97, 238, 0.05); border-radius: 8px; border-left: 4px solid var(--primary);">
-                            <strong>faculty_availability.csv</strong>
+                            <strong>👨‍🏫 faculty_availability.csv</strong>
                             <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">
                                 Required columns: faculty name, Available Days, Unavailable Time Slots
                             </p>
                         </div>
                         <div class="file-item" style="padding: 1rem; background: rgba(67, 97, 238, 0.05); border-radius: 8px; border-left: 4px solid var(--primary);">
-                            <strong>exams_data.csv</strong>
+                            <strong>📝 exams_data.csv</strong>
                             <p style="margin: 0.5rem 0 0 0; color: var(--gray); font-size: 0.9rem;">
                                 Required columns: Course Code, Course Name, Department, Semester, Credits, Exam Type, Duration, Preferred Date
                             </p>

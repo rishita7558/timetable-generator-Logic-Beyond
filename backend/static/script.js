@@ -2760,24 +2760,24 @@ function resetUISettings() {
 
 // Update loadCurrentSettings function
 function loadCurrentSettings() {
-    // Load saved settings from localStorage or use defaults
-    const defaultView = localStorage.getItem('defaultView') || 'grid';
-    const notifications = localStorage.getItem('notifications') !== 'false';
-    
-    // Update UI controls
-    document.getElementById('default-view').value = defaultView;
-    document.getElementById('notifications-toggle').checked = notifications;
-    
     // Update theme and UI controls
-    document.getElementById('font-size').value = uiConfig.settings.fontSize;
-    document.getElementById('density').value = uiConfig.settings.density;
-    document.getElementById('high-contrast-toggle').checked = uiConfig.settings.highContrast;
-    document.getElementById('animations-toggle').checked = uiConfig.settings.animations;
-    document.getElementById('compact-toggle').checked = uiConfig.settings.compactMode;
-    document.getElementById('sidebar-toggle').checked = uiConfig.settings.sidebarCollapsed;
+    const fontSizeEl = document.getElementById('font-size');
+    if (fontSizeEl) fontSizeEl.value = uiConfig.settings.fontSize;
     
-    // Update last updated timestamp
-    document.getElementById('last-updated').textContent = new Date().toLocaleString();
+    const densityEl = document.getElementById('density');
+    if (densityEl) densityEl.value = uiConfig.settings.density;
+    
+    const highContrastEl = document.getElementById('high-contrast-toggle');
+    if (highContrastEl) highContrastEl.checked = uiConfig.settings.highContrast;
+    
+    const animationsEl = document.getElementById('animations-toggle');
+    if (animationsEl) animationsEl.checked = uiConfig.settings.animations;
+    
+    const compactEl = document.getElementById('compact-toggle');
+    if (compactEl) compactEl.checked = uiConfig.settings.compactMode;
+    
+    const sidebarEl = document.getElementById('sidebar-toggle');
+    if (sidebarEl) sidebarEl.checked = uiConfig.settings.sidebarCollapsed;
 }
 
 function initializeExamSystem() {

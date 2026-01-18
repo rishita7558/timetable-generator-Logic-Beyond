@@ -41,7 +41,12 @@ def initialize_classroom_usage_tracker():
     """Initialize the global classroom usage tracker"""
     global _CLASSROOM_USAGE_TRACKER
     days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-    time_slots = ['09:00-10:30', '10:30-12:00', '12:00-13:00', '13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00']
+    time_slots = [
+        '07:30-09:00',
+        '09:00-10:30', '10:30-12:00', '12:00-13:00',
+        '13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00',
+        '18:30-20:00'
+    ]
     
     _CLASSROOM_USAGE_TRACKER = {}
     for day in days:
@@ -330,6 +335,9 @@ def load_all_data(force_reload=False):
         "student_data.csv",
         "exams_data.csv"
     ]
+    optional_files = [
+        "minor_data.csv"  # Optional minor course scheduling
+    ]
     dfs = {}
     
     print("[FOLDER] Loading CSV files...")
@@ -341,6 +349,7 @@ def load_all_data(force_reload=False):
             filepath = os.path.join(INPUT_DIR, file)
             _file_hashes[file] = get_file_hash(filepath)
     
+    # Load required files
     for f in required_files:
         file_path = find_csv_file(f)
         if not file_path:
@@ -417,6 +426,45 @@ def load_all_data(force_reload=False):
         except Exception as e:
             print(f"[FAIL] Error loading {f}: {e}")
             return None
+    
+    # Load optional files
+    for f in optional_files:
+        file_path = find_csv_file(f)
+        if not file_path:
+            print(f"[INFO] Optional file not found: {f}; skipping")
+            continue
+        
+        try:
+            key = f.replace("_data.csv", "").replace(".csv", "")
+            dfs[key] = pd.read_csv(file_path)
+            print(f"[OK] Loaded optional {f} from {file_path} ({len(dfs[key])} rows)")
+            
+            # Special handling for minor data to normalize columns
+            if key == 'minor':
+                minor_df = dfs[key].copy()
+                col_map = {}
+                for col in minor_df.columns:
+                    cl = str(col).strip().lower()
+                    if 'minor' in cl and 'course' in cl:
+                        col_map[col] = 'Minor Course'
+                    elif 'semester' in cl:
+                        col_map[col] = 'Semester'
+                    elif 'registered' in cl and 'student' in cl:
+                        col_map[col] = 'Registered Students'
+                if col_map:
+                    minor_df = minor_df.rename(columns=col_map)
+                # Ensure required columns exist
+                if 'Minor Course' not in minor_df.columns and len(minor_df.columns) > 0:
+                    minor_df['Minor Course'] = minor_df.iloc[:, 0].astype(str)
+                if 'Semester' not in minor_df.columns:
+                    minor_df['Semester'] = None
+                if 'Registered Students' not in minor_df.columns:
+                    minor_df['Registered Students'] = 0
+                dfs[key] = minor_df
+                print(f"   [INFO] minor_data.csv normalized; columns: {list(minor_df.columns)}")
+        
+        except Exception as e:
+            print(f"[WARN] Error loading optional file {f}: {e}")
     
     # Validate required columns in course data
     if 'course' in dfs:
@@ -1190,6 +1238,87 @@ def schedule_electives_by_baskets(elective_allocations, schedule, used_slots, se
     print(f"   [OK] Scheduled {elective_scheduled} IDENTICAL COMMON elective sessions")
     return used_slots
 
+def schedule_minor_courses(dfs, semester_id, schedule, used_slots):
+    """Schedule minor courses into dedicated morning and evening slots.
+    Uses time slots 07:30-09:00 and 18:30-20:00 across Mon-Fri.
+    Columns parsed case-insensitively from dfs['minor'].
+    """
+    try:
+        if 'minor' not in dfs or dfs['minor'].empty:
+            return used_slots
+
+        minor_df = dfs['minor'].copy()
+        # Normalize columns defensively
+        col_map = {}
+        for col in minor_df.columns:
+            cl = str(col).strip().lower()
+            if 'minor' in cl and 'course' in cl:
+                col_map[col] = 'Minor Course'
+            elif 'semester' in cl:
+                col_map[col] = 'Semester'
+            elif 'registered' in cl and 'student' in cl:
+                col_map[col] = 'Registered Students'
+        if col_map:
+            minor_df = minor_df.rename(columns=col_map)
+
+        # Filter by semester id
+        if 'Semester' in minor_df.columns:
+            minor_df = minor_df[minor_df['Semester'].astype(str).str.strip() == str(semester_id)]
+
+        if minor_df.empty:
+            print(f"   [MINOR] No minor courses for Semester {semester_id}")
+            return used_slots
+
+        days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+        morning_slot = '07:30-09:00'
+        evening_slot = '18:30-20:00'
+
+        # Ensure schedule has the minor slots
+        for slot in [morning_slot, evening_slot]:
+            if slot not in schedule.index:
+                schedule.loc[slot] = 'Free'
+
+        print(f"   [MINOR] Scheduling {len(minor_df)} minor course(s) for Semester {semester_id}")
+        morning_day_idx = 0
+        evening_day_idx = 2  # offset evenings to spread days
+
+        for _, row in minor_df.iterrows():
+            name = str(row.get('Minor Course', '')).strip() or 'Minor Course'
+
+            # Allocate morning slot
+            attempts = 0
+            scheduled_morning = False
+            while attempts < len(days) and not scheduled_morning:
+                day = days[morning_day_idx % len(days)]
+                key = (day, morning_slot)
+                if schedule.loc[morning_slot, day] == 'Free' and key not in used_slots:
+                    schedule.loc[morning_slot, day] = f"MINOR: {name}"
+                    used_slots.add(key)
+                    scheduled_morning = True
+                    print(f"      [OK] MINOR morning: {name} on {day} {morning_slot}")
+                morning_day_idx += 1
+                attempts += 1
+
+            # Allocate evening slot
+            attempts = 0
+            scheduled_evening = False
+            while attempts < len(days) and not scheduled_evening:
+                day = days[evening_day_idx % len(days)]
+                key = (day, evening_slot)
+                if schedule.loc[evening_slot, day] == 'Free' and key not in used_slots:
+                    schedule.loc[evening_slot, day] = f"MINOR: {name}"
+                    used_slots.add(key)
+                    scheduled_evening = True
+                    print(f"      [OK] MINOR evening: {name} on {day} {evening_slot}")
+                evening_day_idx += 1
+                attempts += 1
+
+        return used_slots
+    except Exception as e:
+        print(f"[WARN] Error scheduling minor courses: {e}")
+        traceback.print_exc()
+        return used_slots
+
 def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, elective_allocations, branch=None, time_config=None, basket_allocations=None):
     """Generate schedule with basket-based elective allocation - COMMON slots across branches.
     Allows overriding time slots via time_config: {
@@ -1218,15 +1347,16 @@ def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, e
             lunch_slots = time_config.get('lunch_slots', ['12:00-13:00'])
             afternoon_slots = time_config.get('afternoon_slots', ['13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00'])
         else:
-            morning_slots = ['09:00-10:30', '10:30-12:00']
+            morning_slots = ['07:30-09:00', '09:00-10:30', '10:30-12:00']
             lunch_slots = ['12:00-13:00']
-            afternoon_slots = ['13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00']
+            afternoon_slots = ['13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00', '18:30-20:00']
         all_slots = morning_slots + lunch_slots + afternoon_slots
         
         # Lecture slots (1.5 hours)
         if time_config and time_config.get('lecture_times'):
             lecture_times = time_config['lecture_times']
         else:
+            # Do NOT include minor-only slots here to keep them reserved for minors
             lecture_times = ['09:00-10:30', '10:30-12:00', '13:00-14:30', '15:30-17:00']
         
         # Tutorial slots (1 hour)
@@ -1260,6 +1390,9 @@ def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, e
             print(f"   [BASKET] Baskets to schedule: {list(unique_baskets)}")
             
             used_slots = schedule_electives_by_baskets(elective_allocations, schedule, used_slots, section, branch)
+
+        # Schedule minor courses into dedicated minor slots
+        used_slots = schedule_minor_courses(dfs, semester_id, schedule, used_slots)
         
         # ENSURE all required baskets are scheduled from basket_allocations
         # This ensures baskets are scheduled even if courses aren't in elective_allocations
@@ -1287,7 +1420,7 @@ def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, e
                     temp_elective_allocations = {dummy_key: temp_allocation}
                     used_slots = schedule_electives_by_baskets(temp_elective_allocations, schedule, used_slots, section, branch)
         
-        # Schedule core courses AFTER electives - these are branch-specific
+        # Schedule core courses AFTER electives and minors - these are branch-specific
         # IMPORTANT: Filter out any elective courses that are already scheduled in baskets
         if not core_courses.empty:
             # Get list of elective course codes from baskets to exclude them
@@ -1347,15 +1480,16 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
             lunch_slots = time_config.get('lunch_slots', ['12:00-13:00'])
             afternoon_slots = time_config.get('afternoon_slots', ['13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00'])
         else:
-            morning_slots = ['09:00-10:30', '10:30-12:00']
+            morning_slots = ['07:30-09:00', '09:00-10:30', '10:30-12:00']
             lunch_slots = ['12:00-13:00']
-            afternoon_slots = ['13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00']
+            afternoon_slots = ['13:00-14:30', '14:30-15:30', '15:30-17:00', '17:00-18:00', '18:30-20:00']
         all_slots = morning_slots + lunch_slots + afternoon_slots
         
         # Lecture slots (1.5 hours)
         if time_config and time_config.get('lecture_times'):
             lecture_times = time_config['lecture_times']
         else:
+            # Exclude minor-only slots to keep them free for minors
             lecture_times = ['09:00-10:30', '10:30-12:00', '13:00-14:30', '15:30-17:00']
         
         # Tutorial slots (1 hour)
@@ -1395,6 +1529,9 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
         elif not elective_courses.empty:
             print(f"   [WARN] No basket allocations provided for electives, scheduling as core courses")
         
+        # SCHEDULE MINORS before core courses to reserve minor slots
+        used_slots = schedule_minor_courses(dfs, semester_id, schedule, used_slots)
+
         # SCHEDULE CORE COURSES - iterate over core_courses only
         print(f"   [CORE] Scheduling {len(core_courses)} core courses...")
         for _, course in core_courses.iterrows():
@@ -2193,6 +2330,9 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None, time_conf
         print(f"   [TARGET] SEMESTER {semester}: Scheduling all elective baskets")
     
     try:
+        # Initialize helper structures used later in the writer section
+        basket_courses_map = {}
+        classroom_allocation_details = []
         # Get ALL elective courses for this semester (without branch filter)
         course_baskets_all = separate_courses_by_type(dfs, semester)
         elective_courses_all = course_baskets_all['elective_courses']
