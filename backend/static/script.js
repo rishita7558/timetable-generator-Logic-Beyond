@@ -831,11 +831,17 @@ async function loadStats() {
         const totalCoursesEl = document.getElementById('total-courses');
         const totalFacultyEl = document.getElementById('total-faculty');
         const totalClassroomsEl = document.getElementById('total-classrooms');
+        const usableHintEl = document.getElementById('usable-classrooms-hint');
         
         if (totalTimetablesEl) totalTimetablesEl.textContent = stats.total_timetables;
         if (totalCoursesEl) totalCoursesEl.textContent = stats.total_courses;
         if (totalFacultyEl) totalFacultyEl.textContent = stats.total_faculty;
         if (totalClassroomsEl) totalClassroomsEl.textContent = stats.total_classrooms;
+        
+        // Display usable classrooms hint
+        if (usableHintEl && stats.usable_classrooms) {
+            usableHintEl.textContent = `(${stats.usable_classrooms} available for scheduling)`;
+        }
         
     } catch (error) {
         console.error('Error loading stats:', error);
@@ -1417,27 +1423,20 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
         // Filter baskets based on semester
         let filteredBaskets = baskets;
         
-        if (semester === 3) {
-            // For semester 3, show only B3 baskets
-            filteredBaskets = baskets.filter(basket => 
-                basket.includes('B3') || 
-                basket.includes('_B3') ||
-                basket === 'ELECTIVE_B3' ||
-                basket === 'HSS_B3' ||
-                basket === 'PROF_B3'
-            );
-            console.log(`🎯 Semester 3 - Filtered to B3 baskets:`, filteredBaskets);
-        } else if (semester === 5) {
-            // For semester 5, show B5 and B4 baskets
-            filteredBaskets = baskets.filter(basket => 
-                basket.includes('B5') || basket.includes('_B5') ||
-                basket.includes('B4') || basket.includes('_B4') ||
-                basket === 'ELECTIVE_B5' || basket === 'ELECTIVE_B4' ||
-                basket === 'HSS_B5' || basket === 'PROF_B5'
-            );
-            console.log(`🎯 Semester 5 - Filtered to B5 and B4 baskets:`, filteredBaskets);
-        }
-        // For other semesters, show all baskets
+        // Enforce allowed elective baskets per semester
+        const allowedBasketsBySemester = {
+            1: ['ELECTIVE_B1'],
+            3: ['ELECTIVE_B3'],
+            5: ['ELECTIVE_B4', 'ELECTIVE_B5'],
+            7: ['ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9']
+        };
+
+        if (allowedBasketsBySemester[semester]) {
+            // Show ALL allowed baskets for this semester (even if not present in the schedule)
+            filteredBaskets = allowedBasketsBySemester[semester].slice();
+            console.log(`🎯 Semester ${semester} - Showing allowed baskets:`, filteredBaskets);
+        } // For other semesters, show all baskets (no filtering)
+
         
         if (filteredBaskets.length > 0) {
             legendHtml += `
@@ -1491,7 +1490,8 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
                 if (allBasketCourses.length > 0) {
                     allBasketCourses.forEach(courseCode => {
                         const info = courseInfo[courseCode] || { name: courseCode };
-                        legendHtml += createBasketCourseItem(courseCode, info, color);
+                        // Pass in basket-specific allocations map and basketName so course items can show allocated rooms
+                        legendHtml += createBasketCourseItem(courseCode, info, color, timetable && timetable.basket_course_allocations, basketName);
                     });
                 } else {
                     legendHtml += `
@@ -1508,6 +1508,10 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
                             <div class="basket-schedule-info">
                                 <i class="fas fa-clock"></i>
                                 <span>2 Lectures + 1 Tutorial per week</span>
+                            </div>
+                            <div class="basket-note">
+                                <i class="fas fa-info-circle"></i>
+                                <span title="Courses may be assigned different rooms for different slots. The list shows all allocated rooms for that course.">Note: A course may have multiple allocated rooms across different slots. Listed rooms show all allocations.</span>
                             </div>
                         </div>
                     </div>
@@ -1620,11 +1624,31 @@ function createLegendItem(courseCode, courseInfo, color, type = 'core') {
     `;
 }
 
-function createBasketCourseItem(courseCode, courseInfo, basketColor) {
+function createBasketCourseItem(courseCode, courseInfo, basketColor, allocationsMap = {}, basketName = null) {
     const courseName = courseInfo ? courseInfo.name : 'Unknown Course';
     const credits = courseInfo ? courseInfo.credits : '?';
     const instructor = courseInfo ? courseInfo.instructor : 'Unknown';
     const ltpsc = courseInfo && courseInfo.ltpsc ? courseInfo.ltpsc : '';
+    
+    // Determine allocated room for this course (if provided)
+    let roomDisplay = '';
+    try {
+        if (allocationsMap && basketName && allocationsMap[basketName]) {
+            const alloc = allocationsMap[basketName][courseCode];
+            if (alloc) {
+                if (Array.isArray(alloc)) {
+                    // Add tooltip explaining multiple rooms
+                    roomDisplay = `<div class="basket-course-room" title="A course may have multiple allocated rooms across different slots. Listed rooms show all allocations.">Rooms: ${alloc.join(', ')}</div>`;
+                } else {
+                    roomDisplay = `<div class="basket-course-room" title="A course may have multiple allocated rooms across different slots. Listed rooms show all allocations.">Room: ${alloc}</div>`;
+                }
+            } else {
+                roomDisplay = `<div class="basket-course-room unallocated">Unallocated</div>`;
+            }
+        }
+    } catch (e) {
+        roomDisplay = '';
+    }
     
     return `
         <div class="basket-course-item" style="border-left-color: ${basketColor}">
@@ -1637,6 +1661,7 @@ function createBasketCourseItem(courseCode, courseInfo, basketColor) {
                 <i class="fas fa-user-tie"></i>
                 <span>${instructor}${ltpsc ? ` • LTPSC: ${ltpsc}` : ''}</span>
             </div>
+            ${roomDisplay}
         </div>
     `;
 }

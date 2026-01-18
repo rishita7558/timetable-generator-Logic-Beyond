@@ -696,14 +696,17 @@ body {
     width: 100% !important;
     border-collapse: collapse !important;
     margin: 1rem 0 !important;
-    font-size: 0.85rem;
+    font-size: 0.75rem;
+    table-layout: fixed;
 }
 
 .timetable-table th,
 .timetable-table td {
     border: 1px solid #ddd !important;
-    padding: 8px !important;
+    padding: 4px 3px !important;
     text-align: center !important;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .timetable-table th {
@@ -717,8 +720,9 @@ body {
     font-weight: 600;
     color: var(--dark);
     text-align: right !important;
-    padding-right: 12px !important;
-    width: 120px;
+    padding-right: 6px !important;
+    padding-left: 3px !important;
+    width: 70px;
 }
 
 /* Enhanced Time Slot Styling */
