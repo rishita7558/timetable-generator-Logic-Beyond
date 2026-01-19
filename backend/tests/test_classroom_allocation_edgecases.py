@@ -1,8 +1,13 @@
 import os
+import sys
 import shutil
 import openpyxl
 import pandas as pd
-from backend.app import app, INPUT_DIR, OUTPUT_DIR
+
+# Add parent directory to path for module imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app import app, INPUT_DIR, OUTPUT_DIR
 
 
 def _backup_and_write_classroom_csv(tmp_csv_content):

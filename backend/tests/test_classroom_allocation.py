@@ -1,9 +1,13 @@
 import os
+import sys
 import openpyxl
 import uuid
 import pandas as pd
 
-from backend.app import app, OUTPUT_DIR
+# Add parent directory to path for module imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app import app, OUTPUT_DIR
 
 
 def test_all_scheduled_courses_get_classrooms(tmp_path):

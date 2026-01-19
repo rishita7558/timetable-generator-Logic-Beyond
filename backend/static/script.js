@@ -873,7 +873,8 @@ function enhanceTimeSlotHeaders() {
                 let timeClass = '';
                 
                 // Determine time slot type and duration
-                if (timeText.includes('09:00-10:30') || timeText.includes('10:30-12:00') || 
+                if (timeText.includes('07:30-09:00') || timeText.includes('18:30-20:00') ||
+                    timeText.includes('09:00-10:30') || timeText.includes('10:30-12:00') ||
                     timeText.includes('13:00-14:30') || timeText.includes('15:30-17:00')) {
                     // All 1.5-hour lecture slots
                     timeClass = 'lecture-slot';
@@ -1507,11 +1508,11 @@ function createEnhancedLegend(semester, section, courses, courseColors, courseIn
                         <div class="basket-footer">
                             <div class="basket-schedule-info">
                                 <i class="fas fa-clock"></i>
-                                <span>2 Lectures + 1 Tutorial per week</span>
+                                <span>2 Lectures + 1 Tutorial per week (Different rooms)</span>
                             </div>
                             <div class="basket-note">
                                 <i class="fas fa-info-circle"></i>
-                                <span title="Courses may be assigned different rooms for different slots. The list shows all allocated rooms for that course.">Note: A course may have multiple allocated rooms across different slots. Listed rooms show all allocations.</span>
+                                <span>📌 Each elective course meets in different rooms for each session type to efficiently manage classroom capacity</span>
                             </div>
                         </div>
                     </div>
@@ -1629,21 +1630,107 @@ function createBasketCourseItem(courseCode, courseInfo, basketColor, allocations
     const credits = courseInfo ? courseInfo.credits : '?';
     const instructor = courseInfo ? courseInfo.instructor : 'Unknown';
     const ltpsc = courseInfo && courseInfo.ltpsc ? courseInfo.ltpsc : '';
+
+    // Build a compact single-line meta
+    const metaLine = [
+        courseCode,
+        `${credits} cr`,
+        courseName,
+        instructor,
+        ltpsc ? `LTPSC: ${ltpsc}` : null
+    ].filter(Boolean).join(' • ');
     
-    // Determine allocated room for this course (if provided)
+    // Determine allocated schedule for this course (if provided)
     let roomDisplay = '';
     try {
         if (allocationsMap && basketName && allocationsMap[basketName]) {
             const alloc = allocationsMap[basketName][courseCode];
             if (alloc) {
-                if (Array.isArray(alloc)) {
-                    // Add tooltip explaining multiple rooms
-                    roomDisplay = `<div class="basket-course-room" title="A course may have multiple allocated rooms across different slots. Listed rooms show all allocations.">Rooms: ${alloc.join(', ')}</div>`;
+                // Check if it's the new format with day/time info
+                if (Array.isArray(alloc) && alloc.length > 0 && typeof alloc[0] === 'object' && alloc[0].room) {
+                    // New format: [{room: 'C101', day: 'Monday', time: '09:00-10:30'}, ...]
+                    
+                    // Group allocations by room+time+type (avoid merging tutorials with lectures)
+                    const grouped = {};
+                    alloc.forEach(item => {
+                        const sessionType = item.type || '';
+                        const key = `${item.room}|${item.time}|${sessionType}`;
+                        if (!grouped[key]) {
+                            grouped[key] = {
+                                room: item.room,
+                                time: item.time,
+                                type: sessionType,
+                                days: []
+                            };
+                        }
+                        grouped[key].days.push(item.day);
+                    });
+                    
+                    const groupedList = Object.values(grouped);
+
+                    // Render a simple schedule list (one line per session)
+                    const scheduleLines = groupedList.map(item => {
+                        const daysText = item.days.join(' & ');
+                        return `<div class="basket-course-schedule-line">
+                                    <span class="room-chip">${item.room}</span>
+                                    <span class="schedule-text">${daysText} ${item.time}${item.type ? ` • ${item.type}` : ''}</span>
+                                </div>`;
+                    }).join('');
+
+                    roomDisplay = `
+                        <div class="basket-course-room simple-schedule">
+                            <div class="room-label">
+                                <i class="fas fa-door-open"></i>
+                                Class Schedule
+                            </div>
+                            <div class="basket-course-schedule">${scheduleLines}</div>
+                        </div>
+                    `;
+                } else if (Array.isArray(alloc) && alloc.length > 1) {
+                    // Old format: Multiple rooms (array of strings)
+                    const roomList = alloc.map(room => `<div class="basket-course-schedule-line"><span class="room-chip">${room}</span></div>`).join('');
+                    roomDisplay = `
+                        <div class="basket-course-room simple-schedule">
+                            <div class="room-label">
+                                <i class="fas fa-door-open"></i>
+                                Class Rooms
+                            </div>
+                            <div class="basket-course-schedule">${roomList}</div>
+                        </div>
+                    `;
+                } else if (Array.isArray(alloc)) {
+                    // Old format: Single room in array
+                    roomDisplay = `
+                        <div class="basket-course-room simple-schedule">
+                            <div class="room-label">
+                                <i class="fas fa-door-open"></i>
+                                Room
+                            </div>
+                            <div class="basket-course-schedule">
+                                <div class="basket-course-schedule-line">
+                                    <span class="room-chip">${alloc[0]}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
                 } else {
-                    roomDisplay = `<div class="basket-course-room" title="A course may have multiple allocated rooms across different slots. Listed rooms show all allocations.">Room: ${alloc}</div>`;
+                    // Old format: Single room string
+                    roomDisplay = `
+                        <div class="basket-course-room simple-schedule">
+                            <div class="room-label">
+                                <i class="fas fa-door-open"></i>
+                                Room
+                            </div>
+                            <div class="basket-course-schedule">
+                                <div class="basket-course-schedule-line">
+                                    <span class="room-chip">${alloc}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
                 }
             } else {
-                roomDisplay = `<div class="basket-course-room unallocated">Unallocated</div>`;
+                roomDisplay = `<div class="basket-course-room unallocated"><i class="fas fa-exclamation-triangle"></i> Room not yet allocated</div>`;
             }
         }
     } catch (e) {
@@ -1652,15 +1739,7 @@ function createBasketCourseItem(courseCode, courseInfo, basketColor, allocations
     
     return `
         <div class="basket-course-item" style="border-left-color: ${basketColor}">
-            <div class="basket-course-header">
-                <span class="basket-course-code">${courseCode}</span>
-                <span class="basket-course-credits">${credits} cr</span>
-            </div>
-            <div class="basket-course-name">${courseName}</div>
-            <div class="basket-course-instructor">
-                <i class="fas fa-user-tie"></i>
-                <span>${instructor}${ltpsc ? ` • LTPSC: ${ltpsc}` : ''}</span>
-            </div>
+            <div class="basket-course-meta">${metaLine}</div>
             ${roomDisplay}
         </div>
     `;
