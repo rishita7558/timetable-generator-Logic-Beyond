@@ -743,7 +743,11 @@ function updateSectionTitle() {
 
 // API Functions
 async function generateTimetables() {
-    showLoading(true);
+    showLoading(true, {
+        title: 'Generating timetables',
+        subtitle: 'Building schedules and assigning rooms...',
+        iconClass: 'fas fa-bolt fa-spin'
+    });
     
     try {
         console.log("🔄 Starting timetable generation...");
@@ -2291,15 +2295,36 @@ function refreshAll() {
 }
 
 // UI Helper Functions
-function showLoading(show) {
-    if (loadingOverlay) {
-        if (show) {
-            loadingOverlay.classList.add('active');
-            // Simulate progress
-            simulateProgress();
-        } else {
-            loadingOverlay.classList.remove('active');
+function showLoading(show, options = {}) {
+    if (!loadingOverlay) return;
+    const titleEl = document.getElementById('loading-title');
+    const subtitleEl = document.getElementById('loading-subtitle');
+    const iconEl = document.getElementById('loading-icon');
+
+    const defaultTitle = 'Generating Timetables';
+    const defaultSubtitle = 'This may take a few moments...';
+    const defaultIcon = 'fas fa-spinner fa-spin';
+
+    if (show) {
+        if (titleEl && options.title) titleEl.textContent = options.title;
+        if (subtitleEl && options.subtitle) subtitleEl.textContent = options.subtitle;
+        if (iconEl) iconEl.className = options.iconClass || defaultIcon;
+
+        const progressFill = document.getElementById('progress-fill');
+        const progressText = document.getElementById('progress-text');
+        if (progressFill && progressText) {
+            progressFill.style.width = '0%';
+            progressText.textContent = '0%';
         }
+
+        loadingOverlay.classList.add('active');
+        // Simulate progress
+        simulateProgress();
+    } else {
+        loadingOverlay.classList.remove('active');
+        if (titleEl) titleEl.textContent = defaultTitle;
+        if (subtitleEl) subtitleEl.textContent = defaultSubtitle;
+        if (iconEl) iconEl.className = defaultIcon;
     }
 }
 
@@ -2342,9 +2367,10 @@ function showNotification(message, type = 'info', duration = 5000, isHTML = fals
             }
         });
     } else {
+        const cleanMessage = stripLeadingEmojis(message);
         notification.innerHTML = `
             <i class="fas fa-${getNotificationIcon(type)}"></i>
-            <span>${message}</span>
+            <span>${cleanMessage}</span>
         `;
     }
     
@@ -2365,6 +2391,13 @@ function getNotificationIcon(type) {
         case 'warning': return 'exclamation-triangle';
         default: return 'info-circle';
     }
+}
+
+// Strip leading emojis so we don't show duplicates alongside the icon
+function stripLeadingEmojis(text) {
+    if (!text) return '';
+    // Remove leading emoji/pictographic characters and surrounding whitespace
+    return text.replace(/^[\p{Extended_Pictographic}\p{Emoji_Presentation}\uFE0F\u200D\s]+/u, '').trimStart();
 }
 
 // Debug function to check current state
@@ -3028,7 +3061,11 @@ async function generateExamSchedule() {
         return;
     }
     
-    showLoading(true);
+    showLoading(true, {
+        title: 'Generating exam schedule',
+        subtitle: 'Optimizing slots and allocating rooms...',
+        iconClass: 'fas fa-calendar-alt fa-spin'
+    });
     
     try {
         const config = examConfig.getConfigForAPI();
