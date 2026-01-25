@@ -1606,6 +1606,9 @@ function createLegendItem(courseCode, courseInfo, color, type = 'core') {
     const courseType = courseInfo ? courseInfo.type : 'Core';
     const ltpsc = courseInfo && courseInfo.ltpsc ? courseInfo.ltpsc : '';
     
+    // Get term type (Pre-Mid, Post-Mid, or Full Sem)
+    const termType = courseInfo && courseInfo.term_type ? courseInfo.term_type : 'Full Sem';
+    
     // Add type-specific icons
     let typeIcon = 'fas fa-book'; // Default for core
     if (type === 'elective') typeIcon = 'fas fa-star';
@@ -1622,7 +1625,7 @@ function createLegendItem(courseCode, courseInfo, color, type = 'core') {
                 <span class="legend-course-name">${courseName}</span>
                 <div class="legend-course-details">
                     <i class="${typeIcon}"></i>
-                    <span>${instructor} • ${courseType}${ltpsc ? ` • LTPSC: ${ltpsc}` : ''}</span>
+                    <span>${instructor} • ${courseType}${ltpsc ? ` • ${ltpsc}` : ''} • ${termType}</span>
                 </div>
             </div>
         </div>
@@ -1634,6 +1637,9 @@ function createBasketCourseItem(courseCode, courseInfo, basketColor, allocations
     const credits = courseInfo ? courseInfo.credits : '?';
     const instructor = courseInfo ? courseInfo.instructor : 'Unknown';
     const ltpsc = courseInfo && courseInfo.ltpsc ? courseInfo.ltpsc : '';
+    
+    // Get term type (Pre-Mid, Post-Mid, or Full Sem)
+    const termType = courseInfo && courseInfo.term_type ? courseInfo.term_type : 'Full Sem';
 
     // Build a compact single-line meta
     const metaLine = [
@@ -1641,7 +1647,8 @@ function createBasketCourseItem(courseCode, courseInfo, basketColor, allocations
         `${credits} cr`,
         courseName,
         instructor,
-        ltpsc ? `LTPSC: ${ltpsc}` : null
+        ltpsc ? `${ltpsc}` : null,
+        termType
     ].filter(Boolean).join(' • ');
     
     // Determine allocated schedule for this course (if provided)

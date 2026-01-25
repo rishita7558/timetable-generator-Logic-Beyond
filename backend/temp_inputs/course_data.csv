@@ -56,7 +56,7 @@ HS102,Kannada Kali-Nali,1,DSAI,2-0-0-0-2,2,Anand B,50,Yes,Yes,ELECTIVE_B1,No,No
 HS103,Leveraging IT for Better Life,1,DSAI,2-0-0-0-2,2,Rajesh N S,50,Yes,Yes,ELECTIVE_B1,No,No
 DE101,Basics of Design,1,DSAI,2-0-0-0-2,2,Sandesh Phalke,50,Yes,Yes,ELECTIVE_B1,No,No
 HS156,Holistic Personality Development,1,DSAI,1-0-0-0-1,1,Rajesh N S,20,Yes,No,ELECTIVE_B1,No,No
-CS161,introduction to cyber security,1,DSAI,2-0-0-0-2,2,Girish Revadigar,50,Yes,Yes,ELECTIVE_B1,No,No
+CS151,introduction to cyber security,1,DSAI,2-0-0-0-2,2,Girish Revadigar,50,Yes,Yes,ELECTIVE_B1,No,No
 MA262,Multivariable Calculus,3,DSAI,2-0-0-0-2,2,Somen B,80,No,No,None,Yes,Yes
 MA261,Differential Equations,3,DSAI,2-0-0-0-2,2,Anand Barangi,80,No,No,None,No,Yes
 DA261,Statistical Programming,3,DSAI,1-0-2-0-2,2,Ramesh Athe,80,No,Yes,None,Yes,No
@@ -101,7 +101,7 @@ HS102,Kannada Kali-Nali,1,ECE,2-0-0-0-2,2,Anand B,50,Yes,Yes,ELECTIVE_B1,No,No
 HS103,Leveraging IT for Better Life,1,ECE,2-0-0-0-2,2,Rajesh N S,50,Yes,Yes,ELECTIVE_B1,No,No
 DE101,Basics of Design,1,ECE,2-0-0-0-2,2,Sandesh Phalke,50,Yes,Yes,ELECTIVE_B1,No,No
 HS156,Holistic Personality Development,1,ECE,1-0-0-0-1,1,Rajesh N S,50,Yes,No,ELECTIVE_B1,No,No
-CS161,introduction to cyber security,1,ECE,2-0-0-0-2,2,Girish Revadigar,50,Yes,Yes,ELECTIVE_B1,Yes,No
+CS151,introduction to cyber security,1,ECE,2-0-0-0-2,2,Girish Revadigar,50,Yes,Yes,ELECTIVE_B1,Yes,No
 EC306,Digital Signal Processing,5,ECE,3-0-2-0-4,4,Sibasankar Padhy,80,No,No,None,No,No
 EC301,Introduction to VLSI Design,5,ECE,3-1-0-0-4,4,Jagadish D.N,80,No,No,None,No,No
 EC351,Introduction to Algorithms,5,ECE,3-1-0-0-4,4,Jagdish R.B,80,No,No,None,No,No
