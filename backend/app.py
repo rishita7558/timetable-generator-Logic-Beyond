@@ -640,6 +640,125 @@ def get_course_info_by_dept(course_info, course_code, department=None):
     return course_info.get(course_code, {})
 
 
+def _get_registered_or_default_enrollment(info):
+    """Return registered_students if present, otherwise a sensible default."""
+    registered = info.get('registered_students') or info.get('Registered Students')
+    if registered is not None and str(registered).strip() != '':
+        try:
+            return int(registered)
+        except Exception:
+            pass
+    # Default heuristics
+    return 40 if info.get('is_elective', False) else 60
+
+
+def detect_cross_dsai_ece_common(course_info, course_code, semester_id):
+    """Identify DSAI/ECE common courses (same faculty, Common=Yes) and return shared metadata."""
+    target_departments = {
+        'Data Science and Artificial Intelligence',
+        'Electronics and Communication Engineering',
+    }
+
+    matches = []
+    course_code_upper = str(course_code).strip().upper()
+
+    for info in course_info.values():
+        if str(info.get('course_code', '')).strip().upper() != course_code_upper:
+            continue
+
+        dept_raw = info.get('csv_department') or info.get('department') or info.get('branch')
+        dept_norm = normalize_branch_string(dept_raw)
+        if dept_norm not in target_departments:
+            continue
+
+        common_flag = str(info.get('common', info.get('Common', 'No'))).strip().upper() == 'YES'
+        if not common_flag:
+            continue
+
+        instructor = str(info.get('instructor', info.get('Faculty', '')) or '').strip().lower()
+        if not instructor:
+            continue
+
+        matches.append((dept_norm, instructor, info))
+
+    if not matches:
+        return None
+
+    for instructor in {inst for _, inst, _ in matches}:
+        depts = {dept for dept, inst, _ in matches if inst == instructor}
+        if target_departments.issubset(depts):
+            total = sum(
+                _get_registered_or_default_enrollment(info)
+                for dept, inst, info in matches
+                if inst == instructor and dept in target_departments
+            )
+            total = max(1, int(math.ceil(total)))
+            return {
+                'instructor': instructor,
+                'departments': target_departments,
+                'total_enrollment': total,
+                'schedule_key': f"sem{semester_id}_DSAI_ECE_{course_code_upper}",
+                'room_key': f"{semester_id}_DSAI_ECE_{course_code_upper}",
+            }
+
+    return None
+
+
+def detect_dual_instructor_course(course_info, course_code, department):
+    """
+    Detect if a course code has multiple instructors teaching it in the same department.
+    If yes, return the shared enrollment/2 for room allocation optimization.
+    
+    Args:
+        course_info: Dictionary of all course information
+        course_code: The course code to check
+        department: The target department (CSE, DSAI, ECE, etc.)
+    
+    Returns:
+        Dict with 'is_dual': bool, 'effective_enrollment': int (enrollment/2 if dual)
+        OR None if not found
+    """
+    course_code_upper = str(course_code).strip().upper()
+    dept_norm = normalize_branch_string(department)
+    
+    # Find all entries for this course code in this department
+    instructors = {}
+    for info in course_info.values():
+        if str(info.get('course_code', '')).strip().upper() != course_code_upper:
+            continue
+        
+        info_dept = info.get('csv_department') or info.get('department') or info.get('branch')
+        if normalize_branch_string(info_dept) != dept_norm:
+            continue
+        
+        instructor = str(info.get('instructor') or info.get('Faculty', '')).strip().lower()
+        if not instructor or instructor == 'unknown':
+            continue
+        
+        if instructor not in instructors:
+            instructors[instructor] = []
+        instructors[instructor].append(info)
+    
+    # If multiple instructors teaching same course in same department
+    if len(instructors) >= 2:
+        # Sum all enrollments and divide by number of instructors for room sizing
+        total_enrollment = sum(
+            _get_registered_or_default_enrollment(info)
+            for info_list in instructors.values()
+            for info in info_list
+        )
+        effective_enrollment = max(1, int(math.ceil(total_enrollment / len(instructors))))
+        return {
+            'is_dual': True,
+            'num_instructors': len(instructors),
+            'total_enrollment': total_enrollment,
+            'effective_enrollment': effective_enrollment,
+            'instructors': list(instructors.keys())
+        }
+    
+    return {'is_dual': False, 'effective_enrollment': None}
+
+
 def normalize_branch_string(branch_raw):
     """Normalize department/branch strings and common abbreviations to canonical department names"""
     if not branch_raw:
@@ -926,7 +1045,7 @@ def enforce_elective_day_separation(basket_allocations):
     
     return basket_allocations
 
-def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times, lab_times=None, branch=None, semester_id=None):
+def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times, lab_times=None, branch=None, semester_id=None, course_info_map=None):
     """Schedule core courses strictly adhering to LTPSC structure"""
     if core_courses.empty:
         return used_slots
@@ -957,7 +1076,24 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
         ltpsc_str = course.get('LTPSC', '')
         is_common = str(course.get('Common', 'No')).strip().upper() == 'YES'
 
-        common_schedule_key = f"sem{semester_id}_{branch or 'ALL'}_{course_code}" if is_common else None
+        cross_common = None
+        normalized_branch = normalize_branch_string(branch)
+        if course_info_map:
+            cross_common = detect_cross_dsai_ece_common(course_info_map, course_code, semester_id)
+
+        cross_common_active = bool(
+            is_common
+            and cross_common
+            and normalized_branch in cross_common.get('departments', set())
+        )
+
+        common_schedule_key = None
+        if is_common:
+            if cross_common_active:
+                common_schedule_key = cross_common['schedule_key']
+                print(f"      [COMMON-CROSS] {course_code} shared for DSAI+ECE with instructor '{cross_common['instructor']}' (key={common_schedule_key})")
+            else:
+                common_schedule_key = f"sem{semester_id}_{branch or 'ALL'}_{course_code}"
         
         # CHECK: If this is a common course, check if it's already been scheduled for another section
         if is_common and common_schedule_key in _COMMON_COURSE_SCHEDULE:
@@ -1180,10 +1316,10 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
             print(f"      [OK] Successfully scheduled {course_code} according to LTPSC structure")
         
         # SAVE: If this is a common course, save its schedule for other sections to reuse
-        if is_common:
+        if is_common and common_schedule_key:
             if common_schedule_key not in _COMMON_COURSE_SCHEDULE:
                 _COMMON_COURSE_SCHEDULE[common_schedule_key] = []
-            
+
             # Extract all scheduled slots for this course from the schedule
             for day in days:
                 for time_slot in schedule.index:
@@ -1194,7 +1330,7 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
                             'time_slot': time_slot,
                             'label': value
                         })
-            
+
             print(f"      [COMMON-SAVE] Saved schedule for common course {course_code} ({len(_COMMON_COURSE_SCHEDULE[common_schedule_key])} slots) [key={common_schedule_key}]")
     
     # FINAL VERIFICATION - Ensure ALL courses are scheduled
@@ -1552,8 +1688,8 @@ def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, e
             if not core_courses.empty:
                 print(f"   [COURSES] Scheduling {len(core_courses)} BRANCH-SPECIFIC core courses for {branch}...")
                 used_slots = schedule_core_courses_with_tutorials(
-                    core_courses, schedule, used_slots, days,
-                    lecture_times, tutorial_times, None, branch, semester_id=semester_id
+                        core_courses, schedule, used_slots, days,
+                        lecture_times, tutorial_times, None, branch, semester_id=semester_id, course_info_map=get_course_info(dfs)
                 )
             else:
                 print(f"   [INFO] No core courses to schedule after filtering electives (might be elective-only or project-only semester)")
@@ -4228,6 +4364,14 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
         if is_common_course:
             return max(1, int(math.ceil(value)))
         return max(1, int(math.ceil(value / 2.0)))
+
+    # Cache cross-department (DSAI+ECE) common metadata per course for this semester
+    _cross_common_cache = {}
+
+    def get_cross_common_bundle(course_code):
+        if course_code not in _cross_common_cache:
+            _cross_common_cache[course_code] = detect_cross_dsai_ece_common(course_info, course_code, semester)
+        return _cross_common_cache[course_code]
     
     # Track allocations for this specific timetable
     timetable_key = f"{branch}_sem{semester}_sec{section}"
@@ -4297,6 +4441,14 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                 is_common_course = str(info.get('common', 'No')).strip().upper() == 'YES'
                 is_minor = course_display.upper().startswith('MINOR')
                 preferred_caps_override = None
+                
+                # CHECK: If course is taught by multiple instructors in this department, divide enrollment by 2
+                dual_info = detect_dual_instructor_course(course_info, clean_existing_code, branch)
+                if dual_info and dual_info.get('is_dual'):
+                    original_enroll = annotated_enrollment
+                    annotated_enrollment = dual_info['effective_enrollment']
+                    print(f"      [DUAL-INSTR] {clean_existing_code} ({branch}): {dual_info['num_instructors']} instructors detected. Enrollment {original_enroll} → {annotated_enrollment} (total {dual_info['total_enrollment']}) for room sizing")
+                
                 if not is_common_course and not is_elective and not is_minor:
                     # Core (non-common, non-elective, non-minor) → prefer 80-90 capacity rooms
                     preferred_caps_override = [80, 90]
@@ -4424,6 +4576,13 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                     # Regular course - extract clean course code (handle Tutorial, Lab suffixes)
                     clean_course_code = course_display.replace(' (Tutorial)', '').replace(' (Lab)', '')
                     enrollment = course_enrollment.get(clean_course_code, 50)
+                    
+                    # CHECK: If course is taught by multiple instructors in this department, divide enrollment by 2
+                    dual_info = detect_dual_instructor_course(course_info, clean_course_code, branch)
+                    if dual_info and dual_info.get('is_dual'):
+                        original_enroll = enrollment
+                        enrollment = dual_info['effective_enrollment']
+                        print(f"      [DUAL-INSTR] {clean_course_code} ({branch}): {dual_info['num_instructors']} instructors detected. Enrollment {original_enroll} → {enrollment} (total {dual_info['total_enrollment']}) for room sizing")
             else:
                 continue
             
@@ -4455,6 +4614,13 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         # Each course in the basket gets allocated a separate room
                         individual_enrollment = course_enrollment.get(individual_course, 40)
                         
+                        # CHECK: If course is taught by multiple instructors in this department, divide enrollment by 2
+                        dual_info = detect_dual_instructor_course(course_info, individual_course, branch)
+                        if dual_info and dual_info.get('is_dual'):
+                            original_enroll = individual_enrollment
+                            individual_enrollment = dual_info['effective_enrollment']
+                            print(f"        [DUAL-INSTR] {individual_course} ({branch}): {dual_info['num_instructors']} instructors detected. Enrollment {original_enroll} → {individual_enrollment} (total {dual_info['total_enrollment']}) for room sizing")
+                        
                         # Try to find a suitable classroom for this individual course
                         individual_preferred = normalize_single_room(course_preferred_classrooms.get(individual_course))
                         if individual_preferred:
@@ -4472,14 +4638,10 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         existing_common_room = _GLOBAL_PREFERRED_CLASSROOMS.get(common_elective_key)
                         
                         if existing_common_room:
-                            # Try to use the established common room
-                            if room_available(existing_common_room, day, time_slot):
-                                reserve_room(existing_common_room, day, time_slot)
-                                individual_classroom = existing_common_room
-                                print(f"        [USING-COMMON] {day} {time_slot}: {individual_course} -> {existing_common_room} (COMMON ELECTIVE - shared across sections)")
-                            else:
-                                print(f"        [COMMON-FULL] {existing_common_room} is fully booked, trying to allocate alternative")
-                                existing_common_room = None
+                            # For common elective courses, ALWAYS use the same room across all sections
+                            # Do NOT check availability - common courses are shared lectures, not separate sessions
+                            individual_classroom = existing_common_room
+                            print(f"        [USING-COMMON] {day} {time_slot}: {individual_course} -> {existing_common_room} (COMMON ELECTIVE - shared across sections)")
                         
                         if not individual_classroom:
                             # IMPORTANT: Basket elective courses ARE common courses
@@ -4610,12 +4772,20 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         lab_rooms_to_search = get_suitable_lab_rooms_for_course(clean_code)
 
                         # Check if this lab pair already has an allocated room (from another section)
+                        # BUT: Labs should be DIFFERENT for each section even if lecture is common
+                        # Only reuse lab rooms for non-common courses or same section
                         global _LAB_ROOM_ALLOCATIONS
                         lab_pair_key = (day, time_slot, second_slot)
                         
                         suitable_classroom = None
-                        if lab_pair_key in _LAB_ROOM_ALLOCATIONS:
-                            # Reuse the room that was allocated for this lab pair in another section
+                        # For COMMON COURSES: Do NOT reuse lab rooms - each section gets different lab
+                        # For NON-COMMON COURSES: Reuse lab rooms across sections (same course, same session)
+                        is_common_lab = False
+                        if 'is_common' in locals() and is_common:
+                            is_common_lab = True
+                        
+                        if lab_pair_key in _LAB_ROOM_ALLOCATIONS and not is_common_lab:
+                            # Reuse the room that was allocated for this lab pair in another section (non-common only)
                             suitable_classroom = _LAB_ROOM_ALLOCATIONS[lab_pair_key]
                             print(f"      [REUSE-LAB] Using previously allocated room {suitable_classroom} for {day} {time_slot} & {second_slot} (same lab pair from other section)")
                         
@@ -4625,10 +4795,13 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                 lab_rooms_to_search, enrollment, day, time_slot, second_slot, _CLASSROOM_USAGE_TRACKER
                             )
                             
-                            # Store this allocation globally so other sections use the same room
-                            if suitable_classroom:
+                            # Store this allocation globally ONLY for non-common courses
+                            # For common courses: Labs are DIFFERENT per section, so do NOT store for reuse
+                            if suitable_classroom and not is_common_lab:
                                 _LAB_ROOM_ALLOCATIONS[lab_pair_key] = suitable_classroom
                                 print(f"      [NEW-LAB] Allocated new lab room {suitable_classroom} for {day} {time_slot} & {second_slot} (will reuse for other sections)")
+                            elif suitable_classroom and is_common_lab:
+                                print(f"      [NEW-LAB] Allocated new lab room {suitable_classroom} for {day} {time_slot} & {second_slot} (common course - separate lab per section)")
                         
                         if suitable_classroom:
                             # Allocate the same classroom to BOTH slots
@@ -4694,19 +4867,36 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         # Check if this is a common course
                         is_common = False
                         clean_code = course_display.replace(' (Tutorial)', '').replace(' (Lab)', '').strip()
-                        if clean_code in course_info:
-                            # Check both 'common' and 'Common' fields for flexibility
-                            common_val = str(course_info[clean_code].get('common', course_info[clean_code].get('Common', 'No'))).strip().upper()
-                            is_common = common_val == 'YES'
-                            if is_common or clean_code in ['DS161', 'MA161', 'EC161', 'HS161']:  # Debug key courses
-                                print(f"      [COMMON-DEBUG] {clean_code}: common_val='{common_val}', is_common={is_common}, course_info keys: {list(course_info[clean_code].keys())}")
                         
-                        # For common courses, check if a room has already been allocated in another section
-                        common_course_key = f"{semester}_{branch}_{clean_code}_{day}_{time_slot}"
+                        # Use department-aware lookup to get the correct Common value for this branch
+                        info_for_room = get_course_info_by_dept(course_info, clean_code, branch)
+                        common_val = str(info_for_room.get('common', info_for_room.get('Common', 'No'))).strip().upper()
+                        is_common = common_val == 'YES'
+
+                        cross_common_bundle = get_cross_common_bundle(clean_code)
+                        normalized_branch = normalize_branch_string(branch)
+                        cross_common_active = bool(
+                            is_common
+                            and cross_common_bundle
+                            and normalized_branch in cross_common_bundle.get('departments', set())
+                        )
+
+                        if cross_common_active:
+                            effective_enrollment = cross_common_bundle['total_enrollment']
+                        else:
+                            effective_enrollment = enrollment
+
+                        if is_common or clean_code in ['DS161', 'MA161', 'EC161', 'HS161', 'CS161']:  # Debug key courses
+                            debug_enroll = effective_enrollment if cross_common_active else enrollment
+                            print(f"      [COMMON-DEBUG] {clean_code} for {branch}: common_val='{common_val}', is_common={is_common}, cross_dsai_ece={cross_common_active}, enroll_used={debug_enroll}")
+                        
+                        # For common courses, use same room for ALL sessions (don't include day/time in key)
+                        if cross_common_active:
+                            common_course_key = cross_common_bundle['room_key']
+                        else:
+                            common_course_key = f"{semester}_{branch}_{clean_code}"
                         suitable_classroom = None
                         
-                        # Department-aware course info for room preferences
-                        info_for_room = get_course_info_by_dept(course_info, clean_code, branch)
                         is_elective = bool(info_for_room.get('is_elective', False))
                         is_minor_course = clean_code.upper().startswith('MINOR')
                         preferred_caps_override = None
@@ -4715,31 +4905,31 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                             preferred_caps_override = [80, 90]
 
                         if is_common:
-                            print(f"      [COMMON-CHECK] {clean_code} is marked as COMMON course - using FULL enrollment {enrollment} (Section {section})")
+                            enrollment_for_room = effective_enrollment
+                            print(f"      [COMMON-CHECK] {clean_code} is marked as COMMON course - using FULL enrollment {enrollment_for_room} (Section {section})")
                             print(f"      [COMMON-DEBUG] Looking for key: '{common_course_key}'")
                             if common_course_key in _COMMON_COURSE_ROOMS:
-                                # Use the same room as already allocated for the other section
+                                # Use the same room as already allocated for the other section - MUST enforce same room
                                 common_room = normalize_single_room(_COMMON_COURSE_ROOMS[common_course_key])
                                 print(f"      [COMMON-DEBUG] Found existing allocation: {common_room}")
-                                if common_room and room_available(common_room, day, time_slot):
-                                    reserve_room(common_room, day, time_slot)
+                                if common_room:
+                                    # FOR COMMON COURSES: BOTH SECTIONS MUST USE SAME ROOM - NO AVAILABILITY CHECK
+                                    # Both sections attend the same lecture together, so we force-use the same room
+                                    # Do NOT reserve again - room is already reserved from Section A
                                     suitable_classroom = common_room
-                                    print(f"      [COMMON-REUSE] Using same room {common_room} for {clean_code} on {day} {time_slot} (Section {section})")
-                                elif common_room:
-                                    # Room not available in this slot - force it for common courses
-                                    reserve_room(common_room, day, time_slot)
-                                    suitable_classroom = common_room
-                                    print(f"      [COMMON-FORCE] Forcing {common_room} for {clean_code} on {day} {time_slot} despite conflict (Section {section})")
+                                    print(f"      [COMMON-SHARED] Both sections use SAME room {common_room} for {clean_code} on {day} {time_slot} (Sections A & B together)")
                             else:
                                 # Allocate new room (likely Section A allocating first) with FULL enrollment
-                                print(f"      [COMMON-DEBUG] No existing allocation found, allocating new room for full enrollment {enrollment}")
+                                print(f"      [COMMON-DEBUG] No existing allocation found, allocating new room for full enrollment {enrollment_for_room}")
                                 suitable_classroom = normalize_single_room(
-                                    allocate_regular_classroom(enrollment, day, time_slot, is_common_course=True, is_lab_session=is_lab, course_code=clean_code)
+                                    allocate_regular_classroom(enrollment_for_room, day, time_slot, is_common_course=True, is_lab_session=is_lab, course_code=clean_code)
                                 )
                                 if suitable_classroom:
-                                    # Store for Section B to reuse
+                                    # Reserve the room for this allocation
+                                    reserve_room(suitable_classroom, day, time_slot)
+                                    # Store for Section B/other branches to reuse (SAME room, no re-reservation)
                                     _COMMON_COURSE_ROOMS[common_course_key] = suitable_classroom
-                                    print(f"      [COMMON-NEW] Allocated room {suitable_classroom} for common course {clean_code} on {day} {time_slot} with FULL enrollment {enrollment} (Section {section})")
+                                    print(f"      [COMMON-NEW] Allocated room {suitable_classroom} for common course {clean_code} on {day} {time_slot} with FULL enrollment {enrollment_for_room} (Section {section})")
                                     print(f"      [COMMON-DEBUG] Stored in _COMMON_COURSE_ROOMS['{common_course_key}'] = {suitable_classroom}")
                         else:
                             # Regular (non-common) course - use section-specific enrollment (already halved)
@@ -4833,7 +5023,7 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         if clean_code in course_info:
                             is_common_existing = str(course_info[clean_code].get('common', course_info[clean_code].get('Common', 'No'))).strip().upper() == 'YES'
                             if is_common_existing:
-                                common_course_key = f"{semester}_{branch}_{clean_code}_{day}_{time_slot}"
+                                common_course_key = f"{semester}_{branch}_{clean_code}"
                                 _COMMON_COURSE_ROOMS[common_course_key] = normalized_existing
                         allocation_count += 1
                         continue
@@ -4859,32 +5049,35 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                     print(f"      [REUSE] Reusing {preferred_classroom} for {course_display} on {day} {time_slot} ({effective_enrollment} students)")
                 else:
                     # For common courses, check if a room has already been allocated in another section
-                    common_course_key = f"{semester}_{branch}_{clean_code}_{day}_{time_slot}"
+                    common_course_key = f"{semester}_{branch}_{clean_code}"
                     suitable_classroom = None
                     
                     if is_common:
                         print(f"      [COMMON-CHECK] {clean_code} is marked as COMMON course (Section {section})")
                         if common_course_key in _COMMON_COURSE_ROOMS:
-                            # Use the same room as already allocated for the other section
+                            # ALWAYS use the same room for common courses across all sections
+                            # Both sections attend the same lecture together in the same room
                             common_room = normalize_single_room(_COMMON_COURSE_ROOMS[common_course_key])
-                            if common_room and room_available(common_room, day, time_slot):
-                                reserve_room(common_room, day, time_slot)
+                            if common_room:
+                                # Don't check availability - common courses are shared sessions
+                                # Both sections attend together, so no conflict exists
                                 suitable_classroom = common_room
-                                print(f"      [COMMON-REUSE] Using same room {common_room} for {clean_code} on {day} {time_slot} (Section {section})")
-                            elif common_room:
-                                # Room not available in this slot - force it for common courses
-                                reserve_room(common_room, day, time_slot)
-                                suitable_classroom = common_room
-                                print(f"      [COMMON-FORCE] Forcing {common_room} for {clean_code} on {day} {time_slot} despite conflict (Section {section})")
+                                print(f"      [COMMON-SHARED] Using SAME room {common_room} for {clean_code} on {day} {time_slot} - Both sections attend together (Section {section})")
+                            else:
+                                # Fallback: allocate new if room parsing failed
+                                suitable_classroom = normalize_single_room(
+                                    allocate_regular_classroom(effective_enrollment, day, time_slot, is_common_course=True)
+                                )
+                                print(f"      [COMMON-FALLBACK] Common room parse failed, allocated {suitable_classroom} for {clean_code} (Section {section})")
                         else:
                             # Allocate new room (likely Section A allocating first)
                             suitable_classroom = normalize_single_room(
                                 allocate_regular_classroom(effective_enrollment, day, time_slot, is_common_course=True)
                             )
                             if suitable_classroom:
-                                # Store for Section B to reuse
+                                # Store for other sections to reuse THE SAME ROOM
                                 _COMMON_COURSE_ROOMS[common_course_key] = suitable_classroom
-                                print(f"      [COMMON-NEW] Allocated room {suitable_classroom} for common course {clean_code} on {day} {time_slot} (Section {section})")
+                                print(f"      [COMMON-NEW] Allocated room {suitable_classroom} for common course {clean_code} on {day} {time_slot} - Will be shared by all sections (Section {section})")
                     else:
                         # Regular (non-common) course
                         suitable_classroom = normalize_single_room(
@@ -5088,9 +5281,17 @@ def find_suitable_classroom_with_tracking(
         preferred_capacities = preferred_capacities_override
         print(f"         [PREF-OVERRIDE] Using preferred capacities {preferred_capacities} for {enrollment} students")
     elif is_common:
-        # Common courses prefer larger halls (try 240 first, then 120)
-        preferred_capacities = [240, 120]
-        print(f"         [COMMON] Looking for 240/120 capacity rooms for common course ({enrollment} students)")
+        # Common courses: optimize for smallest adequate room to preserve larger rooms
+        # Only use 240 if enrollment > 150, prefer 120 for moderate, 96 if feasible
+        if enrollment > 150:
+            preferred_capacities = [240]
+            print(f"         [COMMON] High enrollment ({enrollment}): Prefer 240 capacity room (no unnecessary large rooms)")
+        elif enrollment > 120:
+            preferred_capacities = [120, 96]
+            print(f"         [COMMON] Moderate-high enrollment ({enrollment}): Prefer 120 capacity room, fallback to 96")
+        else:
+            preferred_capacities = [96, 120]
+            print(f"         [COMMON] Moderate enrollment ({enrollment}): Prefer 96 capacity room, fallback to 120 (avoid 240)")
     elif is_lab:
         # Labs use whatever capacity is needed
         preferred_capacities = None
