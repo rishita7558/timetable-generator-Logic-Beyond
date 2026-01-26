@@ -1679,12 +1679,14 @@ function createBasketCourseItem(courseCode, courseInfo, basketColor, allocations
                     
                     const groupedList = Object.values(grouped);
 
-                    // Render a simple schedule list (one line per session)
+                    // Render as "room, day, time" per session with a highlighted room tag
                     const scheduleLines = groupedList.map(item => {
                         const daysText = item.days.join(' & ');
+                        const lineText = `${daysText}, ${item.time}`;
+                        const typeBadge = item.type ? `<span class="schedule-type">${item.type}</span>` : '';
                         return `<div class="basket-course-schedule-line">
                                     <span class="room-chip">${item.room}</span>
-                                    <span class="schedule-text">${daysText} ${item.time}${item.type ? ` • ${item.type}` : ''}</span>
+                                    <span class="schedule-text">${lineText} ${typeBadge}</span>
                                 </div>`;
                     }).join('');
 

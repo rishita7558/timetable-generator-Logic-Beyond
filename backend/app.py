@@ -541,7 +541,10 @@ def get_course_info(dfs):
         for _, course in course_df.iterrows():
             course_code = course['Course Code']
 
-            # FIXED: Map department based on course code prefix
+            # Get department from CSV (not inferred from course code)
+            csv_department = course.get('Department', '')
+            
+            # FIXED: Map department based on course code prefix as fallback
             department = map_department_from_course_code(course_code)
 
             is_elective = course.get('Elective (Yes/No)', 'No').upper() == 'YES'
@@ -563,12 +566,17 @@ def get_course_info(dfs):
             else:
                 term_label = 'Full Sem'  # Half-semester = NO or missing -> Full semester
 
-            course_info[course_code] = {
+            # Use course_code + department as key for department-specific entries
+            # This allows same course to have different term labels per department
+            key = f"{course_code}_{csv_department}" if csv_department else course_code
+            
+            course_info[key] = {
                 'name': course.get('Course Name', 'Unknown Course'),
                 'credits': course.get('Credits', 0),
                 'type': course_type,
                 'instructor': instructor,  # This will now use the correct Faculty column
                 'department': department,  # Use mapped department
+                'csv_department': csv_department,  # Store CSV department for lookups
                 'semester': course.get('Semester', None),
                 'is_elective': is_elective,
                 'branch': department,  # Use department as branch for compatibility
@@ -579,11 +587,16 @@ def get_course_info(dfs):
                 'registered_students': int(course.get('Registered Students', 0)) if pd.notna(course.get('Registered Students')) else None,  # Add registered students from CSV
                 'term_type': term_label,
                 'half_semester': half_sem_val or None,
-                'post_mid': post_mid_val or None
+                'post_mid': post_mid_val or None,
+                'course_code': course_code  # Store original course code
             }
+            
+            # Also store with course_code only as fallback for lookups that don't specify department
+            if course_code not in course_info:
+                course_info[course_code] = course_info[key]
 
             # Debug logging
-            print(f"   [NOTE] Course {course_code}: Department = {department}, Term = {term_label}")
+            print(f"   [NOTE] Course {course_code} ({csv_department}): Department = {department}, Term = {term_label}")
 
     return course_info
 
@@ -604,6 +617,27 @@ def map_department_from_course_code(course_code):
         return 'Data Science and Artificial Intelligence'
     else:
         return 'Department of Arts, Science and Design'
+
+
+def get_course_info_by_dept(course_info, course_code, department=None):
+    """Helper to get course info with department-specific lookup
+    
+    Args:
+        course_info: The course info dictionary
+        course_code: The course code to look up
+        department: Optional department (CSE, DSAI, ECE, etc.)
+    
+    Returns:
+        Course info dict, or empty dict if not found
+    """
+    if department:
+        # Try department-specific key first
+        dept_key = f"{course_code}_{department}"
+        if dept_key in course_info:
+            return course_info[dept_key]
+    
+    # Fallback to course code only
+    return course_info.get(course_code, {})
 
 
 def normalize_branch_string(branch_raw):
@@ -718,10 +752,9 @@ def separate_courses_by_mid_semester(dfs, semester_id, branch=None):
     """Separate courses into pre-mid and post-mid based on Half Semester and Post mid-sem columns
     
     Logic:
-    - If Half Semester = Yes: Schedule in BOTH pre-mid and post-mid
-    - If Half Semester = No:
-        - If Post mid-sem = No: Schedule in PRE-MID ONLY
-        - If Post mid-sem = Yes: Schedule in POST-MID ONLY
+    - If Half Semester = NO -> schedule in BOTH (full semester)
+    - If Half Semester = YES and Post mid-sem = YES -> POST-MID ONLY
+    - If Half Semester = YES and Post mid-sem is blank or anything except YES -> PRE-MID ONLY
     """
     if 'course' not in dfs:
         return {'pre_mid_courses': pd.DataFrame(), 'post_mid_courses': pd.DataFrame()}
@@ -738,24 +771,10 @@ def separate_courses_by_mid_semester(dfs, semester_id, branch=None):
         # Filter by department if specified
         if branch and 'Department' in sem_courses.columns:
             normalized_branch = branch.strip()
-            # Include department-specific courses and common courses
+            # Include ONLY department-specific courses (do NOT include common courses from other departments)
+            # Common courses for other departments have different Post mid-sem values!
             dept_match = sem_courses['Department'].astype(str).str.strip() == normalized_branch
-
-            # Robust detection of a 'common' column (handles misspellings like 'Comman' or variations)
-            common_col = None
-            for col in sem_courses.columns:
-                col_low = str(col).lower()
-                if 'common' in col_low or 'comman' in col_low:
-                    common_col = col
-                    break
-
-            if common_col is not None:
-                common_courses = sem_courses[common_col].astype(str).str.upper().str.strip() == 'YES'
-            else:
-                # If there's no common column, treat none as common
-                common_courses = pd.Series([False] * len(sem_courses), index=sem_courses.index)
-
-            sem_courses = sem_courses[dept_match | common_courses].copy()
+            sem_courses = sem_courses[dept_match].copy()
         
         if sem_courses.empty:
             return {'pre_mid_courses': pd.DataFrame(), 'post_mid_courses': pd.DataFrame()}
@@ -810,24 +829,24 @@ def separate_courses_by_mid_semester(dfs, semester_id, branch=None):
         ].copy()
         
         # RULE 2: Courses with Half Semester = YES
-        # Rule 2a: Post mid-sem = YES -> POST-MID ONLY
-        half_sem_yes_post_mid = sem_courses[
-            (sem_courses[half_sem_col] == 'YES') &
-            (sem_courses[post_mid_col] == 'YES')
-        ].copy()
-
-        # Rule 2b: Post mid-sem ≠ YES (including blank) -> PRE-MID ONLY
+        # Rule 2a: Post mid-sem = NO -> PRE-MID ONLY
         half_sem_yes_pre_mid = sem_courses[
             (sem_courses[half_sem_col] == 'YES') &
             (sem_courses[post_mid_col] != 'YES')
         ].copy()
+
+        # Rule 2b: Post mid-sem = YES -> POST-MID ONLY
+        half_sem_yes_post_mid = sem_courses[
+            (sem_courses[half_sem_col] == 'YES') &
+            (sem_courses[post_mid_col] == 'YES')
+        ].copy()
         
         # FINAL SEPARATION:
-        # PRE-MID: Half Sem = NO courses + Half Sem = YES with Post mid ≠ YES courses
+        # PRE-MID: Half Sem = NO courses (full semester) + Half Sem = YES with Post mid = NO courses (pre-mid only)
         pre_mid_courses = pd.concat([half_sem_no_courses, half_sem_yes_pre_mid], ignore_index=True)
         pre_mid_courses = pre_mid_courses.drop_duplicates(subset=['Course Code'])
         
-        # POST-MID: Half Sem = NO courses + Half Sem = YES with Post mid = YES courses
+        # POST-MID: Half Sem = NO courses (full semester) + Half Sem = YES with Post mid = YES courses (post-mid only)
         post_mid_courses = pd.concat([half_sem_no_courses, half_sem_yes_post_mid], ignore_index=True)
         post_mid_courses = post_mid_courses.drop_duplicates(subset=['Course Code'])
         
@@ -4144,7 +4163,7 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                 return available_lab_rooms
         return available_lab_rooms
     
-    def allocate_regular_classroom(enrollment_value, day_key, slot_key, is_common_course=False, is_lab_session=False, course_code=None):
+    def allocate_regular_classroom(enrollment_value, day_key, slot_key, is_common_course=False, is_lab_session=False, course_code=None, preferred_capacities_override=None):
         classroom_choice = None
         
         # If this is a lab session, ONLY use lab rooms (starting with 'L')
@@ -4158,7 +4177,7 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
             if not lab_rooms_to_use.empty:
                 classroom_choice = find_suitable_classroom_with_tracking(
                     lab_rooms_to_use, enrollment_value, day_key, slot_key, _CLASSROOM_USAGE_TRACKER,
-                    is_common=is_common_course, is_lab=True
+                    is_common=is_common_course, is_lab=True, preferred_capacities_override=preferred_capacities_override
                 )
             if not classroom_choice:
                 print(f"         [LAB-WARN] No lab room available for {day_key} {slot_key}")
@@ -4173,12 +4192,12 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
         if not primary_classrooms.empty:
             classroom_choice = find_suitable_classroom_with_tracking(
                 primary_classrooms, enrollment_value, day_key, slot_key, _CLASSROOM_USAGE_TRACKER,
-                is_common=is_common_course, is_lab=False
+                is_common=is_common_course, is_lab=False, preferred_capacities_override=preferred_capacities_override
             )
         if classroom_choice is None and not fallback_lab_classrooms.empty:
             classroom_choice = find_suitable_classroom_with_tracking(
                 fallback_lab_classrooms, enrollment_value, day_key, slot_key, _CLASSROOM_USAGE_TRACKER,
-                is_common=is_common_course, is_lab=False
+                is_common=is_common_course, is_lab=False, preferred_capacities_override=preferred_capacities_override
             )
             if classroom_choice:
                 print(f"         [WARN] Falling back to lab-prefixed room {classroom_choice} for {day_key} {slot_key}")
@@ -4271,6 +4290,16 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
 
                 clean_existing_code = course_display.replace(' (Tutorial)', '').replace(' (Lab)', '').strip()
                 annotated_enrollment = course_enrollment.get(clean_existing_code, 50)
+
+                # Determine course attributes for room preference
+                info = get_course_info_by_dept(course_info, clean_existing_code, branch)
+                is_elective = bool(info.get('is_elective', False))
+                is_common_course = str(info.get('common', 'No')).strip().upper() == 'YES'
+                is_minor = course_display.upper().startswith('MINOR')
+                preferred_caps_override = None
+                if not is_common_course and not is_elective and not is_minor:
+                    # Core (non-common, non-elective, non-minor) → prefer 80-90 capacity rooms
+                    preferred_caps_override = [80, 90]
 
                 # If the timetable already contains a room, lock it in the tracker to avoid clashes
                 if existing_room:
@@ -4676,6 +4705,15 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         common_course_key = f"{semester}_{branch}_{clean_code}_{day}_{time_slot}"
                         suitable_classroom = None
                         
+                        # Department-aware course info for room preferences
+                        info_for_room = get_course_info_by_dept(course_info, clean_code, branch)
+                        is_elective = bool(info_for_room.get('is_elective', False))
+                        is_minor_course = clean_code.upper().startswith('MINOR')
+                        preferred_caps_override = None
+                        if not is_common and not is_elective and not is_minor_course:
+                            # Core (non-common, non-elective, non-minor) → prefer 80-90 capacity rooms
+                            preferred_caps_override = [80, 90]
+
                         if is_common:
                             print(f"      [COMMON-CHECK] {clean_code} is marked as COMMON course - using FULL enrollment {enrollment} (Section {section})")
                             print(f"      [COMMON-DEBUG] Looking for key: '{common_course_key}'")
@@ -4707,7 +4745,15 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                             # Regular (non-common) course - use section-specific enrollment (already halved)
                             print(f"      [NON-COMMON] {clean_code} is NON-common - using section enrollment {enrollment} (Section {section})")
                             suitable_classroom = normalize_single_room(
-                                allocate_regular_classroom(enrollment, day, time_slot, is_common_course=False, is_lab_session=is_lab, course_code=clean_code)
+                                allocate_regular_classroom(
+                                    enrollment,
+                                    day,
+                                    time_slot,
+                                    is_common_course=False,
+                                    is_lab_session=is_lab,
+                                    course_code=clean_code,
+                                    preferred_capacities_override=preferred_caps_override,
+                                )
                             )
                         
                         if suitable_classroom:
@@ -4987,7 +5033,16 @@ def find_suitable_classroom_for_lab_pair(lab_rooms_df, enrollment, day, time_slo
     
     return None
 
-def find_suitable_classroom_with_tracking(classrooms_df, enrollment, day, time_slot, classroom_usage_tracker, is_common=False, is_lab=False):
+def find_suitable_classroom_with_tracking(
+    classrooms_df,
+    enrollment,
+    day,
+    time_slot,
+    classroom_usage_tracker,
+    is_common=False,
+    is_lab=False,
+    preferred_capacities_override=None,
+):
     """Find a suitable classroom based on capacity, course type, and availability with global tracking
     
     Args:
@@ -5029,7 +5084,10 @@ def find_suitable_classroom_with_tracking(classrooms_df, enrollment, day, time_s
         return None
     
     # Determine preferred room capacity based on course type
-    if is_common:
+    if preferred_capacities_override is not None:
+        preferred_capacities = preferred_capacities_override
+        print(f"         [PREF-OVERRIDE] Using preferred capacities {preferred_capacities} for {enrollment} students")
+    elif is_common:
         # Common courses prefer larger halls (try 240 first, then 120)
         preferred_capacities = [240, 120]
         print(f"         [COMMON] Looking for 240/120 capacity rooms for common course ({enrollment} students)")
@@ -7163,7 +7221,8 @@ def get_timetables():
                 def build_course_legend_entries(course_codes):
                     legend_entries = []
                     for code in sorted(course_codes):
-                        info = course_info.get(code, {})
+                        # Use helper to get department-specific course info
+                        info = get_course_info_by_dept(course_info, code, branch)
                         ltpsc_value = info.get('ltpsc', '') if info else ''
 
                         # Normalize term to explicit labels for legend (Pre-Mid, Post-Mid, Full Sem)

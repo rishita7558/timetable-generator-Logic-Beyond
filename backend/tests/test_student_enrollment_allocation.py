@@ -1,7 +1,13 @@
 import os
 import shutil
 import pandas as pd
-from backend.app import load_all_data, estimate_course_enrollment, allocate_classrooms_for_timetable, _TIMETABLE_CLASSROOM_ALLOCATIONS
+from backend.app import (
+    load_all_data,
+    estimate_course_enrollment,
+    allocate_classrooms_for_timetable,
+    _TIMETABLE_CLASSROOM_ALLOCATIONS,
+    separate_courses_by_mid_semester,
+)
 
 INPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'temp_inputs')
 
@@ -85,3 +91,88 @@ def test_allocate_multiple_rooms_for_large_enrollment(tmp_path):
 
     _restore_csv('student_data.csv', backup_students)
     _restore_csv('classroom_data.csv', backup_rooms)
+
+
+def test_separate_courses_by_mid_semester_covers_all_cases():
+    courses = [
+        # Full-semester course -> both pre and post
+        {
+            'Course Code': 'CS101',
+            'Semester': '3',
+            'Department': 'CSE',
+            'Elective (Yes/No)': 'No',
+            'Half Semester': 'NO',
+            'Post mid-sem': 'NO',
+            'Common': 'No',
+        },
+        # Half-semester, post-mid only
+        {
+            'Course Code': 'CS102',
+            'Semester': '3',
+            'Department': 'CSE',
+            'Elective (Yes/No)': 'No',
+            'Half Semester': 'YES',
+            'Post mid-sem': 'YES',
+            'Common': 'No',
+        },
+        # Half-semester, pre-mid only because Post mid-sem is blank
+        {
+            'Course Code': 'CS103',
+            'Semester': '3',
+            'Department': 'CSE',
+            'Elective (Yes/No)': 'No',
+            'Half Semester': 'YES',
+            'Post mid-sem': '',
+            'Common': 'No',
+        },
+        # Half-semester, pre-mid only because Post mid-sem is NO
+        {
+            'Course Code': 'CS104',
+            'Semester': '3',
+            'Department': 'CSE',
+            'Elective (Yes/No)': 'No',
+            'Half Semester': 'YES',
+            'Post mid-sem': 'NO',
+            'Common': 'No',
+        },
+        # Common course from another department should still appear for CSE
+        {
+            'Course Code': 'CS105',
+            'Semester': '3',
+            'Department': 'ECE',
+            'Elective (Yes/No)': 'No',
+            'Half Semester': 'NO',
+            'Post mid-sem': 'NO',
+            'Common': 'YES',
+        },
+        # Different semester to ensure filtering by semester works
+        {
+            'Course Code': 'CS106',
+            'Semester': '5',
+            'Department': 'CSE',
+            'Elective (Yes/No)': 'No',
+            'Half Semester': 'NO',
+            'Post mid-sem': 'NO',
+            'Common': 'No',
+        },
+    ]
+
+    dfs = {'course': pd.DataFrame(courses)}
+
+    result = separate_courses_by_mid_semester(dfs, semester_id=3, branch='CSE')
+    pre_mid_codes = set(result['pre_mid_courses']['Course Code'])
+    post_mid_codes = set(result['post_mid_courses']['Course Code'])
+
+    # Full-semester and common courses appear in both
+    assert 'CS101' in pre_mid_codes and 'CS101' in post_mid_codes
+    assert 'CS105' in pre_mid_codes and 'CS105' in post_mid_codes
+
+    # Half-semester pre-only cases
+    assert 'CS103' in pre_mid_codes and 'CS103' not in post_mid_codes
+    assert 'CS104' in pre_mid_codes and 'CS104' not in post_mid_codes
+
+    # Half-semester post-only case
+    assert 'CS102' in post_mid_codes and 'CS102' not in pre_mid_codes
+
+    # Other semesters should be excluded entirely
+    assert 'CS106' not in pre_mid_codes and 'CS106' not in post_mid_codes
