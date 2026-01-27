@@ -21,7 +21,7 @@ _SEMESTER_ELECTIVE_ALLOCATIONS = {}
 # Configuration: prefer repo-local backend/temp_inputs so tests can overwrite fixtures
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _DEFAULT_INPUT_DIR = os.path.join(_BASE_DIR, "temp_inputs")
-_DEFAULT_OUTPUT_DIR = os.path.join(os.getcwd(), "output_timetables")
+_DEFAULT_OUTPUT_DIR = os.path.join(_BASE_DIR, "output_timetables")
 
 # If backend/temp_inputs exists, use it; otherwise fall back to cwd/temp_inputs to preserve current behaviour.
 if os.path.isdir(_DEFAULT_INPUT_DIR):
@@ -1440,10 +1440,9 @@ def schedule_electives_by_baskets(elective_allocations, schedule, used_slots, se
             key = (day, time_slot)
             
             if schedule.loc[time_slot, day] == 'Free':
-                # Write each course from the basket separated by newlines
-                # Format: "COURSE1\nCOURSE2\nCOURSE3" so classroom allocation can process each
-                course_list = '\n'.join(all_courses) if all_courses else basket_name
-                schedule.loc[time_slot, day] = course_list
+                # Write ONLY the basket name (not individual courses)
+                # Individual courses and classrooms will be shown in the legends
+                schedule.loc[time_slot, day] = basket_name
                 used_slots.add(key)
                 scheduled_basket_slots.add(slot_key)
                 elective_scheduled += 1
@@ -1461,9 +1460,9 @@ def schedule_electives_by_baskets(elective_allocations, schedule, used_slots, se
                 key = (day, time_slot)
                 
                 if schedule.loc[time_slot, day] == 'Free':
-                    # Write each course with Tutorial suffix
-                    course_list = '\n'.join([f"{c} (Tutorial)" for c in all_courses]) if all_courses else f"{basket_name} (Tutorial)"
-                    schedule.loc[time_slot, day] = course_list
+                    # Write ONLY the basket name with (Tutorial) suffix
+                    # Individual courses and classrooms will be shown in the legends
+                    schedule.loc[time_slot, day] = f"{basket_name} (Tutorial)"
                     used_slots.add(key)
                     scheduled_basket_slots.add(slot_key)
                     elective_scheduled += 1
@@ -3067,11 +3066,11 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                 section_cell.fill = section_fill
                 section_cell.font = section_font
                 section_cell.alignment = Alignment(horizontal='left', vertical='center')
-                ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=4)
+                ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=7)
                 current_row += 1
                 
-                # Headers (no color column)
-                headers = ['Course Code', 'Course Name', 'L-T-P-S-C', 'Term Type']
+                # Headers - Changed to show Scheduled/Required format
+                headers = ['Course Code', 'Course Name', 'L-T-P-S-C', 'Term Type', 'Lectures Hrs', 'Tutorials Hrs', 'Labs Hrs']
                 for col_idx, header in enumerate(headers, start=1):
                     cell = ws.cell(row=current_row, column=col_idx, value=header)
                     cell.fill = header_fill
@@ -3083,11 +3082,146 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                 # Data rows
                 for course_code in core_courses:
                     info = course_info.get(course_code, {})
+                    ltpsc = info.get('ltpsc', 'N/A')
+                    
+                    # Parse LTPSC to extract L, T, P values (required hours)
+                    req_lectures, req_tutorials, req_labs = 0, 0, 0
+                    if ltpsc != 'N/A':
+                        try:
+                            parts = ltpsc.split('-')
+                            if len(parts) >= 3:
+                                req_lectures = int(parts[0])
+                                req_tutorials = int(parts[1])
+                                req_labs = int(parts[2])
+                        except (ValueError, IndexError):
+                            pass
+                    
+                    # Count scheduled hours from the timetable
+                    # The DataFrame has time slots as rows and days as columns
+                    # Values contain course codes (with classroom info like "MA161 [C004]")
+                    sched_lectures = 0
+                    sched_tutorials = 0
+                    sched_labs = 0
+                    
+                    if not regular_section_a.empty:
+                        try:
+                            # Track processed (slot_idx, day) pairs to avoid double-counting
+                            processed_cells = set()
+                            
+                            # Iterate through the schedule DataFrame (time slots x days)
+                            for slot_idx, time_slot in enumerate(regular_section_a.index):
+                                time_slot_str = str(time_slot).lower()
+                                
+                                # Check each day column for this course
+                                for day in regular_section_a.columns:
+                                    if (slot_idx, day) in processed_cells:
+                                        continue
+                                    cell_value = regular_section_a.loc[time_slot, day]
+                                    
+                                    # Check if this cell contains our course
+                                    if pd.isna(cell_value) or cell_value == '' or 'free' in str(cell_value).lower():
+                                        continue
+                                    
+                                    cell_str = str(cell_value).lower()
+                                    
+                                    # Check if this cell contains our course code
+                                    if course_code.lower() not in cell_str:
+                                        continue
+                                    
+                                    # Found the course in this time slot!
+                                    # Now classify: lecture, tutorial, or lab
+                                    
+                                    # PRIORITY 1: Check if cell explicitly marked as (Lab) or (Tutorial)
+                                    if '(lab)' in cell_str:
+                                        # This is a lab slot - check if next slot also has lab
+                                        if slot_idx + 1 < len(regular_section_a.index):
+                                            next_slot = regular_section_a.index[slot_idx + 1]
+                                            next_cell = regular_section_a.loc[next_slot, day]
+                                            
+                                            if pd.notna(next_cell) and course_code.lower() in str(next_cell).lower() and '(lab)' in str(next_cell).lower():
+                                                # Consecutive lab slots = 2 hours
+                                                sched_labs += 2
+                                                processed_cells.add((slot_idx, day))
+                                                processed_cells.add((slot_idx + 1, day))
+                                            else:
+                                                # Single lab slot (shouldn't happen but handle it)
+                                                sched_labs += 1
+                                                processed_cells.add((slot_idx, day))
+                                        else:
+                                            # Last slot marked as lab
+                                            sched_labs += 1
+                                            processed_cells.add((slot_idx, day))
+                                    elif '(tutorial)' in cell_str:
+                                        sched_tutorials += 1
+                                        processed_cells.add((slot_idx, day))
+                                    else:
+                                        # No explicit marker - use time slot detection
+                                        # Tutorial detection: check if slot is a tutorial time (1 hour)
+                                        is_tutorial = any(t in time_slot_str for t in ['14:30-15:30', '17:00-18:00', '18:00-18:30', '18:30-20:00'])
+                                        
+                                        if is_tutorial:
+                                            sched_tutorials += 1
+                                            processed_cells.add((slot_idx, day))
+                                        else:
+                                            # Check if next time slot also has this course (lab detection)
+                                            if slot_idx + 1 < len(regular_section_a.index):
+                                                next_slot = regular_section_a.index[slot_idx + 1]
+                                                next_cell = regular_section_a.loc[next_slot, day]
+                                                
+                                                if pd.notna(next_cell) and str(next_cell) != '' and 'free' not in str(next_cell).lower():
+                                                    if course_code.lower() in str(next_cell).lower():
+                                                        next_cell_str = str(next_cell).lower()
+                                                        # IMPORTANT: Check if next slot is marked as tutorial or lab
+                                                        # If it's marked, don't assume consecutive lab - let the markers decide
+                                                        if '(tutorial)' in next_cell_str:
+                                                            # Next slot is a tutorial, so current is just a lecture
+                                                            sched_lectures += 1
+                                                            processed_cells.add((slot_idx, day))
+                                                        elif '(lab)' in next_cell_str:
+                                                            # Next slot is a lab, so this is also a lab (2 hours total)
+                                                            sched_labs += 2
+                                                            processed_cells.add((slot_idx, day))
+                                                            processed_cells.add((slot_idx + 1, day))
+                                                        else:
+                                                            # No markers on next slot, so assume consecutive slots = lab
+                                                            sched_labs += 2
+                                                            processed_cells.add((slot_idx, day))
+                                                            processed_cells.add((slot_idx + 1, day))
+                                                    else:
+                                                        # Next slot doesn't have this course, so this is a single lecture
+                                                        sched_lectures += 1
+                                                        processed_cells.add((slot_idx, day))
+                                                else:
+                                                    # No next slot or next slot is free, so this is a lecture
+                                                    sched_lectures += 1
+                                                    processed_cells.add((slot_idx, day))
+                                            else:
+                                                # Last slot, so it's a lecture
+                                                sched_lectures += 1
+                                                processed_cells.add((slot_idx, day))
+                        except Exception as e:
+                            # If any error, leave as 0
+                            pass
+                    
+                    # Adjust lecture count based on hours:
+                    # Each lecture slot = 1.5 hours, so 2 slots = 3 hours
+                    # If L=2 or L=3 and we scheduled 2 slots, consider it as matching the requirement
+                    if req_lectures in [2, 3] and sched_lectures >= 2:
+                        sched_lectures = req_lectures
+                    
+                    # Format as "scheduled/required"
+                    lectures_display = f"{sched_lectures}/{req_lectures}"
+                    tutorials_display = f"{sched_tutorials}/{req_tutorials}"
+                    labs_display = f"{sched_labs}/{req_labs}"
+                    
                     row_data = [
                         course_code,
                         info.get('name', 'N/A'),
-                        info.get('ltpsc', 'N/A'),
-                        info.get('term_type', 'Full Semester')
+                        ltpsc,
+                        info.get('term_type', 'Full Semester'),
+                        lectures_display,
+                        tutorials_display,
+                        labs_display
                     ]
                     for col_idx, value in enumerate(row_data, start=1):
                         cell = ws.cell(row=current_row, column=col_idx, value=value)
@@ -3102,6 +3236,15 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                                 cell.fill = PatternFill(start_color=hex_color, end_color=hex_color, fill_type="solid")
                     
                     current_row += 1
+                
+                # Set column widths for core courses section
+                ws.column_dimensions['A'].width = max(ws.column_dimensions['A'].width, 12)  # Course Code
+                ws.column_dimensions['B'].width = max(ws.column_dimensions['B'].width, 35)  # Course Name
+                ws.column_dimensions['C'].width = max(ws.column_dimensions['C'].width, 12)  # L-T-P-S-C
+                ws.column_dimensions['D'].width = max(ws.column_dimensions['D'].width, 15)  # Term Type
+                ws.column_dimensions['E'].width = max(ws.column_dimensions['E'].width, 14)  # Lectures/Week
+                ws.column_dimensions['F'].width = max(ws.column_dimensions['F'].width, 14)  # Tutorials/Week
+                ws.column_dimensions['G'].width = max(ws.column_dimensions['G'].width, 12)  # Labs/Week
                 
                 current_row += 1  # Spacing
             
@@ -3153,13 +3296,13 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                         # Process each lecture slot
                         for day, time in lectures:
                             lecture_room = ''
-                            # Find the classroom for this specific lecture (day, time)
+                            # Find the classroom for this SPECIFIC COURSE (not just any course in basket)
                             for alloc_key, alloc in allocs_for_file.items():
                                 alloc_course = alloc.get('course', '')
-                                alloc_basket = str(alloc.get('basket', '')).upper()
                                 alloc_type = str(alloc.get('type', '')).upper()
                                 
-                                if (alloc_course == course_code or alloc_basket == basket_name) and 'TUTORIAL' not in alloc_type and 'TUTORIAL' not in alloc_course.upper():
+                                # Match ONLY this specific course (not basket name)
+                                if alloc_course == course_code and 'TUTORIAL' not in alloc_type and 'TUTORIAL' not in alloc_course.upper():
                                     # Check if this allocation matches the day and time
                                     parts = alloc_key.split('_')
                                     if len(parts) >= 2:
@@ -3183,10 +3326,10 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                             tutorial_room = ''
                             for alloc_key, alloc in allocs_for_file.items():
                                 alloc_course = alloc.get('course', '')
-                                alloc_basket = str(alloc.get('basket', '')).upper()
                                 alloc_type = str(alloc.get('type', '')).upper()
                                 
-                                if (alloc_course == course_code or alloc_basket == basket_name) and ('TUTORIAL' in alloc_type or 'TUTORIAL' in alloc_course.upper()):
+                                # Match ONLY this specific course (not basket name)
+                                if alloc_course == course_code and ('TUTORIAL' in alloc_type or 'TUTORIAL' in alloc_course.upper()):
                                     room = alloc.get('classroom') or alloc.get('room')
                                     if room and not tutorial_room:
                                         tutorial_room = str(room)
@@ -5277,9 +5420,72 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
             if (day, time_slot) in processed_lab_slots:
                 continue
             
-            # NEW: Handle newline-separated courses from baskets
+            # NEW: Handle basket entries - detect if this is a basket slot
+            # Check if the course value is a basket name (not multiple courses separated by newlines)
+            is_basket_entry = False
+            basket_keywords = ['ELECTIVE_', 'HSS_', 'PROF_', 'OE_']
+            if isinstance(course_value, str):
+                normalized_value = course_value.upper().replace(' (TUTORIAL)', '').replace(' (LAB)', '')
+                is_basket_entry = any(keyword in normalized_value for keyword in basket_keywords)
+            
+            # Handle basket entries - allocate classrooms for courses but keep basket name in display
+            if is_basket_entry and basket_courses_map:
+                basket_name = course_value.replace(' (Tutorial)', '').replace(' (Lab)', '').strip()
+                courses_in_basket = basket_courses_map.get(basket_name, [])
+                
+                if courses_in_basket:
+                    # Allocate classrooms for each course in the basket
+                    is_tutorial = '(Tutorial)' in course_value
+                    is_lab = '(Lab)' in course_value
+                    
+                    print(f"      [BASKET-ENTRY] {day} {time_slot}: '{course_value}' contains {len(courses_in_basket)} courses")
+                    
+                    for course_code in courses_in_basket:
+                        # Get enrollment for this course
+                        enrollment = course_enrollment.get(course_code, 40)
+                        
+                        # Each elective course gets its own appropriate classroom based on enrollment
+                        # Don't force them to share the same room
+                        course_pref_key = f"{course_code}_{day}_{time_slot}"
+                        existing_room = course_preferred_classrooms.get(course_pref_key)
+                        suitable_classroom = None
+                        
+                        if existing_room and room_available(existing_room, day, time_slot):
+                            # Reuse previously assigned room for this course in this slot
+                            suitable_classroom = existing_room
+                            print(f"         [BASKET-REUSE] {course_code} -> {existing_room}")
+                        else:
+                            # Allocate a new room based on enrollment
+                            suitable_classroom = allocate_regular_classroom(
+                                enrollment, day, time_slot, 
+                                is_common_course=False,  # Each course gets its own room
+                                is_lab_session=is_lab, 
+                                course_code=course_code
+                            )
+                            if suitable_classroom:
+                                course_preferred_classrooms[course_pref_key] = suitable_classroom
+                                print(f"         [BASKET-ALLOC] {course_code} -> {suitable_classroom} ({enrollment} students)")
+                        
+                        if suitable_classroom:
+                            # Track allocation (but don't update cell display)
+                            allocation_key = f"{day}_{time_slot}_{course_code}"
+                            _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key] = {
+                                'course': course_code,
+                                'classroom': suitable_classroom,
+                                'enrollment': enrollment,
+                                'conflict': False,
+                                'basket': basket_name
+                            }
+                            allocation_count += 1
+                
+                # Keep ONLY the basket name in the cell (no classroom info)
+                schedule_with_rooms.loc[time_slot, day] = course_value
+                print(f"      [BASKET-DISPLAY] {day} {time_slot}: Displaying '{course_value}' (classrooms in legends)")
+                continue
+            
+            # Handle legacy newline-separated courses (from old data files)
             if isinstance(course_value, str) and '\n' in course_value:
-                # This is a basket slot with multiple courses - each needs its own room
+                # This is a legacy basket slot with multiple courses - each needs its own room
                 courses_in_slot = [c.strip() for c in course_value.split('\n') if c.strip()]
                 rooms_allocated = []
                 rooms_used_in_this_slot = set()
@@ -7600,12 +7806,12 @@ def convert_dataframe_to_html_with_baskets(df, table_id, course_colors, basket_c
         return any(keyword in normalized for keyword in basket_keywords)
 
     def should_hide_classroom_info(course_label):
-        # Hide classroom information for non-tutorial basket entries (we show allocations in the legend instead)
-        # But SHOW classroom info for tutorial entries
+        # Hide classroom information for ALL basket entries (show only in legends)
+        # Basket entries should appear as just "ELECTIVE_B1" or "ELECTIVE_B1 (Tutorial)"
+        # All classroom and course details will be shown in the elective basket legends instead
         try:
             if is_basket_entry(course_label):
-                # Only hide if it's NOT a tutorial
-                return '(Tutorial)' not in course_label
+                return True  # Always hide classroom info for basket entries
             return False
         except Exception:
             return False
@@ -7652,29 +7858,21 @@ def convert_dataframe_to_html_with_baskets(df, table_id, course_colors, basket_c
                         course_color = course_colors.get(course_part, '#cccccc')
                         return f'<span class="regular-course" style="background-color: {course_color}" title="{build_course_title(course_part)}">{val}</span>'
                     
-                    # Determine if classroom info should be hidden
-                    hide_classroom = should_hide_classroom_info(course_part)
-                    
                     # Check if it's a basket entry
                     is_basket = is_basket_entry(course_part)
                     title_attr = build_course_title(course_part)
                     
                     if is_basket:
+                        # For elective baskets, show ONLY the basket name (no classroom info)
                         basket_key = course_part.replace(' (Tutorial)', '')
                         basket_color = basket_colors.get(basket_key, '#cccccc')
                         if '(Tutorial)' in course_part:
-                            if hide_classroom:
-                                return f'<span class="basket-entry basket-tutorial" style="background-color: {basket_color}" title="{title_attr}">{course_part}</span>'
-                            return f'<span class="basket-entry basket-tutorial" style="background-color: {basket_color}" title="{title_attr}">{course_part}<br><small class="classroom-info">{room_part}</small></span>'
-                        if hide_classroom:
-                            return f'<span class="basket-entry elective-basket" style="background-color: {basket_color}" title="{title_attr}">{course_part}</span>'
-                        return f'<span class="basket-entry elective-basket" style="background-color: {basket_color}" title="{title_attr}">{course_part}<br><small class="classroom-info">{room_part}</small></span>'
+                            return f'<span class="basket-entry basket-tutorial" style="background-color: {basket_color}" title="{title_attr}">{course_part}</span>'
+                        return f'<span class="basket-entry elective-basket" style="background-color: {basket_color}" title="{title_attr}">{course_part}</span>'
                     else:
-                        # Regular course with classroom - get course color
+                        # Regular course with classroom - get course color and show classroom info
                         clean_course = course_part.replace(' (Tutorial)', '')
                         course_color = course_colors.get(clean_course, '#cccccc')
-                        if hide_classroom:
-                            return f'<span class="regular-course" style="background-color: {course_color}" title="{title_attr}">{course_part}</span>'
                         return f'<span class="course-with-room" style="background-color: {course_color}" title="{title_attr}">{course_part}<br><small class="classroom-info">{room_part}</small></span>'
                 except:
                     return val
@@ -7897,68 +8095,68 @@ def get_timetables():
                     def _clean_section_df(df):
                         if df.empty:
                             return df
-                    
-                    # First, drop any columns that are clearly numeric indices or unwanted
-                    cols_to_drop = []
-                    for col in df.columns:
-                        col_str = str(col)
-                        # Drop columns that are: unnamed, numeric indices, 'index', 'level_0', or duplicate 'Time Slot' variations
-                        if (col_str.startswith('Unnamed') or 
-                            col_str == 'index' or 
-                            col_str == 'level_0' or 
-                            col_str.startswith('Time Slot') and col_str != 'Time Slot' or  # Drop 'Time Slot1', etc.
-                            isinstance(col, int)):  # Numeric column names
-                            cols_to_drop.append(col)
-                    
-                    if cols_to_drop:
-                        df = df.drop(columns=cols_to_drop, errors='ignore')
-                    
-                    # Now handle the Time Slot column identification
-                    # FIRST: Check if the index already looks like time slots (already set correctly when written)
-                    if df.index.name == 'Time Slot':
-                        # Index is already properly set, just ensure it's a string
-                        df.index = df.index.astype(str)
-                        df.index = df.index.map(normalize_time_slot_label)
-                        return df
-                    elif len(df) > 0:
-                        # Check if current index values look like time slots
-                        sample_idx = str(df.index[0])
-                        if ':' in sample_idx or '-' in sample_idx or 'LUNCH' in sample_idx.upper():
-                            # Index already contains time slots, just name it properly
-                            df.index.name = 'Time Slot'
+                        
+                        # First, drop any columns that are clearly numeric indices or unwanted
+                        cols_to_drop = []
+                        for col in df.columns:
+                            col_str = str(col)
+                            # Drop columns that are: unnamed, numeric indices, 'index', 'level_0', or duplicate 'Time Slot' variations
+                            if (col_str.startswith('Unnamed') or 
+                                col_str == 'index' or 
+                                col_str == 'level_0' or 
+                                col_str.startswith('Time Slot') and col_str != 'Time Slot' or  # Drop 'Time Slot1', etc.
+                                isinstance(col, int)):  # Numeric column names
+                                cols_to_drop.append(col)
+                        
+                        if cols_to_drop:
+                            df = df.drop(columns=cols_to_drop, errors='ignore')
+                        
+                        # Now handle the Time Slot column identification
+                        # FIRST: Check if the index already looks like time slots (already set correctly when written)
+                        if df.index.name == 'Time Slot':
+                            # Index is already properly set, just ensure it's a string
                             df.index = df.index.astype(str)
                             df.index = df.index.map(normalize_time_slot_label)
                             return df
-                    
-                    # SECOND: Check if 'Time Slot' exists as a column (needs to be moved to index)
-                    if 'Time Slot' in df.columns:
-                        df = df.set_index('Time Slot')
-                    elif 'Time' in df.columns:
-                        df = df.set_index('Time')
-                        df.index.name = 'Time Slot'
-                    else:
-                        # If no Time Slot column and index doesn't look like time slots,
-                        # check if the first column looks like time slots
-                        if len(df.columns) > 0:
-                            first_col = df.columns[0]
-                            # Check if first column contains time slot values
-                            sample_val = str(df[first_col].iloc[0]) if len(df) > 0 else ''
-                            if ':' in sample_val or '-' in sample_val or 'LUNCH' in sample_val.upper():
-                                # This looks like time slots, use it as index
-                                df = df.set_index(first_col)
+                        elif len(df) > 0:
+                            # Check if current index values look like time slots
+                            sample_idx = str(df.index[0])
+                            if ':' in sample_idx or '-' in sample_idx or 'LUNCH' in sample_idx.upper():
+                                # Index already contains time slots, just name it properly
                                 df.index.name = 'Time Slot'
-                            # REMOVED: Don't use first column as fallback if it doesn't look like time slots
+                                df.index = df.index.astype(str)
+                                df.index = df.index.map(normalize_time_slot_label)
+                                return df
+                        
+                        # SECOND: Check if 'Time Slot' exists as a column (needs to be moved to index)
+                        if 'Time Slot' in df.columns:
+                            df = df.set_index('Time Slot')
+                        elif 'Time' in df.columns:
+                            df = df.set_index('Time')
+                            df.index.name = 'Time Slot'
+                        else:
+                            # If no Time Slot column and index doesn't look like time slots,
+                            # check if the first column looks like time slots
+                            if len(df.columns) > 0:
+                                first_col = df.columns[0]
+                                # Check if first column contains time slot values
+                                sample_val = str(df[first_col].iloc[0]) if len(df) > 0 else ''
+                                if ':' in sample_val or '-' in sample_val or 'LUNCH' in sample_val.upper():
+                                    # This looks like time slots, use it as index
+                                    df = df.set_index(first_col)
+                                    df.index.name = 'Time Slot'
+                                # REMOVED: Don't use first column as fallback if it doesn't look like time slots
+                        
+                        # Set default index name if still not set
+                        if not df.index.name:
+                            df.index.name = 'Time Slot'
+                        
+                        # Convert index to string to ensure time slots display correctly
+                        df.index = df.index.astype(str)
+                        # Normalize any numeric/indexed time slot labels to canonical strings
+                        df.index = df.index.map(normalize_time_slot_label)
+                        return df
                     
-                    # Set default index name if still not set
-                    if not df.index.name:
-                        df.index.name = 'Time Slot'
-                    
-                    # Convert index to string to ensure time slots display correctly
-                    df.index = df.index.astype(str)
-                    # Normalize any numeric/indexed time slot labels to canonical strings
-                    df.index = df.index.map(normalize_time_slot_label)
-                    return df
-                
                     df_a = _clean_section_df(df_a)
                     if not df_b.empty:
                         df_b = _clean_section_df(df_b)
@@ -8293,9 +8491,25 @@ def get_timetables():
                             if basket_name not in clean_baskets_b:
                                 clean_baskets_b.append(basket_name)
                     else:
-                        # Other semesters: only include baskets with courses
-                        clean_baskets_a = [basket for basket in unique_baskets_a if basket in basket_courses_map and basket_courses_map[basket]]
-                        clean_baskets_b = [basket for basket in unique_baskets_b if basket in basket_courses_map and basket_courses_map[basket]]
+                        # Determine allowed baskets for this semester
+                        allowed_baskets_by_semester = {
+                            1: ['ELECTIVE_B1'],
+                            3: ['ELECTIVE_B3'],
+                            5: ['ELECTIVE_B4', 'ELECTIVE_B5'],
+                            7: ['ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9']
+                        }
+                        allowed_baskets_list = allowed_baskets_by_semester.get(sem, [])
+                        
+                        if allowed_baskets_list:
+                            # For semesters with allowed baskets, always show them (even if empty)
+                            for basket_name in allowed_baskets_list:
+                                basket_courses_map.setdefault(basket_name, [])
+                            clean_baskets_a = allowed_baskets_list.copy()
+                            clean_baskets_b = allowed_baskets_list.copy()
+                        else:
+                            # Other semesters: only include baskets with courses
+                            clean_baskets_a = [basket for basket in unique_baskets_a if basket in basket_courses_map and basket_courses_map[basket]]
+                            clean_baskets_b = [basket for basket in unique_baskets_b if basket in basket_courses_map and basket_courses_map[basket]]
 
                     if supplemental_baskets:
                         for basket_name in supplemental_baskets:
@@ -8329,6 +8543,44 @@ def get_timetables():
                         for basket_name, course_list in source_basket_map.items():
                             try:
                                 basket_course_allocations.setdefault(basket_name, {})
+                                
+                                # FIRST: Try to extract room directly from timetable cells for basket entries
+                                # Scan df_a and df_b for cells containing this basket name with rooms
+                                basket_rooms = []
+                                for df in [df_a, df_b]:
+                                    if df.empty:
+                                        continue
+                                    for day in df.columns:
+                                        for time_slot in df.index:
+                                            cell_value = df.loc[time_slot, day]
+                                            if isinstance(cell_value, str) and basket_name in cell_value and '[' in cell_value and ']' in cell_value:
+                                                # Extract room number
+                                                room_match = cell_value[cell_value.find('[')+1:cell_value.find(']')]
+                                                if room_match:
+                                                    # Determine session type
+                                                    session_type = 'Lecture'
+                                                    if '(Tutorial)' in cell_value or '(tutorial)' in cell_value:
+                                                        session_type = 'Tutorial'
+                                                    elif '(Lab)' in cell_value or '(lab)' in cell_value:
+                                                        session_type = 'Lab'
+                                                    
+                                                    basket_rooms.append({
+                                                        'room': room_match.strip(),
+                                                        'day': str(day),
+                                                        'time': str(time_slot),
+                                                        'type': session_type
+                                                    })
+                                
+                                # If we found rooms for the basket, assign them to all courses in the basket
+                                if basket_rooms:
+                                    for course_code in (course_list or []):
+                                        basket_course_allocations[basket_name][course_code] = basket_rooms
+                                    print(f"   [BASKET] {basket_name}: Found {len(basket_rooms)} room allocations")
+                                    for room_info in basket_rooms:
+                                        print(f"   [BASKET]   - {room_info['room']} on {room_info['day']} at {room_info['time']} ({room_info['type']})")
+                                    continue
+                                
+                                # FALLBACK: Try course-by-course extraction from classroom_allocation_details
                                 for course_code in (course_list or []):
                                     room_allocations = []
                                     # Collect rooms WITH day/time from classroom_allocation_details
@@ -8442,8 +8694,16 @@ def get_timetables():
                         return legend_entries
                 
                     # Build legends separated into core vs elective for UI clarity
-                    elective_legends_a = build_course_legend_entries([c for c in legend_courses_a if c in elective_set])
-                    elective_legends_b = build_course_legend_entries([c for c in legend_courses_b if c in elective_set])
+                    elective_courses_in_legend_a = [c for c in legend_courses_a if c in elective_set]
+                    elective_courses_in_legend_b = [c for c in legend_courses_b if c in elective_set]
+                    
+                    print(f"   [DEBUG] Legend courses A: {legend_courses_a}")
+                    print(f"   [DEBUG] Elective set: {elective_set}")
+                    print(f"   [DEBUG] Elective courses in legend A: {elective_courses_in_legend_a}")
+                    print(f"   [DEBUG] Basket courses map: {basket_courses_map}")
+                    
+                    elective_legends_a = build_course_legend_entries(elective_courses_in_legend_a)
+                    elective_legends_b = build_course_legend_entries(elective_courses_in_legend_b)
                     core_legends_a = build_course_legend_entries([c for c in legend_courses_a if c not in elective_set])
                     core_legends_b = build_course_legend_entries([c for c in legend_courses_b if c not in elective_set])
                 
