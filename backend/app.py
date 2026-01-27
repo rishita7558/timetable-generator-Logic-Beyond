@@ -12,6 +12,8 @@ import traceback
 import shutil
 import time
 import hashlib
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
 _SEMESTER_ELECTIVE_ALLOCATIONS = {}
@@ -787,19 +789,19 @@ def separate_courses_by_type(dfs, semester_id, branch=None):
         return {'core_courses': [], 'elective_courses': []}
     
     try:
-        # Normalize branch name to match Department values in data
+        # Normalize branch name to match Department values in data (short form)
         def normalize_branch_name(branch_raw):
             if not branch_raw:
                 return None
             br = str(branch_raw).strip().upper()
             if br in ['CSE', 'CS', 'COMPUTER SCIENCE', 'COMPUTER SCIENCE AND ENGINEERING']:
-                return 'Computer Science and Engineering'
+                return 'CSE'
             if br in ['ECE', 'EC', 'ELECTRONICS', 'ELECTRONICS AND COMMUNICATION ENGINEERING']:
-                return 'Electronics and Communication Engineering'
+                return 'ECE'
             if br in ['DSAI', 'DS', 'DA', 'DATA SCIENCE', 'DATA SCIENCE AND ARTIFICIAL INTELLIGENCE']:
-                return 'Data Science and Artificial Intelligence'
-            # Fallback: return original for exact matches in data
-            return branch_raw
+                return 'DSAI'
+            # Fallback: return as uppercase for exact matches in data
+            return br.upper()
 
         # Filter courses for the semester
         sem_courses = dfs['course'][
@@ -813,26 +815,20 @@ def separate_courses_by_type(dfs, semester_id, branch=None):
         if branch and 'Department' in sem_courses.columns:
             normalized_branch = normalize_branch_name(branch)
 
-            # Build robust department mask that tolerates abbreviations and missing/incorrect Department field
-            dept_series = sem_courses['Department'].astype(str).fillna('').str.strip()
-            branch_upper = str(branch).strip().upper()
-
-            # Map by course code prefix as a reliable fallback
-            inferred_departments = sem_courses['Course Code'].apply(map_department_from_course_code)
-
-            # Accept rows where:
-            # - Department equals normalized full name, OR
-            # - Department equals branch abbreviation, OR
-            # - Inferred department from code equals normalized full name
-            dept_match = (
-                (dept_series == normalized_branch) |
-                (dept_series.str.upper() == branch_upper) |
-                (inferred_departments == normalized_branch)
-            )
-
-            # Include department-specific cores and all electives
+            # Build robust department mask that matches exactly
+            dept_series = sem_courses['Department'].astype(str).fillna('').str.strip().str.upper()
+            
+            # For CORE courses: must match the department exactly
+            # For ELECTIVE courses: include all (electives are usually available to all departments)
             is_elective = sem_courses['Elective (Yes/No)'].astype(str).str.upper() == 'YES'
-            sem_courses = sem_courses[(dept_match & ~is_elective) | is_elective].copy()
+            
+            # Match rows where:
+            # - Department equals normalized branch (exact match on short form), OR
+            # - Is elective (electives are available to all departments)
+            dept_match = (dept_series == normalized_branch.upper())
+            
+            # Keep courses that match the department for core courses, and all electives
+            sem_courses = sem_courses[dept_match | is_elective].copy()
         
         if sem_courses.empty:
             return {'core_courses': pd.DataFrame(), 'elective_courses': pd.DataFrame()}
@@ -845,6 +841,23 @@ def separate_courses_by_type(dfs, semester_id, branch=None):
         elective_courses = sem_courses[
             sem_courses['Elective (Yes/No)'].str.upper() == 'YES'
         ].copy()
+        
+        # Filter electives by semester-specific baskets
+        if not elective_courses.empty and 'Basket' in elective_courses.columns:
+            # Define allowed baskets per semester
+            semester_baskets = {
+                1: ['ELECTIVE_B1', 'HSS_B1'],
+                3: ['ELECTIVE_B3', 'HSS_B3'],  # Note: HSS_B5 is also in sem3
+                5: ['ELECTIVE_B4', 'ELECTIVE_B5',],
+                7: ['ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9']
+            }
+            
+            allowed_baskets = semester_baskets.get(int(semester_id), [])
+            if allowed_baskets:
+                # Filter to only include courses with baskets appropriate for this semester
+                basket_series = elective_courses['Basket'].astype(str).fillna('')
+                basket_match = basket_series.isin(allowed_baskets)
+                elective_courses = elective_courses[basket_match].copy()
         
         print(f"   [STATS] Course separation for Semester {semester_id}, Department {branch or 'All'}:")
         print(f"      Core courses: {len(core_courses)}")
@@ -1417,11 +1430,7 @@ def schedule_electives_by_baskets(elective_allocations, schedule, used_slots, se
         print(f"         Courses: {', '.join(all_courses)}")
         print(f"         Days Separation: {'[OK]' if days_separated else '[FAIL]'}")
         
-        # Use basket name directly
-        basket_display = basket_name
-        tutorial_display = f"{basket_name} (Tutorial)"
-        
-        # Schedule lectures - IDENTICAL for all branches and sections
+        # Schedule lectures - write individual course codes, not basket names
         for day, time_slot in lectures:
             slot_key = (basket_name, day, time_slot, 'lecture')
             
@@ -1431,7 +1440,10 @@ def schedule_electives_by_baskets(elective_allocations, schedule, used_slots, se
             key = (day, time_slot)
             
             if schedule.loc[time_slot, day] == 'Free':
-                schedule.loc[time_slot, day] = basket_display
+                # Write each course from the basket separated by newlines
+                # Format: "COURSE1\nCOURSE2\nCOURSE3" so classroom allocation can process each
+                course_list = '\n'.join(all_courses) if all_courses else basket_name
+                schedule.loc[time_slot, day] = course_list
                 used_slots.add(key)
                 scheduled_basket_slots.add(slot_key)
                 elective_scheduled += 1
@@ -1440,7 +1452,7 @@ def schedule_electives_by_baskets(elective_allocations, schedule, used_slots, se
             else:
                 print(f"         [FAIL] LECTURE CONFLICT: {day} {time_slot} - {schedule.loc[time_slot, day]}")
         
-        # Schedule tutorial - IDENTICAL for all branches and sections (only if T >= 1)
+        # Schedule tutorial - write individual course codes with (Tutorial) suffix
         if tutorial:
             day, time_slot = tutorial
             slot_key = (basket_name, day, time_slot, 'tutorial')
@@ -1449,7 +1461,9 @@ def schedule_electives_by_baskets(elective_allocations, schedule, used_slots, se
                 key = (day, time_slot)
                 
                 if schedule.loc[time_slot, day] == 'Free':
-                    schedule.loc[time_slot, day] = tutorial_display
+                    # Write each course with Tutorial suffix
+                    course_list = '\n'.join([f"{c} (Tutorial)" for c in all_courses]) if all_courses else f"{basket_name} (Tutorial)"
+                    schedule.loc[time_slot, day] = course_list
                     used_slots.add(key)
                     scheduled_basket_slots.add(slot_key)
                     elective_scheduled += 1
@@ -2100,13 +2114,34 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
     print(f"   Found {len(basket_groups)} elective baskets: {list(basket_groups.keys())}")
     
     # FILTER BASKETS BY SEMESTER - Only schedule required baskets
-    if semester_id == 3:
+    if semester_id == 1:
+        # Semester 1: Only ELECTIVE_B1
+        required_baskets = ['ELECTIVE_B1']
+        baskets_to_schedule = [basket for basket in basket_groups.keys() if basket in required_baskets]
+        # Ensure ELECTIVE_B1 is scheduled even if not found in course data
+        for req_basket in required_baskets:
+            if req_basket not in baskets_to_schedule:
+                print(f"   [WARN] {req_basket} not found in course data, but will be scheduled anyway for Semester 1")
+                baskets_to_schedule.append(req_basket)
+                # Create empty basket group so it can be scheduled
+                if req_basket not in basket_groups:
+                    basket_groups[req_basket] = []
+        print(f"   [TARGET] Semester 1: Scheduling only ELECTIVE_B1")
+    elif semester_id == 3:
         # Semester 3: Only ELECTIVE_B3, exclude ELECTIVE_B5
-        baskets_to_schedule = [basket for basket in basket_groups.keys() if basket == 'ELECTIVE_B3']
-        print(f"   [TARGET] Semester 3: Scheduling only ELECTIVE_B3, excluding ELECTIVE_B5")
+        required_baskets = ['ELECTIVE_B3']
+        baskets_to_schedule = [basket for basket in basket_groups.keys() if basket in required_baskets]
+        # Ensure ELECTIVE_B3 is scheduled even if not found in course data
+        for req_basket in required_baskets:
+            if req_basket not in baskets_to_schedule:
+                print(f"   [WARN] {req_basket} not found in course data, but will be scheduled anyway for Semester 3")
+                baskets_to_schedule.append(req_basket)
+                if req_basket not in basket_groups:
+                    basket_groups[req_basket] = []
+        print(f"   [TARGET] Semester 3: Scheduling only ELECTIVE_B3")
     elif semester_id == 5:
         # Semester 5: Schedule ELECTIVE_B5 and ELECTIVE_B4 - ALWAYS schedule both even if no courses found
-        required_baskets = ['ELECTIVE_B5', 'ELECTIVE_B4']
+        required_baskets = ['ELECTIVE_B4', 'ELECTIVE_B5']
         baskets_to_schedule = [basket for basket in basket_groups.keys() if basket in required_baskets]
         # Ensure both baskets are scheduled even if not found in course data
         for req_basket in required_baskets:
@@ -2116,7 +2151,7 @@ def allocate_electives_by_baskets(elective_courses, semester_id):
                 # Create empty basket group so it can be scheduled
                 if req_basket not in basket_groups:
                     basket_groups[req_basket] = []
-        print(f"   [TARGET] Semester 5: Scheduling BOTH ELECTIVE_B5 and ELECTIVE_B4")
+        print(f"   [TARGET] Semester 5: Scheduling BOTH ELECTIVE_B4 and ELECTIVE_B5")
     elif semester_id == 7:
         # FIXED: Semester 7: Schedule ELECTIVE_B6, ELECTIVE_B7, ELECTIVE_B8, ELECTIVE_B9 (even if absent in data)
         required_baskets = ['ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9']
@@ -2612,9 +2647,818 @@ def normalize_classroom_allocation_records(records):
         normalized.append(rec)
     return normalized
 
-def export_semester_timetable_with_baskets(dfs, semester, branch=None, time_config=None):
+def format_excel_worksheet(worksheet, course_colors=None, basket_colors=None, is_header_row=True):
+    """Apply professional formatting to Excel worksheet:
+    - Auto-adjust column widths
+    - Color code headers
+    - Color code courses using unique colors per course (same as website)
+    - Apply borders and alignment
+    """
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    
+    # Define colors
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    
+    # Default fills for special cases
+    lunch_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")     # Light gray
+    free_fill = PatternFill(start_color="FAFAFA", end_color="FAFAFA", fill_type="solid")      # Very light gray
+    
+    border = Border(
+        left=Side(style='thin', color='CCCCCC'),
+        right=Side(style='thin', color='CCCCCC'),
+        top=Side(style='thin', color='CCCCCC'),
+        bottom=Side(style='thin', color='CCCCCC')
+    )
+    
+    center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    left_alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+    
+    # Format header row
+    if is_header_row and worksheet.max_row > 0:
+        for cell in worksheet[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = center_alignment
+            cell.border = border
+    
+    # Format data rows
+    for row_idx, row in enumerate(worksheet.iter_rows(min_row=2, max_row=worksheet.max_row), start=2):
+        for col_idx, cell in enumerate(row, start=1):
+            cell_value = str(cell.value).strip() if cell.value else ""
+            cell.border = border
+            
+            # First column (Time Slot) - left align
+            if col_idx == 1:
+                cell.alignment = left_alignment
+                cell.font = Font(bold=True, size=10)
+                continue
+            
+            # Apply color coding based on content
+            cell.alignment = center_alignment
+            
+            if not cell_value or cell_value == '' or cell_value.upper() == 'FREE':
+                cell.fill = free_fill
+            elif 'LUNCH' in cell_value.upper():
+                cell.fill = lunch_fill
+                cell.font = Font(italic=True, size=9)
+            else:
+                # Extract course code from cell value (handle formats like "Course [Room]")
+                course_code = cell_value.split('[')[0].strip() if '[' in cell_value else cell_value
+                course_code = course_code.replace('(Tutorial)', '').replace('(Lab)', '').strip()
+                
+                # Try to find matching color from course_colors or basket_colors
+                color_hex = None
+                
+                # Check baskets first (for ELECTIVE_B1, etc.)
+                if basket_colors:
+                    for basket_name, basket_color in basket_colors.items():
+                        if basket_name in cell_value.upper():
+                            color_hex = basket_color
+                            break
+                
+                # Check course colors
+                if not color_hex and course_colors:
+                    color_hex = course_colors.get(course_code)
+                
+                # Apply the color
+                if color_hex:
+                    # Remove # if present and convert to RGB hex
+                    hex_color = color_hex.replace('#', '')
+                    # Handle HSL colors (convert to fallback)
+                    if 'hsl' in hex_color.lower():
+                        hex_color = 'E8DAEF'  # Light purple fallback
+                    cell.fill = PatternFill(start_color=hex_color, end_color=hex_color, fill_type="solid")
+                else:
+                    # Default to free fill if no color found
+                    cell.fill = free_fill
+    
+    # Auto-adjust column widths
+    for col_idx in range(1, worksheet.max_column + 1):
+        column_letter = get_column_letter(col_idx)
+        max_length = 0
+        
+        for cell in worksheet[column_letter]:
+            try:
+                cell_value = str(cell.value) if cell.value else ""
+                # Account for line breaks
+                lines = cell_value.split('\n')
+                max_line_length = max(len(line) for line in lines) if lines else 0
+                max_length = max(max_length, max_line_length)
+            except:
+                pass
+        
+        # Set width with min and max constraints
+        adjusted_width = min(max(max_length + 2, 12), 50)
+        worksheet.column_dimensions[column_letter].width = adjusted_width
+
+
+def export_consolidated_semester_timetable(dfs, semester, branch, time_config=None):
+    """Export ONE consolidated Excel file per semester per branch containing:
+    - Regular timetable sheets
+    - Pre-mid timetable sheets  
+    - Post-mid timetable sheets
+    - Legend sheet with course info
+    """
+    
+    print(f"\n[CONSOLIDATED] Generating consolidated timetable for Semester {semester}, Branch {branch}...")
+    
+    # Reset classroom tracker
+    reset_classroom_usage_tracker()
+    
+    # Get course info and generate unique colors
+    course_info = get_course_info(dfs) if dfs else {}
+    all_courses = set()
+    all_baskets = set()
+
+    # Only show semester-allowed elective baskets in Excel outputs
+    allowed_baskets_map = {
+        1: {'ELECTIVE_B1'},
+        3: {'ELECTIVE_B3'},
+        5: {'ELECTIVE_B4', 'ELECTIVE_B5'},
+        7: {'ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9'},
+    }
+    # Print confirmation of basket filtering
+    print(f"[FILTER] Semester {semester} will display only these baskets: {allowed_baskets_map.get(semester, 'All')}")
+    allowed_baskets = allowed_baskets_map.get(semester, set())
+    
+    if dfs and 'course' in dfs:
+        all_courses = set(dfs['course']['Course Code'].unique())
+        if 'Basket' in dfs['course'].columns:
+            all_baskets = set(dfs['course']['Basket'].dropna().unique())
+            if allowed_baskets:
+                all_baskets = all_baskets & allowed_baskets
+    
+    course_colors = generate_course_colors(all_courses, course_info)
+    basket_colors = generate_basket_colors(all_baskets)
+    
+    try:
+        # Determine if branch has sections
+        has_sections = (branch == 'CSE')
+        sections = ['A', 'B'] if has_sections else ['Whole']
+        
+        # Get classroom data
+        classroom_data = dfs.get('classroom')
+        
+        # GENERATE REGULAR TIMETABLE
+        print(f"[REGULAR] Generating regular timetable for Semester {semester}, Branch {branch}...")
+        course_baskets_all = separate_courses_by_type(dfs, semester, branch)
+        elective_courses_all = course_baskets_all['elective_courses']
+        elective_allocations, basket_allocations = allocate_electives_by_baskets(elective_courses_all, semester)
+
+        # Filter basket allocations to semester-allowed baskets
+        if allowed_baskets:
+            basket_allocations = {k: v for k, v in (basket_allocations or {}).items() if k in allowed_baskets}
+        
+        basket_courses_map = {}
+        for basket_name, alloc in (basket_allocations or {}).items():
+            courses_in_basket = alloc.get('all_courses_in_basket', [])
+            if courses_in_basket:
+                basket_courses_map[basket_name] = courses_in_basket
+        
+        if has_sections:
+            regular_section_a = generate_section_schedule_with_elective_baskets(dfs, semester, 'A', elective_allocations, branch, time_config=time_config, basket_allocations=basket_allocations)
+            regular_section_b = generate_section_schedule_with_elective_baskets(dfs, semester, 'B', elective_allocations, branch, time_config=time_config, basket_allocations=basket_allocations)
+        else:
+            regular_section_a = generate_section_schedule_with_elective_baskets(dfs, semester, 'Whole', elective_allocations, branch, time_config=time_config, basket_allocations=basket_allocations)
+            regular_section_b = pd.DataFrame()
+        
+        # Allocate classrooms for regular
+        if classroom_data is not None and not classroom_data.empty:
+            regular_section_a = allocate_classrooms_for_timetable(regular_section_a, classroom_data, course_info, semester, branch, 'A' if has_sections else 'Whole', basket_courses_map)
+            if has_sections:
+                regular_section_b = allocate_classrooms_for_timetable(regular_section_b, classroom_data, course_info, semester, branch, 'B', basket_courses_map)
+        
+        # GENERATE MID-SEMESTER TIMETABLES
+        print(f"[MID-SEM] Generating mid-semester timetables for Semester {semester}, Branch {branch}...")
+        mid_courses = separate_courses_by_mid_semester(dfs, semester, branch)
+        pre_mid_courses = mid_courses['pre_mid_courses']
+        post_mid_courses = mid_courses['post_mid_courses']
+        
+        # Allocate mid-semester electives
+        if not pre_mid_courses.empty:
+            pre_mid_electives = pre_mid_courses[pre_mid_courses['Elective (Yes/No)'].astype(str).str.upper() == 'YES'] if 'Elective (Yes/No)' in pre_mid_courses.columns else pd.DataFrame()
+            pre_mid_elective_allocations = allocate_mid_semester_electives_by_baskets(pre_mid_electives, semester)
+        else:
+            pre_mid_elective_allocations = {}
+        
+        if not post_mid_courses.empty:
+            post_mid_electives = post_mid_courses[post_mid_courses['Elective (Yes/No)'].astype(str).str.upper() == 'YES'] if 'Elective (Yes/No)' in post_mid_courses.columns else pd.DataFrame()
+            post_mid_elective_allocations = allocate_mid_semester_electives_by_baskets(post_mid_electives, semester)
+        else:
+            post_mid_elective_allocations = {}
+        
+        # Generate pre-mid schedules
+        pre_mid_sections = {}
+        for section in sections:
+            if not pre_mid_courses.empty:
+                pre_mid_sections[section] = generate_mid_semester_schedule(dfs, semester, section, pre_mid_courses, branch, time_config, 'pre_mid', pre_mid_elective_allocations)
+                if classroom_data is not None and not classroom_data.empty and pre_mid_sections[section] is not None:
+                    pre_mid_basket_map = {}
+                    if not pre_mid_courses.empty and 'Basket' in pre_mid_courses.columns:
+                        for _, course in pre_mid_courses.iterrows():
+                            if str(course.get('Elective (Yes/No)', '')).upper() == 'YES':
+                                basket = str(course.get('Basket', 'Unknown')).strip().upper()
+                                course_code = course['Course Code']
+                                if basket not in pre_mid_basket_map:
+                                    pre_mid_basket_map[basket] = []
+                                if course_code not in pre_mid_basket_map[basket]:
+                                    pre_mid_basket_map[basket].append(course_code)
+                    pre_mid_sections[section] = allocate_classrooms_for_timetable(pre_mid_sections[section], classroom_data, course_info, semester, branch, section, pre_mid_basket_map)
+            else:
+                pre_mid_sections[section] = pd.DataFrame()
+        
+        # Generate post-mid schedules
+        post_mid_sections = {}
+        for section in sections:
+            if not post_mid_courses.empty:
+                post_mid_sections[section] = generate_mid_semester_schedule(dfs, semester, section, post_mid_courses, branch, time_config, 'post_mid', post_mid_elective_allocations)
+                if classroom_data is not None and not classroom_data.empty and post_mid_sections[section] is not None:
+                    post_mid_basket_map = {}
+                    if not post_mid_courses.empty and 'Basket' in post_mid_courses.columns:
+                        for _, course in post_mid_courses.iterrows():
+                            if str(course.get('Elective (Yes/No)', '')).upper() == 'YES':
+                                basket = str(course.get('Basket', 'Unknown')).strip().upper()
+                                course_code = course['Course Code']
+                                if basket not in post_mid_basket_map:
+                                    post_mid_basket_map[basket] = []
+                                if course_code not in post_mid_basket_map[basket]:
+                                    post_mid_basket_map[basket].append(course_code)
+                    post_mid_sections[section] = allocate_classrooms_for_timetable(post_mid_sections[section], classroom_data, course_info, semester, branch, section, post_mid_basket_map)
+            else:
+                post_mid_sections[section] = pd.DataFrame()
+        
+        # CREATE CONSOLIDATED EXCEL FILE
+        filename = f"sem{semester}_{branch}_timetable.xlsx"
+        filepath = os.path.join(OUTPUT_DIR, filename)
+        
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            # Write REGULAR timetables
+            if has_sections:
+                regular_section_a.reset_index(drop=False).rename(columns={'index': 'Time Slot'}).to_excel(writer, sheet_name='Regular_Section_A', index=False)
+                regular_section_b.reset_index(drop=False).rename(columns={'index': 'Time Slot'}).to_excel(writer, sheet_name='Regular_Section_B', index=False)
+            else:
+                regular_section_a.reset_index(drop=False).rename(columns={'index': 'Time Slot'}).to_excel(writer, sheet_name='Regular_Timetable', index=False)
+            
+            # Write PRE-MID timetables
+            for section in sections:
+                if not pre_mid_sections[section].empty:
+                    sheet_name = f'PreMid_Section_{section}' if has_sections else 'PreMid_Timetable'
+                    pre_mid_sections[section].reset_index(drop=False).rename(columns={'index': 'Time Slot'}).to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            # Write POST-MID timetables
+            for section in sections:
+                if not post_mid_sections[section].empty:
+                    sheet_name = f'PostMid_Section_{section}' if has_sections else 'PostMid_Timetable'
+                    post_mid_sections[section].reset_index(drop=False).rename(columns={'index': 'Time Slot'}).to_excel(writer, sheet_name=sheet_name, index=False)
+        
+        # Prepare legend data to add to each sheet
+        from openpyxl import load_workbook
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+        
+        # Filter courses to show ONLY courses for this specific semester
+        sem_courses = set()
+        if dfs and 'course' in dfs:
+            course_df = dfs['course']
+            # Filter by semester
+            sem_course_df = course_df[course_df['Semester'] == semester]
+            sem_courses = set(sem_course_df['Course Code'].unique())
+        
+        # Separate courses into core, electives, and minors (FILTERED BY SEMESTER)
+        core_courses = []
+        elective_courses = []
+        minor_courses = []
+        
+        for course_code in sorted(sem_courses):
+            info = course_info.get(course_code, {})
+            is_elective = info.get('is_elective', False)
+            is_minor = info.get('is_minor', False)
+            
+            if is_minor:
+                minor_courses.append(course_code)
+            elif is_elective:
+                elective_courses.append(course_code)
+            else:
+                core_courses.append(course_code)
+
+        # Filter ALL COURSES to only this branch's department for this semester
+        try:
+            if branch:
+                course_baskets_branch = separate_courses_by_type(dfs, semester, branch)
+                branch_core_df = course_baskets_branch.get('core_courses')
+                branch_elective_df = course_baskets_branch.get('elective_courses')
+                branch_minor_df = course_baskets_branch.get('minor_courses')
+                
+                # Filter CORE COURSES by department and semester
+                if branch_core_df is not None and not branch_core_df.empty:
+                    branch_core_set = set(branch_core_df['Course Code'].tolist())
+                    core_courses = [c for c in core_courses if c in branch_core_set]
+                
+                # Filter ELECTIVE COURSES by department and semester
+                if branch_elective_df is not None and not branch_elective_df.empty:
+                    branch_elective_set = set(branch_elective_df['Course Code'].tolist())
+                    elective_courses = [c for c in elective_courses if c in branch_elective_set]
+                
+                # Filter MINOR COURSES by department and semester
+                if branch_minor_df is not None and not branch_minor_df.empty:
+                    branch_minor_set = set(branch_minor_df['Course Code'].tolist())
+                    minor_courses = [c for c in minor_courses if c in branch_minor_set]
+        except Exception as _e:
+            # Non-fatal: if filtering fails, fall back to unfiltered lists
+            pass
+        
+        # Get basket course mappings
+        course_baskets_all = separate_courses_by_type(dfs, semester, branch)
+        elective_courses_all = course_baskets_all['elective_courses']
+        _, basket_allocations = allocate_electives_by_baskets(elective_courses_all, semester)
+        if allowed_baskets:
+            basket_allocations = {k: v for k, v in (basket_allocations or {}).items() if k in allowed_baskets}
+        
+        wb = load_workbook(filepath)
+        
+        # Add legend to each timetable sheet
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+
+            # Inject basket course+room details directly into timetable cells to mirror website view
+            header_label = str(ws.cell(row=1, column=1).value or '').strip().lower()
+            if 'time' in header_label and basket_colors:
+                timetable_section = 'A' if 'SECTION_A' in sheet_name.upper() else ('B' if 'SECTION_B' in sheet_name.upper() else 'Whole')
+                timetable_key = f"{branch}_sem{semester}_sec{timetable_section}"
+                allocs_for_file = _TIMETABLE_CLASSROOM_ALLOCATIONS.get(timetable_key, {})
+
+                if allocs_for_file:
+                    day_headers = {}
+                    for col_idx in range(2, ws.max_column + 1):
+                        header_val = ws.cell(row=1, column=col_idx).value
+                        if header_val:
+                            day_headers[col_idx] = str(header_val).strip()
+
+                    for row_idx in range(2, ws.max_row + 1):
+                        time_slot_val = ws.cell(row=row_idx, column=1).value
+                        if not time_slot_val:
+                            continue
+                        time_slot_str = str(time_slot_val).strip()
+
+                        for col_idx, day_name in day_headers.items():
+                            cell = ws.cell(row=row_idx, column=col_idx)
+                            if not cell.value:
+                                continue
+
+                            cell_text = str(cell.value).strip()
+                            if not cell_text:
+                                continue
+
+                            upper_text = cell_text.upper()
+                            basket_name = None
+
+                            for candidate in basket_colors.keys():
+                                candidate_upper = str(candidate).upper()
+                                if candidate_upper in upper_text:
+                                    basket_name = candidate_upper
+                                    break
+
+                            if not basket_name:
+                                for prefix in ['ELECTIVE_B', 'HSS_B', 'PROF_B', 'OE_B']:
+                                    if prefix in upper_text:
+                                        suffix = upper_text.split(prefix, 1)[1]
+                                        suffix = suffix.split('(')[0].split()[0]
+                                        basket_name = f"{prefix}{suffix}"
+                                        break
+
+                            if not basket_name:
+                                continue
+
+                            # Just show the basket name, no course details in timetable cells
+            
+            # Find the last row with timetable data
+            last_row = ws.max_row
+            
+            # Add spacing
+            legend_start_row = last_row + 3
+            
+            # Add legend title
+            title_cell = ws.cell(row=legend_start_row, column=1, value='COURSE INFORMATION')
+            title_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            title_font = Font(bold=True, color="FFFFFF", size=12)
+            title_cell.fill = title_fill
+            title_cell.font = title_font
+            title_cell.alignment = Alignment(horizontal='center', vertical='center')
+            ws.merge_cells(start_row=legend_start_row, start_column=1, end_row=legend_start_row, end_column=5)
+            
+            current_row = legend_start_row + 1
+            
+            section_fill = PatternFill(start_color="D0D0D0", end_color="D0D0D0", fill_type="solid")
+            section_font = Font(bold=True, size=10)
+            header_fill = PatternFill(start_color="E8E8E8", end_color="E8E8E8", fill_type="solid")
+            header_font = Font(bold=True, size=9)
+            border = Border(
+                left=Side(style='thin', color='CCCCCC'),
+                right=Side(style='thin', color='CCCCCC'),
+                top=Side(style='thin', color='CCCCCC'),
+                bottom=Side(style='thin', color='CCCCCC')
+            )
+            
+            # Core Courses Section
+            if core_courses:
+                section_cell = ws.cell(row=current_row, column=1, value='CORE COURSES')
+                section_cell.fill = section_fill
+                section_cell.font = section_font
+                section_cell.alignment = Alignment(horizontal='left', vertical='center')
+                ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=4)
+                current_row += 1
+                
+                # Headers (no color column)
+                headers = ['Course Code', 'Course Name', 'L-T-P-S-C', 'Term Type']
+                for col_idx, header in enumerate(headers, start=1):
+                    cell = ws.cell(row=current_row, column=col_idx, value=header)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.border = border
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                current_row += 1
+                
+                # Data rows
+                for course_code in core_courses:
+                    info = course_info.get(course_code, {})
+                    row_data = [
+                        course_code,
+                        info.get('name', 'N/A'),
+                        info.get('ltpsc', 'N/A'),
+                        info.get('term_type', 'Full Semester')
+                    ]
+                    for col_idx, value in enumerate(row_data, start=1):
+                        cell = ws.cell(row=current_row, column=col_idx, value=value)
+                        cell.border = border
+                        cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+                        
+                        # Apply course color to the Course Code cell (column 1)
+                        if col_idx == 1:
+                            color_hex = course_colors.get(course_code, 'FFFFFF')
+                            hex_color = color_hex.replace('#', '')
+                            if 'hsl' not in hex_color.lower():
+                                cell.fill = PatternFill(start_color=hex_color, end_color=hex_color, fill_type="solid")
+                    
+                    current_row += 1
+                
+                current_row += 1  # Spacing
+            
+            # Elective Baskets Section - EACH COURSE IN SEPARATE ROW
+            if all_baskets:
+                section_cell = ws.cell(row=current_row, column=1, value='ELECTIVE BASKETS')
+                section_cell.fill = section_fill
+                section_cell.font = section_font
+                section_cell.alignment = Alignment(horizontal='left', vertical='center')
+                ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
+                current_row += 1
+                
+                # Headers - Fixed columns (no color)
+                headers = ['Basket Name', 'Course', 'Course Code', 'Lecture Slot - Classroom', 'Tutorial Slot - Classroom', 'L-T-P-S-C']
+                for col_idx, header in enumerate(headers, start=1):
+                    cell = ws.cell(row=current_row, column=col_idx, value=header)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.border = border
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                current_row += 1
+                
+                # Data rows - ONE ROW PER COURSE
+                for basket_name in sorted(all_baskets):
+                    basket_info = basket_allocations.get(basket_name, {})
+                    basket_courses = basket_info.get('all_courses_in_basket', [])
+                    
+                    # Get lecture and tutorial slots
+                    lectures = basket_info.get('lectures', [])
+                    lecture_slots = ', '.join([f"{day} {time}" for day, time in lectures]) if lectures else '-'
+                    
+                    tutorial = basket_info.get('tutorial')
+                    tutorial_slot = f"{tutorial[0]} {tutorial[1]}" if tutorial and len(tutorial) >= 2 else '-'
+                    
+                    # Get classroom allocations for this basket
+                    timetable_section = 'A' if 'SECTION_A' in sheet_name.upper() else ('B' if 'SECTION_B' in sheet_name.upper() else 'Whole')
+                    timetable_key = f"{branch}_sem{semester}_sec{timetable_section}"
+                    allocs_for_file = _TIMETABLE_CLASSROOM_ALLOCATIONS.get(timetable_key, {})
+                    
+                    # Create one row for each course in the basket
+                    for course_idx, course_code in enumerate(basket_courses):
+                        # Get course name from course_info
+                        course_name = course_info.get(course_code, {}).get('name', 'N/A')
+                        
+                        # Get classroom for EACH lecture slot and for tutorial
+                        lecture_slots_with_rooms = []
+                        tutorial_with_room = tutorial_slot
+                        
+                        # Process each lecture slot
+                        for day, time in lectures:
+                            lecture_room = ''
+                            # Find the classroom for this specific lecture (day, time)
+                            for alloc_key, alloc in allocs_for_file.items():
+                                alloc_course = alloc.get('course', '')
+                                alloc_basket = str(alloc.get('basket', '')).upper()
+                                alloc_type = str(alloc.get('type', '')).upper()
+                                
+                                if (alloc_course == course_code or alloc_basket == basket_name) and 'TUTORIAL' not in alloc_type and 'TUTORIAL' not in alloc_course.upper():
+                                    # Check if this allocation matches the day and time
+                                    parts = alloc_key.split('_')
+                                    if len(parts) >= 2:
+                                        alloc_day = parts[0]
+                                        alloc_time = parts[1]
+                                        if alloc_day == day or alloc_time == time:
+                                            room = alloc.get('classroom') or alloc.get('room')
+                                            if room and not lecture_room:
+                                                lecture_room = str(room)
+                                                break
+                            
+                            if lecture_room:
+                                lecture_slots_with_rooms.append(f"{day} {time} [{lecture_room}]")
+                            else:
+                                lecture_slots_with_rooms.append(f"{day} {time}")
+                        
+                        lecture_with_room = ', '.join(lecture_slots_with_rooms) if lecture_slots_with_rooms else lecture_slots
+                        
+                        # Process tutorial slot
+                        if tutorial:
+                            tutorial_room = ''
+                            for alloc_key, alloc in allocs_for_file.items():
+                                alloc_course = alloc.get('course', '')
+                                alloc_basket = str(alloc.get('basket', '')).upper()
+                                alloc_type = str(alloc.get('type', '')).upper()
+                                
+                                if (alloc_course == course_code or alloc_basket == basket_name) and ('TUTORIAL' in alloc_type or 'TUTORIAL' in alloc_course.upper()):
+                                    room = alloc.get('classroom') or alloc.get('room')
+                                    if room and not tutorial_room:
+                                        tutorial_room = str(room)
+                                        break
+                            
+                            if tutorial_room:
+                                tutorial_with_room = f"{tutorial_slot} [{tutorial_room}]"
+                        
+                        # Get LTPSC info
+                        ltpsc_str = course_info.get(course_code, {}).get('ltpsc', 'N/A')
+                        
+                        row_data = [
+                            basket_name,
+                            course_name,
+                            course_code,
+                            lecture_with_room,
+                            tutorial_with_room,
+                            ltpsc_str
+                        ]
+                        
+                        for col_idx, value in enumerate(row_data, start=1):
+                            cell = ws.cell(row=current_row, column=col_idx, value=value)
+                            cell.border = border
+                            cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+
+                        
+                        current_row += 1
+                
+                current_row += 1  # Spacing
+            
+            # Minor Courses Section
+            if minor_courses:
+                section_cell = ws.cell(row=current_row, column=1, value='MINOR COURSES')
+                section_cell.fill = section_fill
+                section_cell.font = section_font
+                section_cell.alignment = Alignment(horizontal='left', vertical='center')
+                ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=4)
+                current_row += 1
+                
+                # Headers (no color column)
+                headers = ['Course Code', 'Course Name', 'L-T-P-S-C', 'Term Type']
+                for col_idx, header in enumerate(headers, start=1):
+                    cell = ws.cell(row=current_row, column=col_idx, value=header)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.border = border
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                current_row += 1
+                
+                # Data rows
+                for course_code in minor_courses:
+                    info = course_info.get(course_code, {})
+                    row_data = [
+                        course_code,
+                        info.get('name', 'N/A'),
+                        info.get('ltpsc', 'N/A'),
+                        info.get('term_type', 'Full Semester')
+                    ]
+                    for col_idx, value in enumerate(row_data, start=1):
+                        cell = ws.cell(row=current_row, column=col_idx, value=value)
+                        cell.border = border
+                        cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+                        
+                        # Apply course color to the Course Code cell (column 1)
+                        if col_idx == 1:
+                            color_hex = course_colors.get(course_code, 'FFFFFF')
+                            hex_color = color_hex.replace('#', '')
+                            if 'hsl' not in hex_color.lower():
+                                cell.fill = PatternFill(start_color=hex_color, end_color=hex_color, fill_type="solid")
+                    
+                    current_row += 1
+            
+            # Set column widths for legend area - Fixed columns for elective baskets
+            ws.column_dimensions['A'].width = max(ws.column_dimensions['A'].width, 15)  # Basket Name
+            ws.column_dimensions['B'].width = max(ws.column_dimensions['B'].width, 25)  # Course (name)
+            ws.column_dimensions['C'].width = max(ws.column_dimensions['C'].width, 12)  # Course Code
+            ws.column_dimensions['D'].width = max(ws.column_dimensions['D'].width, 30)  # Lecture Slot - Classroom
+            ws.column_dimensions['E'].width = max(ws.column_dimensions['E'].width, 30)  # Tutorial Slot - Classroom
+            ws.column_dimensions['F'].width = max(ws.column_dimensions['F'].width, 12)  # L-T-P-S-C
+            
+            # Format timetable part
+            format_excel_worksheet(ws, course_colors, basket_colors, is_header_row=True)
+        
+        # Create a dedicated Course_Information sheet
+        if 'Course_Information' not in wb.sheetnames:
+            course_info_ws = wb.create_sheet('Course_Information', 0)  # Insert as first sheet
+        else:
+            course_info_ws = wb['Course_Information']
+
+        # Add title
+        title_cell = course_info_ws.cell(row=1, column=1, value=f'SEMESTER {semester} - {branch} BRANCH: COURSE INFORMATION')
+        title_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        title_font = Font(bold=True, color="FFFFFF", size=13)
+        title_cell.fill = title_fill
+        title_cell.font = title_font
+        title_cell.alignment = Alignment(horizontal='center', vertical='center')
+        course_info_ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=5)
+        course_info_ws.row_dimensions[1].height = 25
+
+        current_row = 3
+
+        section_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        section_font = Font(bold=True, color="FFFFFF", size=11)
+        header_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+        header_font = Font(bold=True, size=10)
+        border = Border(
+            left=Side(style='thin', color='CCCCCC'),
+            right=Side(style='thin', color='CCCCCC'),
+            top=Side(style='thin', color='CCCCCC'),
+            bottom=Side(style='thin', color='CCCCCC')
+        )
+        
+        # Core Courses Section
+        if core_courses:
+            section_cell = course_info_ws.cell(row=current_row, column=1, value='CORE COURSES')
+            section_cell.fill = section_fill
+            section_cell.font = section_font
+            section_cell.alignment = Alignment(horizontal='left', vertical='center')
+            course_info_ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=5)
+            current_row += 1
+
+            # Headers
+            headers = ['Course Code', 'Course Name', 'L-T-P-S-C', 'Term Type', 'Display Format']
+            for col_idx, header in enumerate(headers, start=1):
+                cell = course_info_ws.cell(row=current_row, column=col_idx, value=header)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.border = border
+                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            current_row += 1
+
+            # Data rows
+            for course_code in core_courses:
+                info = course_info.get(course_code, {})
+                ltpsc = info.get('ltpsc', 'N/A')
+                term_type = info.get('term_type', 'Full Sem')
+                course_name = info.get('name', 'N/A')
+                # Display format like on website: "CODE (L-T-P-S-C | Term)"
+                display_format = f"{course_code} ({ltpsc} | {term_type})" if ltpsc != 'N/A' else f"{course_code} ({term_type})"
+
+                row_data = [
+                    course_code,
+                    course_name,
+                    ltpsc,
+                    term_type,
+                    display_format
+                ]
+                for col_idx, value in enumerate(row_data, start=1):
+                    cell = course_info_ws.cell(row=current_row, column=col_idx, value=value)
+                    cell.border = border
+                    cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+                current_row += 1
+
+            current_row += 1
+
+        # Elective Courses Section
+        if elective_courses:
+            section_cell = course_info_ws.cell(row=current_row, column=1, value='ELECTIVE COURSES')
+            section_cell.fill = section_fill
+            section_cell.font = section_font
+            section_cell.alignment = Alignment(horizontal='left', vertical='center')
+            course_info_ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=5)
+            current_row += 1
+
+            # Headers
+            headers = ['Course Code', 'Course Name', 'L-T-P-S-C', 'Basket', 'Display Format']
+            for col_idx, header in enumerate(headers, start=1):
+                cell = course_info_ws.cell(row=current_row, column=col_idx, value=header)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.border = border
+                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            current_row += 1
+
+            # Data rows
+            for course_code in elective_courses:
+                info = course_info.get(course_code, {})
+                ltpsc = info.get('ltpsc', 'N/A')
+                course_name = info.get('name', 'N/A')
+                # Get basket name from basket_allocations; fallback to course dataframe if missing
+                basket = 'Unknown'
+                for basket_name, basket_info in (basket_allocations or {}).items():
+                    courses_in_basket = basket_info.get('all_courses_in_basket', [])
+                    if course_code in courses_in_basket:
+                        basket = basket_name
+                        break
+
+                # Fallback: look up Basket column from course dataframe (if present)
+                if basket == 'Unknown' and dfs and 'course' in dfs:
+                    course_df = dfs['course']
+                    basket_match = course_df.loc[course_df['Course Code'] == course_code, 'Basket'] if 'Basket' in course_df.columns else None
+                    if basket_match is not None and not basket_match.empty:
+                        basket_val = str(basket_match.iloc[0]).strip()
+                        if basket_val:
+                            basket = basket_val
+               
+                display_format = f"{course_code} ({ltpsc})" if ltpsc != 'N/A' else course_code
+
+                row_data = [
+                    course_code,
+                    course_name,
+                    ltpsc,
+                    basket,
+                    display_format
+                ]
+                for col_idx, value in enumerate(row_data, start=1):
+                    cell = course_info_ws.cell(row=current_row, column=col_idx, value=value)
+                    cell.border = border
+                    cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+                current_row += 1
+
+            current_row += 1
+
+        # Minor Courses Section
+        if minor_courses:
+            section_cell = course_info_ws.cell(row=current_row, column=1, value='MINOR COURSES')
+            section_cell.fill = section_fill
+            section_cell.font = section_font
+            section_cell.alignment = Alignment(horizontal='left', vertical='center')
+            course_info_ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=5)
+            current_row += 1
+
+            # Headers
+            headers = ['Course Code', 'Course Name', 'L-T-P-S-C', 'Term Type', 'Display Format']
+            for col_idx, header in enumerate(headers, start=1):
+                cell = course_info_ws.cell(row=current_row, column=col_idx, value=header)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.border = border
+                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            current_row += 1
+
+            # Data rows
+            for course_code in minor_courses:
+                info = course_info.get(course_code, {})
+                ltpsc = info.get('ltpsc', 'N/A')
+                term_type = info.get('term_type', 'Full Sem')
+                course_name = info.get('name', 'N/A')
+                display_format = f"{course_code} ({ltpsc} | {term_type})" if ltpsc != 'N/A' else f"{course_code} ({term_type})"
+
+                row_data = [
+                    course_code,
+                    course_name,
+                    ltpsc,
+                    term_type,
+                    display_format
+                ]
+                for col_idx, value in enumerate(row_data, start=1):
+                    cell = course_info_ws.cell(row=current_row, column=col_idx, value=value)
+                    cell.border = border
+                    cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+                current_row += 1
+
+        # Set column widths
+        course_info_ws.column_dimensions['A'].width = 15
+        course_info_ws.column_dimensions['B'].width = 40
+        course_info_ws.column_dimensions['C'].width = 12
+        course_info_ws.column_dimensions['D'].width = 20
+        course_info_ws.column_dimensions['E'].width = 35
+
+        wb.save(filepath)
+        print(f"[OK] Consolidated timetable saved: {filename}")
+        return True
+        
+    except Exception as e:
+        print(f"[FAIL] Error generating consolidated timetable: {e}")
+        traceback.print_exc()
+        return False
+
+def export_semester_timetable_with_baskets(dfs, semester, branch=None, time_config=None, minimal_only=False):
     """Export timetable using IDENTICAL COMMON elective slots for ALL branches and sections with classroom allocation.
-    Accepts optional time_config to override slot timings."""
+    Accepts optional time_config to override slot timings. Set minimal_only=True to emit only timetable sheets (no verification/summary extras)."""
     branch_info = f", Branch {branch}" if branch else ""
     print(f"\n[STATS] Generating timetable for Semester {semester}{branch_info}...")
     
@@ -2745,129 +3589,135 @@ def export_semester_timetable_with_baskets(dfs, semester, branch=None, time_conf
                 
                 section_a_reset.to_excel(writer, sheet_name='Timetable', index=False)
             
-            # ========== ADDED: COMPREHENSIVE VERIFICATION SHEETS ==========
-            print("[STATS] Generating comprehensive verification sheets...")
-            
-            # Get course info for verification
-            course_info = get_course_info(dfs) if dfs else {}
-            
-            # 1. Create detailed verification sheet for Section A (or Whole branch)
-            if not section_a_with_rooms.empty:
-                print(f"   Creating verification sheet for Section A (or Whole)...")
-                verification_a = create_timetable_verification_sheet(
-                    section_a_with_rooms, course_info, classroom_data, semester, branch, 'A' if has_sections else 'Whole'
-                )
-                if not verification_a.empty:
-                    writer_sheet = 'Verification_A' if has_sections else 'Verification'
-                    verification_a.to_excel(writer, sheet_name=writer_sheet, index=False)
-                    print(f"   [OK] Created {writer_sheet} sheet with {len(verification_a)} entries")
-            
-            # 2. Create detailed verification sheet for Section B (only for branches with sections)
-            if has_sections and not section_b_with_rooms.empty:
-                print(f"   Creating verification sheet for Section B...")
-                verification_b = create_timetable_verification_sheet(
-                    section_b_with_rooms, course_info, classroom_data, semester, branch, 'B'
-                )
-                if not verification_b.empty:
-                    verification_b.to_excel(writer, sheet_name='Verification_B', index=False)
-                    print(f"   [OK] Created Verification_B sheet with {len(verification_b)} entries")
-            
-            # 3. Create room allocation summary
-            if classroom_data is not None and not classroom_data.empty:
-                print(f"   Creating room allocation summary...")
-                room_summary = create_room_allocation_summary_verification(
-                    section_a_with_rooms, section_b_with_rooms, classroom_data
-                )
-                if not room_summary.empty:
-                    room_summary.to_excel(writer, sheet_name='Room_Allocation', index=False)
-                    print(f"   [OK] Created Room_Allocation sheet with {len(room_summary)} rooms")
-            
-            # 4. Create LTPSC compliance summary
-            print(f"   Creating LTPSC compliance summary...")
-            ltpsc_summary = create_ltpsc_compliance_summary(
-                dfs, semester, branch, section_a_with_rooms, section_b_with_rooms
-            )
-            if not ltpsc_summary.empty:
-                ltpsc_summary.to_excel(writer, sheet_name='LTPSC_Compliance', index=False)
-                print(f"   [OK] Created LTPSC_Compliance sheet with {len(ltpsc_summary)} courses")
-            
-            # 5. Create executive summary
-            print(f"   Creating executive summary...")
-            exec_summary = create_executive_summary(
-                dfs, semester, branch, section_a_with_rooms, section_b_with_rooms, basket_allocations
-            )
-            if not exec_summary.empty:
-                exec_summary.to_excel(writer, sheet_name='Executive_Summary', index=False)
-                print(f"   [OK] Created Executive_Summary sheet")
-            
-            # ========== EXISTING SHEETS ==========
-            # Add basket allocation summary
-            if basket_allocations:
-                basket_summary = create_common_basket_summary(basket_allocations, semester, branch)
-                basket_summary.to_excel(writer, sheet_name='Basket_Allocation', index=False)
-            
-            # Add course summary
-            course_summary = create_course_summary(dfs, semester, branch)
-            if not course_summary.empty:
-                course_summary.to_excel(writer, sheet_name='Course_Summary', index=False)
-            
-            # Add basket courses details
-            basket_courses_sheet = create_basket_courses_sheet(basket_allocations)
-            if not basket_courses_sheet.empty:
-                basket_courses_sheet.to_excel(writer, sheet_name='Basket_Courses', index=False)
-
-                # Add basket per-course allocations sheet (so Excel outputs list allocated rooms per basket course)
-                try:
-                    rows = []
-                    for basket_name, courses in (basket_courses_map or {}).items():
-                        for course in courses:
-                            # Check explicit classroom allocation details first
-                            rooms = [rec.get('room') for rec in classroom_allocation_details if rec.get('course') == course and rec.get('room')]
-                            unique_rooms = sorted(set([r for r in rooms if r]))
-                            # Fallback to internal tracker if none found
-                            if not unique_rooms and branch and semester:
-                                timetable_keys = [f"{branch}_sem{semester}_secA", f"{branch}_sem{semester}_secB", f"{branch}_sem{semester}_secWhole"]
-                                tracker_rooms = []
-                                for tk in timetable_keys:
-                                    alloc_map = _TIMETABLE_CLASSROOM_ALLOCATIONS.get(tk, {})
-                                    for alloc in alloc_map.values():
-                                        c = alloc.get('course')
-                                        room_val = alloc.get('classroom') or alloc.get('room')
-                                        if c == course and room_val:
-                                            tracker_rooms.append(room_val)
-                                if tracker_rooms:
-                                    unique_rooms = sorted(set(tracker_rooms))
-                            rows.append({
-                                'Basket Name': basket_name,
-                                'Course': course,
-                                'Allocated Rooms': ', '.join(unique_rooms) if unique_rooms else ''
-                            })
-                    if rows:
-                        pd.DataFrame(rows).to_excel(writer, sheet_name='Basket_Course_Allocations', index=False)
-                except Exception:
-                    pass
+            if minimal_only:
+                print("[STATS] Minimal output: skipping verification/summary sheets")
+            else:
+                # ========== ADDED: COMPREHENSIVE VERIFICATION SHEETS ==========
+                print("[STATS] Generating comprehensive verification sheets...")
                 
-                # Add detailed classroom allocation with global tracking info
-                classroom_allocation_detail = create_classroom_allocation_detail_with_tracking(
-                    [section_a_with_rooms, section_b_with_rooms], classroom_data, semester, branch
+                # Get course info for verification
+                course_info = get_course_info(dfs) if dfs else {}
+                
+                # 1. Create detailed verification sheet for Section A (or Whole branch)
+                if not section_a_with_rooms.empty:
+                    print(f"   Creating verification sheet for Section A (or Whole)...")
+                    verification_a = create_timetable_verification_sheet(
+                        section_a_with_rooms, course_info, classroom_data, semester, branch, 'A' if has_sections else 'Whole'
+                    )
+                    if not verification_a.empty:
+                        writer_sheet = 'Verification_A' if has_sections else 'Verification'
+                        verification_a.to_excel(writer, sheet_name=writer_sheet, index=False)
+                        print(f"   [OK] Created {writer_sheet} sheet with {len(verification_a)} entries")
+                
+                # 2. Create detailed verification sheet for Section B (only for branches with sections)
+                if has_sections and not section_b_with_rooms.empty:
+                    print(f"   Creating verification sheet for Section B...")
+                    verification_b = create_timetable_verification_sheet(
+                        section_b_with_rooms, course_info, classroom_data, semester, branch, 'B'
+                    )
+                    if not verification_b.empty:
+                        verification_b.to_excel(writer, sheet_name='Verification_B', index=False)
+                        print(f"   [OK] Created Verification_B sheet with {len(verification_b)} entries")
+                
+                # 3. Create room allocation summary
+                if classroom_data is not None and not classroom_data.empty:
+                    print(f"   Creating room allocation summary...")
+                    room_summary = create_room_allocation_summary_verification(
+                        section_a_with_rooms, section_b_with_rooms, classroom_data
+                    )
+                    if not room_summary.empty:
+                        room_summary.to_excel(writer, sheet_name='Room_Allocation', index=False)
+                        print(f"   [OK] Created Room_Allocation sheet with {len(room_summary)} rooms")
+                
+                # 4. Create LTPSC compliance summary
+                print(f"   Creating LTPSC compliance summary...")
+                ltpsc_summary = create_ltpsc_compliance_summary(
+                    dfs, semester, branch, section_a_with_rooms, section_b_with_rooms
                 )
-                classroom_allocation_detail.to_excel(writer, sheet_name='Classroom_Allocation', index=False)
+                if not ltpsc_summary.empty:
+                    ltpsc_summary.to_excel(writer, sheet_name='LTPSC_Compliance', index=False)
+                    print(f"   [OK] Created LTPSC_Compliance sheet with {len(ltpsc_summary)} courses")
+                
+                # 5. Create executive summary
+                print(f"   Creating executive summary...")
+                exec_summary = create_executive_summary(
+                    dfs, semester, branch, section_a_with_rooms, section_b_with_rooms, basket_allocations
+                )
+                if not exec_summary.empty:
+                    exec_summary.to_excel(writer, sheet_name='Executive_Summary', index=False)
+                    print(f"   [OK] Created Executive_Summary sheet")
+                
+                # ========== EXISTING SHEETS ==========
+                # Add basket allocation summary
+                if basket_allocations:
+                    basket_summary = create_common_basket_summary(basket_allocations, semester, branch)
+                    basket_summary.to_excel(writer, sheet_name='Basket_Allocation', index=False)
+                
+                # Add course summary
+                course_summary = create_course_summary(dfs, semester, branch)
+                if not course_summary.empty:
+                    course_summary.to_excel(writer, sheet_name='Course_Summary', index=False)
+                
+                # Add basket courses details
+                basket_courses_sheet = create_basket_courses_sheet(basket_allocations)
+                if not basket_courses_sheet.empty:
+                    basket_courses_sheet.to_excel(writer, sheet_name='Basket_Courses', index=False)
 
-            # Persist configuration if provided
-            if time_config:
-                try:
-                    config_items = [{'Parameter': k, 'Value': str(v)} for k, v in time_config.items()]
-                    pd.DataFrame(config_items).to_excel(writer, sheet_name='Configuration', index=False)
-                except Exception as _:
-                    pass
-            # ========== END OF ADDED SECTION ==========
+                    # Add basket per-course allocations sheet (so Excel outputs list allocated rooms per basket course)
+                    try:
+                        rows = []
+                        for basket_name, courses in (basket_courses_map or {}).items():
+                            for course in courses:
+                                # Check explicit classroom allocation details first
+                                rooms = [rec.get('room') for rec in classroom_allocation_details if rec.get('course') == course and rec.get('room')]
+                                unique_rooms = sorted(set([r for r in rooms if r]))
+                                # Fallback to internal tracker if none found
+                                if not unique_rooms and branch and semester:
+                                    timetable_keys = [f"{branch}_sem{semester}_secA", f"{branch}_sem{semester}_secB", f"{branch}_sem{semester}_secWhole"]
+                                    tracker_rooms = []
+                                    for tk in timetable_keys:
+                                        alloc_map = _TIMETABLE_CLASSROOM_ALLOCATIONS.get(tk, {})
+                                        for alloc in alloc_map.values():
+                                            c = alloc.get('course')
+                                            room_val = alloc.get('classroom') or alloc.get('room')
+                                            if c == course and room_val:
+                                                tracker_rooms.append(room_val)
+                                    if tracker_rooms:
+                                        unique_rooms = sorted(set(tracker_rooms))
+                                rows.append({
+                                    'Basket Name': basket_name,
+                                    'Course': course,
+                                    'Allocated Rooms': ', '.join(unique_rooms) if unique_rooms else ''
+                                })
+                        if rows:
+                            pd.DataFrame(rows).to_excel(writer, sheet_name='Basket_Course_Allocations', index=False)
+                    except Exception:
+                        pass
+                    
+                    # Add detailed classroom allocation with global tracking info
+                    classroom_allocation_detail = create_classroom_allocation_detail_with_tracking(
+                        [section_a_with_rooms, section_b_with_rooms], classroom_data, semester, branch
+                    )
+                    classroom_allocation_detail.to_excel(writer, sheet_name='Classroom_Allocation', index=False)
+
+                # Persist configuration if provided
+                if time_config:
+                    try:
+                        config_items = [{'Parameter': k, 'Value': str(v)} for k, v in time_config.items()]
+                        pd.DataFrame(config_items).to_excel(writer, sheet_name='Configuration', index=False)
+                    except Exception as _:
+                        pass
+                # ========== END OF ADDED SECTION ==========
         
         success_message = f"[OK] Timetable saved: {filename}"
         if classroom_data is not None and not classroom_data.empty:
             success_message += " (with classroom allocation)"
         
         print(success_message)
-        print(f"[STATS] Added comprehensive verification sheets for easy inspection")
+        if minimal_only:
+            print("[STATS] Minimal export written (timetables only)")
+        else:
+            print(f"[STATS] Added comprehensive verification sheets for easy inspection")
         return True
         
     except Exception as e:
@@ -3100,11 +3950,13 @@ def allocate_mid_semester_electives_by_baskets(elective_courses, semester_id):
     print(f"   [OK] Elective allocation complete: {len(elective_allocations)} baskets allocated")
     return elective_allocations
 
-def export_mid_semester_timetables(dfs, semester, branch=None, time_config=None, pre_mid_common_allocations=None, post_mid_common_allocations=None):
+def export_mid_semester_timetables(dfs, semester, branch=None, time_config=None, pre_mid_common_allocations=None, post_mid_common_allocations=None, minimal_only=False):
     """Export separate pre-mid and post-mid timetables
     
     Note: CSE has Section A and Section B
            DSAI and ECE are treated as a whole (no sections)
+    
+    Set minimal_only=True to emit only timetable sheets (skip verification/summary extras).
     """
     branch_info = f", Branch {branch}" if branch else ""
     print(f"\n[STATS] Generating MID-SEMESTER timetables for Semester {semester}{branch_info}...")
@@ -3273,102 +4125,107 @@ def export_mid_semester_timetables(dfs, semester, branch=None, time_config=None,
                             sheet_name = sheet_names.get(section, f'Section_{section}')
                             placeholder.to_excel(writer, sheet_name=sheet_name, index=False)
                     
-                    # ========== ADDED: VERIFICATION STATISTICS ==========
-                    print(f"[STATS] Generating PRE-MID verification sheets...")
-                    
-                    # Get course info for verification
-                    course_info = get_course_info(dfs) if dfs else {}
-                    classroom_data = dfs.get('classroom', None) if dfs else None
-                    
-                    # Create verification sheets for each section
-                    for section in sections:
-                        pre_mid_reset = pre_mid_sections[section].reset_index().rename(columns={'index': 'Time Slot'})
-                        if not pre_mid_reset.empty:
-                            section_label = f"Section {section}" if has_sections else "Timetable"
-                            print(f"   Creating Pre-Mid Verification sheet for {section_label}...")
-                            verification = create_timetable_verification_sheet(
-                                pre_mid_reset, course_info, classroom_data, semester, branch, section
-                            )
-                            if not verification.empty:
-                                sheet_name = f'Verification_{section}' if has_sections else 'Verification'
-                                verification.to_excel(writer, sheet_name=sheet_name, index=False)
-                                print(f"   [OK] Created Pre-Mid Verification sheet with {len(verification)} entries")
-                    
-                    # Create room allocation summary
-                    if classroom_data is not None and not classroom_data.empty:
-                        print(f"   Creating room allocation summary...")
-                        all_sections_data = [pre_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
-                        room_summary = create_room_allocation_summary_verification(
-                            all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame(), classroom_data
-                        )
-                        if not room_summary.empty:
-                            room_summary.to_excel(writer, sheet_name='Room_Allocation', index=False)
-                            print(f"   [OK] Created Room_Allocation sheet with {len(room_summary)} rooms")
+                    if minimal_only:
+                        print(f"[STATS] Minimal output: Pre-Mid timetables only for Semester {semester}, Branch {branch}")
+                    else:
+                        # ========== ADDED: VERIFICATION STATISTICS ==========
+                        print(f"[STATS] Generating PRE-MID verification sheets...")
                         
-                        # Create detailed classroom allocation sheet
-                        print(f"   Creating detailed classroom allocation...")
-                        classroom_alloc_detail = create_classroom_allocation_detail_with_tracking(
-                            [pre_mid_sections[s] for s in sections], classroom_data, semester, branch
-                        )
-                        if not classroom_alloc_detail.empty:
-                            classroom_alloc_detail.to_excel(writer, sheet_name='Classroom_Allocation', index=False)
-                            print(f"   [OK] Created Classroom_Allocation sheet with {len(classroom_alloc_detail)} entries")
-                    
-                    # Create LTPSC compliance summary
-                    print(f"   Creating LTPSC compliance summary...")
-                    all_sections_data = [pre_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
-                    ltpsc_summary = create_ltpsc_compliance_summary(
-                        dfs, semester, branch, all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame()
-                    )
-                    if not ltpsc_summary.empty:
-                        ltpsc_summary.to_excel(writer, sheet_name='LTPSC_Compliance', index=False)
-                        print(f"   [OK] Created LTPSC_Compliance sheet with {len(ltpsc_summary)} courses")
-                    
-                    # Create executive summary
-                    print(f"   Creating executive summary...")
-                    all_sections_data = [pre_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
-                    exec_summary = create_executive_summary(
-                        dfs, semester, branch, all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame(), {}
-                    )
-                    if not exec_summary.empty:
-                        exec_summary.to_excel(writer, sheet_name='Executive_Summary', index=False)
-                        print(f"   [OK] Created Executive_Summary sheet")
-                    
-                    # Add course summary
-                    pre_mid_summary = create_mid_semester_summary(pre_mid_courses, 'Pre-Mid', semester, branch)
-                    pre_mid_summary.to_excel(writer, sheet_name='Course_Summary', index=False)
-
-                    # Add basket allocation and details if we have pre_mid elective allocations
-                    try:
-                        if 'pre_mid_elective_allocations' in locals() and pre_mid_elective_allocations:
-                            print(f"   Creating Basket_Allocation and Basket_Courses for Pre-Mid...")
-                            basket_summary = create_basket_summary(pre_mid_elective_allocations, semester, branch)
-                            if not basket_summary.empty:
-                                basket_summary.to_excel(writer, sheet_name='Basket_Allocation', index=False)
-                            basket_courses_sheet_mid = create_basket_courses_sheet(pre_mid_elective_allocations)
-                            if not basket_courses_sheet_mid.empty:
-                                basket_courses_sheet_mid.to_excel(writer, sheet_name='Basket_Courses', index=False)
-                    except Exception as _:
-                        # Avoid failing the whole save if basket sheets can't be created
-                        pass
-
-                    # Add Classroom Utilization and Allocation detail for Pre-Mid
-                    if classroom_data is not None and not classroom_data.empty:
-                        try:
-                            classroom_report = create_classroom_utilization_report(
-                                classroom_data, [pre_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections], []
+                        # Get course info for verification
+                        course_info = get_course_info(dfs) if dfs else {}
+                        classroom_data = dfs.get('classroom', None) if dfs else None
+                        
+                        # Create verification sheets for each section
+                        for section in sections:
+                            pre_mid_reset = pre_mid_sections[section].reset_index().rename(columns={'index': 'Time Slot'})
+                            if not pre_mid_reset.empty:
+                                section_label = f"Section {section}" if has_sections else "Timetable"
+                                print(f"   Creating Pre-Mid Verification sheet for {section_label}...")
+                                verification = create_timetable_verification_sheet(
+                                    pre_mid_reset, course_info, classroom_data, semester, branch, section
+                                )
+                                if not verification.empty:
+                                    sheet_name = f'Verification_{section}' if has_sections else 'Verification'
+                                    verification.to_excel(writer, sheet_name=sheet_name, index=False)
+                                    print(f"   [OK] Created Pre-Mid Verification sheet with {len(verification)} entries")
+                        
+                        # Create room allocation summary
+                        if classroom_data is not None and not classroom_data.empty:
+                            print(f"   Creating room allocation summary...")
+                            all_sections_data = [pre_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
+                            room_summary = create_room_allocation_summary_verification(
+                                all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame(), classroom_data
                             )
-                            classroom_report.to_excel(writer, sheet_name='Classroom_Utilization', index=False)
-
-                            classroom_allocation_detail = create_classroom_allocation_detail_with_tracking(
+                            if not room_summary.empty:
+                                room_summary.to_excel(writer, sheet_name='Room_Allocation', index=False)
+                                print(f"   [OK] Created Room_Allocation sheet with {len(room_summary)} rooms")
+                            
+                            # Create detailed classroom allocation sheet
+                            print(f"   Creating detailed classroom allocation...")
+                            classroom_alloc_detail = create_classroom_allocation_detail_with_tracking(
                                 [pre_mid_sections[s] for s in sections], classroom_data, semester, branch
                             )
-                            classroom_allocation_detail.to_excel(writer, sheet_name='Classroom_Allocation', index=False)
-                        except Exception:
+                            if not classroom_alloc_detail.empty:
+                                classroom_alloc_detail.to_excel(writer, sheet_name='Classroom_Allocation', index=False)
+                                print(f"   [OK] Created Classroom_Allocation sheet with {len(classroom_alloc_detail)} entries")
+                        
+                        # Create LTPSC compliance summary
+                        print(f"   Creating LTPSC compliance summary...")
+                        all_sections_data = [pre_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
+                        ltpsc_summary = create_ltpsc_compliance_summary(
+                            dfs, semester, branch, all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame()
+                        )
+                        if not ltpsc_summary.empty:
+                            ltpsc_summary.to_excel(writer, sheet_name='LTPSC_Compliance', index=False)
+                            print(f"   [OK] Created LTPSC_Compliance sheet with {len(ltpsc_summary)} courses")
+                        
+                        # Create executive summary
+                        print(f"   Creating executive summary...")
+                        all_sections_data = [pre_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
+                        exec_summary = create_executive_summary(
+                            dfs, semester, branch, all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame(), {}
+                        )
+                        if not exec_summary.empty:
+                            exec_summary.to_excel(writer, sheet_name='Executive_Summary', index=False)
+                            print(f"   [OK] Created Executive_Summary sheet")
+                        
+                        # Add course summary
+                        pre_mid_summary = create_mid_semester_summary(pre_mid_courses, 'Pre-Mid', semester, branch)
+                        pre_mid_summary.to_excel(writer, sheet_name='Course_Summary', index=False)
+
+                        # Add basket allocation and details if we have pre_mid elective allocations
+                        try:
+                            if 'pre_mid_elective_allocations' in locals() and pre_mid_elective_allocations:
+                                print(f"   Creating Basket_Allocation and Basket_Courses for Pre-Mid...")
+                                basket_summary = create_basket_summary(pre_mid_elective_allocations, semester, branch)
+                                if not basket_summary.empty:
+                                    basket_summary.to_excel(writer, sheet_name='Basket_Allocation', index=False)
+                                basket_courses_sheet_mid = create_basket_courses_sheet(pre_mid_elective_allocations)
+                                if not basket_courses_sheet_mid.empty:
+                                    basket_courses_sheet_mid.to_excel(writer, sheet_name='Basket_Courses', index=False)
+                        except Exception as _:
+                            # Avoid failing the whole save if basket sheets can't be created
                             pass
-                    
-                    print(f"[STATS] Added PRE-MID verification sheets for easy inspection")
-                    print(f"[OK] PRE-MID timetable saved: {pre_mid_filename}")
+
+                        # Add Classroom Utilization and Allocation detail for Pre-Mid
+                        if classroom_data is not None and not classroom_data.empty:
+                            try:
+                                classroom_report = create_classroom_utilization_report(
+                                    classroom_data, [pre_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections], []
+                                )
+                                classroom_report.to_excel(writer, sheet_name='Classroom_Utilization', index=False)
+
+                                classroom_allocation_detail = create_classroom_allocation_detail_with_tracking(
+                                    [pre_mid_sections[s] for s in sections], classroom_data, semester, branch
+                                )
+                                classroom_allocation_detail.to_excel(writer, sheet_name='Classroom_Allocation', index=False)
+                            except Exception:
+                                pass
+                        
+                        print(f"[STATS] Added PRE-MID verification sheets for easy inspection")
+                        print(f"[OK] PRE-MID timetable saved: {pre_mid_filename}")
+                    if minimal_only:
+                        print(f"[OK] PRE-MID timetable saved: {pre_mid_filename}")
             except Exception as e:
                 print(f"[FAIL] Error saving pre-mid timetable: {e}")
                 traceback.print_exc()
@@ -3421,114 +4278,119 @@ def export_mid_semester_timetables(dfs, semester, branch=None, time_config=None,
                             sheet_name = sheet_names.get(section, f'Section_{section}')
                             placeholder.to_excel(writer, sheet_name=sheet_name, index=False)
                     
-                    # ========== ADDED: VERIFICATION STATISTICS ==========
-                    print(f"[STATS] Generating POST-MID verification sheets...")
-                    
-                    # Get course info for verification
-                    course_info = get_course_info(dfs) if dfs else {}
-                    classroom_data = dfs.get('classroom', None) if dfs else None
-                    
-                    # Create verification sheets for each section
-                    for section in sections:
-                        post_mid_reset = post_mid_sections[section].reset_index().rename(columns={'index': 'Time Slot'})
-                        if not post_mid_reset.empty:
-                            section_label = f"Section {section}" if has_sections else "Timetable"
-                            print(f"   Creating Post-Mid Verification sheet for {section_label}...")
-                            verification = create_timetable_verification_sheet(
-                                post_mid_reset, course_info, classroom_data, semester, branch, section
-                            )
-                            if not verification.empty:
-                                sheet_name = f'Verification_{section}' if has_sections else 'Verification'
-                                verification.to_excel(writer, sheet_name=sheet_name, index=False)
-                                print(f"   [OK] Created Post-Mid Verification sheet with {len(verification)} entries")
-                    
-                    # Create room allocation summary
-                    if classroom_data is not None and not classroom_data.empty:
-                        print(f"   Creating room allocation summary...")
-                        all_sections_data = [post_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
-                        room_summary = create_room_allocation_summary_verification(
-                            all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame(), classroom_data
-                        )
-                        if not room_summary.empty:
-                            room_summary.to_excel(writer, sheet_name='Room_Allocation', index=False)
-                            print(f"   [OK] Created Room_Allocation sheet with {len(room_summary)} rooms")
+                    if minimal_only:
+                        print(f"[STATS] Minimal output: Post-Mid timetables only for Semester {semester}, Branch {branch}")
+                    else:
+                        # ========== ADDED: VERIFICATION STATISTICS ==========
+                        print(f"[STATS] Generating POST-MID verification sheets...")
                         
-                        # Create detailed classroom allocation sheet
-                        print(f"   Creating detailed classroom allocation...")
-                        classroom_alloc_detail = create_classroom_allocation_detail_with_tracking(
-                            [post_mid_sections[s] for s in sections], classroom_data, semester, branch
-                        )
-                        if not classroom_alloc_detail.empty:
-                            classroom_alloc_detail.to_excel(writer, sheet_name='Classroom_Allocation', index=False)
-                            print(f"   [OK] Created Classroom_Allocation sheet with {len(classroom_alloc_detail)} entries")
-                            print(f"   [OK] Created Room_Allocation sheet with {len(room_summary)} rooms")
-                    
-                    # Create LTPSC compliance summary
-                    print(f"   Creating LTPSC compliance summary...")
-                    all_sections_data = [post_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
-                    ltpsc_summary = create_ltpsc_compliance_summary(
-                        dfs, semester, branch, all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame()
-                    )
-                    if not ltpsc_summary.empty:
-                        ltpsc_summary.to_excel(writer, sheet_name='LTPSC_Compliance', index=False)
-                        print(f"   [OK] Created LTPSC_Compliance sheet with {len(ltpsc_summary)} courses")
-                    
-                    # Create executive summary
-                    print(f"   Creating executive summary...")
-                    all_sections_data = [post_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
-                    exec_summary = create_executive_summary(
-                        dfs, semester, branch, all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame(), {}
-                    )
-                    if not exec_summary.empty:
-                        exec_summary.to_excel(writer, sheet_name='Executive_Summary', index=False)
-                        print(f"   [OK] Created Executive_Summary sheet")
-                    
-                    # Add course summary
-                    post_mid_summary = create_mid_semester_summary(post_mid_courses, 'Post-Mid', semester, branch)
-                    post_mid_summary.to_excel(writer, sheet_name='Course_Summary', index=False)
-                    
-                    # Add distribution logic sheet
-                    distribution_sheet = create_mid_semester_distribution_sheet(
-                        pre_mid_courses, post_mid_courses, semester, branch
-                    )
-                    distribution_sheet.to_excel(writer, sheet_name='Distribution_Logic', index=False)
-                    
-                    # Add combined overview
-                    combined_sheet = create_combined_mid_semester_sheet(
-                        pre_mid_courses, post_mid_courses, semester, branch
-                    )
-                    combined_sheet.to_excel(writer, sheet_name='All_Courses_Overview', index=False)
-
-                    # Add basket allocation and details for Post-Mid if present
-                    try:
-                        if 'post_mid_elective_allocations' in locals() and post_mid_elective_allocations:
-                            print(f"   Creating Basket_Allocation and Basket_Courses for Post-Mid...")
-                            basket_summary = create_basket_summary(post_mid_elective_allocations, semester, branch)
-                            if not basket_summary.empty:
-                                basket_summary.to_excel(writer, sheet_name='Basket_Allocation', index=False)
-                            basket_courses_sheet_mid = create_basket_courses_sheet(post_mid_elective_allocations)
-                            if not basket_courses_sheet_mid.empty:
-                                basket_courses_sheet_mid.to_excel(writer, sheet_name='Basket_Courses', index=False)
-                    except Exception as _:
-                        pass
-
-                    # Add Classroom Utilization and Allocation detail for Post-Mid
-                    if classroom_data is not None and not classroom_data.empty:
-                        try:
-                            classroom_report = create_classroom_utilization_report(
-                                classroom_data, [post_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections], []
+                        # Get course info for verification
+                        course_info = get_course_info(dfs) if dfs else {}
+                        classroom_data = dfs.get('classroom', None) if dfs else None
+                        
+                        # Create verification sheets for each section
+                        for section in sections:
+                            post_mid_reset = post_mid_sections[section].reset_index().rename(columns={'index': 'Time Slot'})
+                            if not post_mid_reset.empty:
+                                section_label = f"Section {section}" if has_sections else "Timetable"
+                                print(f"   Creating Post-Mid Verification sheet for {section_label}...")
+                                verification = create_timetable_verification_sheet(
+                                    post_mid_reset, course_info, classroom_data, semester, branch, section
+                                )
+                                if not verification.empty:
+                                    sheet_name = f'Verification_{section}' if has_sections else 'Verification'
+                                    verification.to_excel(writer, sheet_name=sheet_name, index=False)
+                                    print(f"   [OK] Created Post-Mid Verification sheet with {len(verification)} entries")
+                        
+                        # Create room allocation summary
+                        if classroom_data is not None and not classroom_data.empty:
+                            print(f"   Creating room allocation summary...")
+                            all_sections_data = [post_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
+                            room_summary = create_room_allocation_summary_verification(
+                                all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame(), classroom_data
                             )
-                            classroom_report.to_excel(writer, sheet_name='Classroom_Utilization', index=False)
-
-                            classroom_allocation_detail = create_classroom_allocation_detail_with_tracking(
+                            if not room_summary.empty:
+                                room_summary.to_excel(writer, sheet_name='Room_Allocation', index=False)
+                                print(f"   [OK] Created Room_Allocation sheet with {len(room_summary)} rooms")
+                            
+                                # Create detailed classroom allocation sheet
+                            print(f"   Creating detailed classroom allocation...")
+                            classroom_alloc_detail = create_classroom_allocation_detail_with_tracking(
                                 [post_mid_sections[s] for s in sections], classroom_data, semester, branch
                             )
-                            classroom_allocation_detail.to_excel(writer, sheet_name='Classroom_Allocation', index=False)
-                        except Exception:
+                            if not classroom_alloc_detail.empty:
+                                classroom_alloc_detail.to_excel(writer, sheet_name='Classroom_Allocation', index=False)
+                                print(f"   [OK] Created Classroom_Allocation sheet with {len(classroom_alloc_detail)} entries")
+                                print(f"   [OK] Created Room_Allocation sheet with {len(room_summary)} rooms")
+                        
+                        # Create LTPSC compliance summary
+                        print(f"   Creating LTPSC compliance summary...")
+                        all_sections_data = [post_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
+                        ltpsc_summary = create_ltpsc_compliance_summary(
+                            dfs, semester, branch, all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame()
+                        )
+                        if not ltpsc_summary.empty:
+                            ltpsc_summary.to_excel(writer, sheet_name='LTPSC_Compliance', index=False)
+                            print(f"   [OK] Created LTPSC_Compliance sheet with {len(ltpsc_summary)} courses")
+                        
+                        # Create executive summary
+                        print(f"   Creating executive summary...")
+                        all_sections_data = [post_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections]
+                        exec_summary = create_executive_summary(
+                            dfs, semester, branch, all_sections_data[0], all_sections_data[1] if len(all_sections_data) > 1 else pd.DataFrame(), {}
+                        )
+                        if not exec_summary.empty:
+                            exec_summary.to_excel(writer, sheet_name='Executive_Summary', index=False)
+                            print(f"   [OK] Created Executive_Summary sheet")
+                        
+                        # Add course summary
+                        post_mid_summary = create_mid_semester_summary(post_mid_courses, 'Post-Mid', semester, branch)
+                        post_mid_summary.to_excel(writer, sheet_name='Course_Summary', index=False)
+                        
+                        # Add distribution logic sheet
+                        distribution_sheet = create_mid_semester_distribution_sheet(
+                            pre_mid_courses, post_mid_courses, semester, branch
+                        )
+                        distribution_sheet.to_excel(writer, sheet_name='Distribution_Logic', index=False)
+                        
+                        # Add combined overview
+                        combined_sheet = create_combined_mid_semester_sheet(
+                            pre_mid_courses, post_mid_courses, semester, branch
+                        )
+                        combined_sheet.to_excel(writer, sheet_name='All_Courses_Overview', index=False)
+
+                        # Add basket allocation and details for Post-Mid if present
+                        try:
+                            if 'post_mid_elective_allocations' in locals() and post_mid_elective_allocations:
+                                print(f"   Creating Basket_Allocation and Basket_Courses for Post-Mid...")
+                                basket_summary = create_basket_summary(post_mid_elective_allocations, semester, branch)
+                                if not basket_summary.empty:
+                                    basket_summary.to_excel(writer, sheet_name='Basket_Allocation', index=False)
+                                basket_courses_sheet_mid = create_basket_courses_sheet(post_mid_elective_allocations)
+                                if not basket_courses_sheet_mid.empty:
+                                    basket_courses_sheet_mid.to_excel(writer, sheet_name='Basket_Courses', index=False)
+                        except Exception as _:
                             pass
+
+                        # Add Classroom Utilization and Allocation detail for Post-Mid
+                        if classroom_data is not None and not classroom_data.empty:
+                            try:
+                                classroom_report = create_classroom_utilization_report(
+                                    classroom_data, [post_mid_sections[s].reset_index().rename(columns={'index': 'Time Slot'}) for s in sections], []
+                                )
+                                classroom_report.to_excel(writer, sheet_name='Classroom_Utilization', index=False)
+
+                                classroom_allocation_detail = create_classroom_allocation_detail_with_tracking(
+                                    [post_mid_sections[s] for s in sections], classroom_data, semester, branch
+                                )
+                                classroom_allocation_detail.to_excel(writer, sheet_name='Classroom_Allocation', index=False)
+                            except Exception:
+                                pass
                     
-                    print(f"[STATS] Added POST-MID verification sheets for easy inspection")
-                    print(f"[OK] POST-MID timetable saved: {post_mid_filename}")
+                        print(f"[STATS] Added POST-MID verification sheets for easy inspection")
+                        print(f"[OK] POST-MID timetable saved: {post_mid_filename}")
+                    if minimal_only:
+                        print(f"[OK] POST-MID timetable saved: {post_mid_filename}")
             except Exception as e:
                 print(f"[FAIL] Error saving post-mid timetable: {e}")
                 traceback.print_exc()
@@ -4415,6 +5277,90 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
             if (day, time_slot) in processed_lab_slots:
                 continue
             
+            # NEW: Handle newline-separated courses from baskets
+            if isinstance(course_value, str) and '\n' in course_value:
+                # This is a basket slot with multiple courses - each needs its own room
+                courses_in_slot = [c.strip() for c in course_value.split('\n') if c.strip()]
+                rooms_allocated = []
+                rooms_used_in_this_slot = set()
+                
+                print(f"      [MULTI-COURSE] {day} {time_slot}: {len(courses_in_slot)} courses in basket slot")
+                
+                for course_code in courses_in_slot:
+                    # Extract clean code and check if it's Tutorial/Lab
+                    is_tutorial = ' (Tutorial)' in course_code
+                    is_lab = ' (Lab)' in course_code
+                    clean_code = course_code.replace(' (Tutorial)', '').replace(' (Lab)', '').strip()
+                    
+                    # Get enrollment for this specific course
+                    enrollment = course_enrollment.get(clean_code, 40)
+                    
+                    # CRITICAL: Each elective course should use the SAME room across all sections (common)
+                    # Use global common room key for electives
+                    session_type = 'Tutorial' if is_tutorial else ('Lab' if is_lab else 'Lecture')
+                    common_elective_key = f"ELECTIVE_COMMON_{clean_code}_{session_type}"
+                    
+                    # Check if this course already has a common room allocated
+                    existing_common_room = _GLOBAL_PREFERRED_CLASSROOMS.get(common_elective_key)
+                    suitable_classroom = None
+                    
+                    if existing_common_room:
+                        # CRITICAL: For common electives, ALWAYS use the same room across sections
+                        # even if it appears "busy" - both sections attend together in the same room
+                        suitable_classroom = existing_common_room
+                        if room_available(existing_common_room, day, time_slot):
+                            print(f"        [USING-COMMON] {day} {time_slot}: {clean_code} -> {existing_common_room} (COMMON ELECTIVE - shared across sections)")
+                        else:
+                            print(f"        [USING-COMMON-SHARED] {day} {time_slot}: {clean_code} -> {existing_common_room} (COMMON ELECTIVE - both sections together)")
+                    else:
+                        
+                        # Allocate a new room, but avoid rooms already used in this same slot
+                        booked_global = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
+                        disallowed = rooms_used_in_this_slot | booked_global
+                        
+                        # Find a suitable room not in disallowed set
+                        for rooms_df in [primary_classrooms, available_classrooms]:
+                            if rooms_df.empty:
+                                continue
+                            candidates = rooms_df.copy()
+                            candidates = candidates[pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0) >= enrollment]
+                            candidates = candidates[~candidates['Room Number'].isin(disallowed)]
+                            if not candidates.empty:
+                                candidates = candidates.sort_values('Capacity')
+                                suitable_classroom = str(candidates.iloc[0]['Room Number'])
+                                print(f"        [ALLOCATED] {suitable_classroom} (Cap: {candidates.iloc[0]['Capacity']}) for {day} {time_slot} - {enrollment} students")
+                                break
+                        
+                        if suitable_classroom:
+                            # Store as common room for all sections
+                            _GLOBAL_PREFERRED_CLASSROOMS[common_elective_key] = suitable_classroom
+                            print(f"        [ESTABLISH-COMMON] {day} {time_slot}: {clean_code} -> {suitable_classroom} (NEW common room for all sections)")
+                    
+                    if suitable_classroom:
+                        # Reserve and track
+                        reserve_room(suitable_classroom, day, time_slot)
+                        rooms_used_in_this_slot.add(suitable_classroom)
+                        rooms_allocated.append(f"{course_code} [{suitable_classroom}]")
+                        
+                        # Track allocation
+                        allocation_key = f"{day}_{time_slot}_{clean_code}"
+                        _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key] = {
+                            'course': clean_code,
+                            'classroom': suitable_classroom,
+                            'enrollment': enrollment,
+                            'conflict': False,
+                            'basket': 'Multiple'
+                        }
+                        allocation_count += 1
+                        print(f"      [BASKET] {day} {time_slot}: {clean_code} -> {suitable_classroom} ({enrollment} students)")
+                    else:
+                        print(f"      [WARN] {day} {time_slot}: No classroom available for {clean_code}")
+                        rooms_allocated.append(course_code)
+                
+                # Update cell with all courses and their rooms
+                schedule_with_rooms.loc[time_slot, day] = '\n'.join(rooms_allocated)
+                continue
+            
             # Handle both regular courses and basket entries
             if isinstance(course_value, str):
                 # Strip pre-existing room annotation to get a clean course label
@@ -4633,16 +5579,17 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         # Basket courses with same course code should use the SAME room across all sections
                         # Use a special key that's section-independent to track common elective rooms
                         common_elective_key = f"ELECTIVE_COMMON_{individual_course}_{session_type}"
-                        
-                        # If this course's common room is already established, use it
+
+                        # If this course's common room is already established, reuse it only if free
                         existing_common_room = _GLOBAL_PREFERRED_CLASSROOMS.get(common_elective_key)
-                        
+
                         if existing_common_room:
-                            # For common elective courses, ALWAYS use the same room across all sections
-                            # Do NOT check availability - common courses are shared lectures, not separate sessions
-                            individual_classroom = existing_common_room
-                            print(f"        [USING-COMMON] {day} {time_slot}: {individual_course} -> {existing_common_room} (COMMON ELECTIVE - shared across sections)")
-                        
+                            if room_available(existing_common_room, day, time_slot):
+                                individual_classroom = existing_common_room
+                                print(f"        [USING-COMMON] {day} {time_slot}: {individual_course} -> {existing_common_room} (COMMON ELECTIVE - shared across sections)")
+                            else:
+                                print(f"        [COMMON-BUSY] {day} {time_slot}: Preferred common room {existing_common_room} unavailable for {individual_course}; reallocating")
+
                         if not individual_classroom:
                             # IMPORTANT: Basket elective courses ARE common courses
                             # All sections/branches offering the same course at same time should share ONE room
@@ -4666,6 +5613,45 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                 print(f"        [ESTABLISH-COMMON] {day} {time_slot}: {individual_course} -> {individual_classroom} (NEW common room for all sections)")
                         
                         if individual_classroom:
+                            # Defensive: ensure uniqueness within this basket and time slot
+                            # Collect rooms already used at this day/time by other courses in the same basket
+                            basket_rooms_at_this_slot = set()
+                            for key, alloc in _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key].items():
+                                if alloc.get('basket') == basket_name and f"{day}_{time_slot}" in key:
+                                    if alloc.get('classroom'):
+                                        basket_rooms_at_this_slot.add(alloc.get('classroom'))
+
+                            # If chosen room clashes within the basket at this slot, try to pick an alternative
+                            if individual_classroom in basket_rooms_at_this_slot:
+                                alt_room = None
+                                # Build a set of globally booked rooms for this day/time
+                                booked_global = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
+                                disallowed = set(basket_rooms_at_this_slot) | set(booked_global)
+
+                                # Prefer primary classrooms first (smallest adequate room)
+                                search_sets = []
+                                if not primary_classrooms.empty:
+                                    search_sets.append(primary_classrooms)
+                                if not available_classrooms.empty:
+                                    search_sets.append(available_classrooms)
+
+                                for rooms_df in search_sets:
+                                    candidates = rooms_df.copy()
+                                    # capacity filter
+                                    candidates = candidates[pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0) >= individual_enrollment]
+                                    # remove disallowed
+                                    candidates = candidates[~candidates['Room Number'].isin(disallowed)]
+                                    if not candidates.empty:
+                                        candidates = candidates.sort_values('Capacity')
+                                        alt_room = str(candidates.iloc[0]['Room Number'])
+                                        break
+
+                                if alt_room:
+                                    individual_classroom = alt_room
+                                    print(f"        [BASKET-UNIQ] {day} {time_slot}: Switched {individual_course} to {alt_room} to avoid same-room reuse in {basket_name}")
+
+                            # Reserve to block other courses at this time
+                            reserve_room(individual_classroom, day, time_slot)
                             course_preferred_classrooms.setdefault(individual_course, individual_classroom)
                         else:
                             print(f"        [BASKET-FAIL] {day} {time_slot}: No classroom allocated for {individual_course}. primary={len(primary_classrooms)}, fallback={len(fallback_lab_classrooms)}")
@@ -6614,9 +7600,13 @@ def convert_dataframe_to_html_with_baskets(df, table_id, course_colors, basket_c
         return any(keyword in normalized for keyword in basket_keywords)
 
     def should_hide_classroom_info(course_label):
-        # Hide classroom information for basket entries (we show allocations in the legend instead)
+        # Hide classroom information for non-tutorial basket entries (we show allocations in the legend instead)
+        # But SHOW classroom info for tutorial entries
         try:
-            return is_basket_entry(course_label)
+            if is_basket_entry(course_label):
+                # Only hide if it's NOT a tutorial
+                return '(Tutorial)' not in course_label
+            return False
         except Exception:
             return False
     
@@ -6728,6 +7718,19 @@ def convert_dataframe_to_html_with_baskets(df, table_id, course_colors, basket_c
     # Save the index values as a list before resetting everything
     time_slot_values = df_display.index.astype(str).tolist()
     
+    # Filter to only include rows up to 18:30-20:00 (exclude any rows beyond that)
+    max_time_slot = '18:30-20:00'
+    max_idx = -1
+    for idx, slot in enumerate(time_slot_values):
+        if slot == max_time_slot:
+            max_idx = idx
+            break
+    
+    # If we found the max time slot, only include rows up to and including it
+    if max_idx >= 0:
+        time_slot_values = time_slot_values[:max_idx + 1]
+        df_display = df_display.iloc[:max_idx + 1]
+    
     # Manually construct HTML table to avoid index column issues
     html_parts = []
     html_parts.append(f'<table class="timetable-table" id="{table_id}" border="0">')
@@ -6798,41 +7801,24 @@ def get_timetables():
         reset_classroom_usage_tracker()
 
         timetables = []
-        # Look for ALL timetable files (basket, pre-mid, post-mid, and generic sem files for testing)
-        basket_files = glob.glob(os.path.join(OUTPUT_DIR, "*_baskets.xlsx"))
-        pre_mid_files = glob.glob(os.path.join(OUTPUT_DIR, "*_pre_mid_timetable.xlsx"))
-        post_mid_files = glob.glob(os.path.join(OUTPUT_DIR, "*_post_mid_timetable.xlsx"))
-        # Also include generic sem*.xlsx files (for testing and edge cases)
-        generic_sem_files = glob.glob(os.path.join(OUTPUT_DIR, "sem*.xlsx"))
-        # Remove files that match specific patterns (already captured above) to avoid duplicates
-        generic_sem_files = [f for f in generic_sem_files if not (
-            f.endswith('_baskets.xlsx') or 
-            f.endswith('_pre_mid_timetable.xlsx') or 
-            f.endswith('_post_mid_timetable.xlsx')
-        )]
+        # Look for consolidated timetable files
+        excel_files = glob.glob(os.path.join(OUTPUT_DIR, "sem*_*_timetable.xlsx"))
         
-        # Filter out temporary/lock files (starting with ~$ or .~) only
+        # Filter out temporary/lock files (starting with ~$ or .~)
         def is_temp_file(filepath):
             basename = os.path.basename(filepath)
             if basename.startswith('~$') or basename.startswith('.~'):
                 return True
             return False
         
-        basket_files = [f for f in basket_files if not is_temp_file(f)]
-        pre_mid_files = [f for f in pre_mid_files if not is_temp_file(f)]
-        post_mid_files = [f for f in post_mid_files if not is_temp_file(f)]
-        generic_sem_files = [f for f in generic_sem_files if not is_temp_file(f)]
-        
-        # Combine all files
-        excel_files = basket_files + pre_mid_files + post_mid_files + generic_sem_files
+        excel_files = [f for f in excel_files if not is_temp_file(f)]
 
         # When running under pytest, limit to the most recent files to keep test runs fast
         if os.environ.get("PYTEST_CURRENT_TEST"):
             excel_files = sorted(excel_files, key=lambda f: os.path.getmtime(f), reverse=True)[:20]
 
         print(f"[DIR] Looking for timetable files in {OUTPUT_DIR}")
-        print(f"[FILE] Found {len(basket_files)} basket, {len(pre_mid_files)} pre-mid, {len(post_mid_files)} post-mid, {len(generic_sem_files)} generic files")
-        print(f"[FILE] Total files: {len(excel_files)}")
+        print(f"[FILE] Found {len(excel_files)} consolidated timetable files")
         
         # Load course data for course information - force reload to get latest data
         data_frames = load_all_data(force_reload=True)
@@ -6858,60 +7844,59 @@ def get_timetables():
             # (keeps tests deterministic and avoids cross-file room exhaustion)
             reset_classroom_usage_tracker()
             
-            # Determine timetable type
+            # Consolidated files contain Regular/PreMid/PostMid sheets - process Regular sheet
             timetable_type = 'regular'
-            if '_baskets' in filename:
-                timetable_type = 'basket'
-            elif '_pre_mid_timetable' in filename or 'pre_mid' in filename.lower():
-                timetable_type = 'pre_mid'
-            elif '_post_mid_timetable' in filename or 'post_mid' in filename.lower():
-                timetable_type = 'post_mid'
             
-            print(f"[READ] Processing {timetable_type} timetable file: {filename}")
+            print(f"[READ] Processing timetable file: {filename}")
             
             try:
-                # Extract semester and branch from filename
-                if '_' in filename and filename.count('_') >= 2:
-                    # Format: semX_BRANCH_timetable_TYPE.xlsx
-                    parts = filename.split('_')
-                    sem_part = parts[0].replace('sem', '')
-                    branch = parts[1]
-                    sem = int(sem_part)
-                else:
-                    # Legacy format: semX_timetable_TYPE.xlsx
-                    sem_part = filename.split('sem')[1].split('_')[0]
-                    sem = int(sem_part)
-                    branch = None
+                # Extract semester and branch from filename (format: sem{X}_{BRANCH}_timetable.xlsx)
+                parts = filename.replace('.xlsx', '').split('_')
+                sem_part = parts[0].replace('sem', '')
+                branch = parts[1] if len(parts) > 1 else None
+                sem = int(sem_part)
                 
-                print(f"[READ] Reading {timetable_type} timetable file: {filename} (Branch: {branch}, Semester: {sem})")
+                print(f"[READ] Reading timetable file: {filename} (Branch: {branch}, Semester: {sem})")
                 
-                # Read both sections from the Excel file
-                # For mid-semester timetables, check if both sections exist
-                # Try to read Section_A; if missing, fall back to a generic 'Timetable' sheet
-                sheet_used = 'Section_A'
-                try:
-                    df_a = pd.read_excel(file_path, sheet_name='Section_A')
-                except Exception:
+                # Process all sheet types: Regular, PreMid, PostMid
+                has_sections = (branch == 'CSE')
+                
+                for sheet_prefix in ['Regular', 'PreMid', 'PostMid']:
+                    # Determine timetable type
+                    if sheet_prefix == 'Regular':
+                        timetable_type = 'regular'
+                    elif sheet_prefix == 'PreMid':
+                        timetable_type = 'pre_mid'
+                    else:
+                        timetable_type = 'post_mid'
+                    
+                    # Determine sheet names for this timetable type
+                    if has_sections:
+                        sheet_name_a = f'{sheet_prefix}_Section_A'
+                        sheet_name_b = f'{sheet_prefix}_Section_B'
+                    else:
+                        sheet_name_a = f'{sheet_prefix}_Timetable'
+                        sheet_name_b = None
+                    
+                    # Try to read Section A / Whole
                     try:
-                        # Some exported timetables use a single sheet named 'Timetable'
-                        df_a = pd.read_excel(file_path, sheet_name='Timetable')
-                        sheet_used = 'Timetable'
-                        print(f"   [INFO] Using 'Timetable' sheet as Section_A for {filename}")
+                        df_a = pd.read_excel(file_path, sheet_name=sheet_name_a)
                     except Exception:
-                        print(f"   [WARN] No Section_A or Timetable sheet in {filename}")
+                        print(f"   [WARN] No {sheet_name_a} sheet in {filename}")
                         continue
 
-                # Section_B may be absent for single-sheet timetables; treat as empty
-                try:
-                    df_b = pd.read_excel(file_path, sheet_name='Section_B')
-                except Exception:
-                    # Not an error - many timetables have only one sheet
+                    # Section_B may be absent for non-CSE branches
                     df_b = pd.DataFrame()
-                
-                # Clean any unintended index columns like "Unnamed: 0" and set proper index
-                def _clean_section_df(df):
-                    if df.empty:
-                        return df
+                    if has_sections and sheet_name_b:
+                        try:
+                            df_b = pd.read_excel(file_path, sheet_name=sheet_name_b)
+                        except Exception:
+                            print(f"   [WARN] No {sheet_name_b} sheet in {filename}")
+                    
+                    # Clean any unintended index columns like "Unnamed: 0" and set proper index
+                    def _clean_section_df(df):
+                        if df.empty:
+                            return df
                     
                     # First, drop any columns that are clearly numeric indices or unwanted
                     cols_to_drop = []
@@ -6973,547 +7958,516 @@ def get_timetables():
                     # Normalize any numeric/indexed time slot labels to canonical strings
                     df.index = df.index.map(normalize_time_slot_label)
                     return df
-                df_a = _clean_section_df(df_a)
-                if not df_b.empty:
-                    df_b = _clean_section_df(df_b)
                 
-                # Check if classrooms are allocated (look for [Room] pattern in any cell)
-                has_classroom_allocation = False
-                for df in [df_a, df_b]:
-                    if df.empty:
-                        continue
-                    for col in df.columns:
-                        for val in df[col]:
-                            if isinstance(val, str) and '[' in val and ']' in val:
-                                has_classroom_allocation = True
+                    df_a = _clean_section_df(df_a)
+                    if not df_b.empty:
+                        df_b = _clean_section_df(df_b)
+                    
+                    # Check if classrooms are allocated (look for [Room] pattern in any cell)
+                    has_classroom_allocation = False
+                    for df in [df_a, df_b]:
+                        if df.empty:
+                            continue
+                        for col in df.columns:
+                            for val in df[col]:
+                                if isinstance(val, str) and '[' in val and ']' in val:
+                                    has_classroom_allocation = True
+                                    break
+                            if has_classroom_allocation:
                                 break
                         if has_classroom_allocation:
                             break
-                    if has_classroom_allocation:
-                        break
-                
-                # Try to read basket allocations if available (read regardless of timetable type)
-                basket_allocations = {}
-                basket_courses_map = {}
-                try:
-                    basket_df = pd.read_excel(file_path, sheet_name='Basket_Allocation')
-                    for _, row in basket_df.iterrows():
-                        basket_name = row['Basket Name']
-                        courses_in_basket = row['Courses in Basket'].split(', ')
-                        normalized_slot = normalize_time_slot_label(row['Time Slot'])
-                        basket_allocations[basket_name] = {
-                            'courses': courses_in_basket,
-                            'slot': (row['Day'], normalized_slot)
-                        }
-                        # Build basket courses map for legends
-                        basket_courses_map[basket_name] = courses_in_basket
-                except:
-                    print(f"   [WARN] No basket allocation sheet found in {filename}")
-                
-                # Try to read classroom allocation details
-                classroom_allocation_details = []
-                try:
-                    classroom_df = pd.read_excel(file_path, sheet_name='Classroom_Allocation')
-                    classroom_allocation_details = normalize_classroom_allocation_records(classroom_df.to_dict('records'))
-                    print(f"   [SCHOOL] Found classroom allocation details: {len(classroom_allocation_details)} entries")
-                except:
-                    print(f"   [WARN] No classroom allocation sheet found in {filename}")
-                
-                # Try to read configuration details to reflect current settings
-                configuration_summary = {}
-                try:
-                    config_df = pd.read_excel(file_path, sheet_name='Configuration')
-                    if not config_df.empty and {'Parameter', 'Value'}.issubset(config_df.columns):
-                        configuration_summary = dict(zip(config_df['Parameter'], config_df['Value']))
-                    else:
-                        configuration_summary = config_df.to_dict('records')
-                    print(f"   [CONFIG] Loaded configuration details for {filename}")
-                except:
-                    print(f"   [WARN] No configuration sheet found in {filename}")
-                    configuration_summary = {}
-                
-                # Convert to HTML tables with basket-aware, classroom-aware, and color-aware processing
-                # Choose table ids based on whether it's a Section_A sheet or a Timetable-only sheet
-                if branch:
-                    table_id_a = f"sem{sem}_{branch}_A" if sheet_used == 'Section_A' else f"sem{sem}_{branch}_whole"
-                    table_id_b = f"sem{sem}_{branch}_B"
-                else:
-                    table_id_a = f"sem{sem}_A" if sheet_used == 'Section_A' else f"sem{sem}_whole"
-                    table_id_b = f"sem{sem}_B"
-
-                # Enforce semester-level allowed baskets BEFORE rendering HTML so disallowed basket entries are not shown or treated as scheduled
-                allowed_baskets_map = {
-                    1: ['ELECTIVE_B1'],
-                    3: ['ELECTIVE_B3'],
-                    5: ['ELECTIVE_B4', 'ELECTIVE_B5'],
-                    7: ['ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9']
-                }
-                allowed_set = set(allowed_baskets_map.get(sem, []))
-
-                def _sanitize_df_baskets(df):
-                    if df.empty:
-                        return df
-                    df_copy = df.copy()
-                    basket_names = ['ELECTIVE_B1','ELECTIVE_B2','ELECTIVE_B3','ELECTIVE_B4','ELECTIVE_B5','ELECTIVE_B6','ELECTIVE_B7','ELECTIVE_B8','ELECTIVE_B9','HSS_B1','HSS_B2']
-                    def _sanitize_val(val):
-                        if not isinstance(val, str):
-                            return val
-                        upper = val.upper()
-                        for b in basket_names:
-                            if b in upper:
-                                return val if b in allowed_set else 'Free'
-                        return val
-                    for col in df_copy.columns:
-                        df_copy[col] = df_copy[col].apply(_sanitize_val)
-                    return df_copy
-
-                def _remove_direct_elective_courses(df):
-                    """Ensure electives are not hard-scheduled as regular courses (they should appear via baskets)."""
-                    # Preserve electives exactly as provided in the file so existing schedules
-                    # retain their courses instead of being blanked out during display/allocation.
-                    return df
-
-                df_a = _sanitize_df_baskets(df_a)
-                if not df_b.empty:
-                    df_b = _sanitize_df_baskets(df_b)
-
-                # Remove any directly scheduled elective courses to avoid duplicates (electives are handled via baskets)
-                df_a = _remove_direct_elective_courses(df_a)
-                if not df_b.empty:
-                    df_b = _remove_direct_elective_courses(df_b)
-
-                # Build basket courses map early (before allocation) so it's available for on-the-fly allocation
-                course_baskets = separate_courses_by_type(data_frames, sem, branch) if data_frames else {'core_courses': [], 'elective_courses': []}
-                
-                # Build comprehensive basket courses map including ALL elective courses for this semester
-                # BUT: only add courses from course_data.csv if they're not already in basket_courses_map
-                # (preserves courses from Basket_Allocation sheets in the Excel file)
-                if not course_baskets['elective_courses'].empty and 'Basket' in course_baskets['elective_courses'].columns:
-                    for _, course in course_baskets['elective_courses'].iterrows():
-                        raw_basket = course.get('Basket', 'Unknown')
-                        basket = str(raw_basket).strip().upper() if pd.notna(raw_basket) else 'Unknown'
-                        course_code = course['Course Code']
-                        if basket not in basket_courses_map:
-                            basket_courses_map[basket] = []
-                        if course_code not in basket_courses_map[basket]:
-                            basket_courses_map[basket].append(course_code)
-
-                # ALWAYS try to allocate classrooms if classroom data exists and file doesn't have complete allocation
-                # This ensures classrooms appear on the website even for old/partial timetable files
-                classroom_allocation_details = classroom_allocation_details if 'classroom_allocation_details' in locals() else []
-                classroom_data_df = data_frames.get('classroom') if data_frames else None
-                allocated_and_persisted = False
-
-                # Count how many non-empty, non-Free cells DON'T have classroom info
-                def count_unallocated_cells(df):
-                    count = 0
-                    for col in df.columns:
-                        for val in df[col]:
-                            if isinstance(val, str) and val.strip() and val.strip() != 'Free':
-                                if '[' not in val or ']' not in val:
-                                    count += 1
-                    return count
-
-                unallocated_a = count_unallocated_cells(df_a)
-                unallocated_b = count_unallocated_cells(df_b)
-                total_unallocated = unallocated_a + unallocated_b
-
-                # If we have ANY unallocated courses OR no classroom info, allocate on-the-fly
-                should_allocate_onthefly = (not has_classroom_allocation or total_unallocated > 0) and classroom_data_df is not None and not classroom_data_df.empty
-                
-                if should_allocate_onthefly:
+                    
+                    # Try to read basket allocations if available (read regardless of timetable type)
+                    basket_allocations = {}
+                    basket_courses_map = {}
                     try:
-                        if has_classroom_allocation:
-                            print(f"[SCHOOL] Partial classroom allocations found in {filename} ({total_unallocated} unallocated); completing allocation on-the-fly")
+                        basket_df = pd.read_excel(file_path, sheet_name='Basket_Allocation')
+                        for _, row in basket_df.iterrows():
+                            basket_name = row['Basket Name']
+                            courses_in_basket = row['Courses in Basket'].split(', ')
+                            normalized_slot = normalize_time_slot_label(row['Time Slot'])
+                            basket_allocations[basket_name] = {
+                                'courses': courses_in_basket,
+                                'slot': (row['Day'], normalized_slot)
+                            }
+                            # Build basket courses map for legends
+                            basket_courses_map[basket_name] = courses_in_basket
+                    except:
+                        print(f"   [WARN] No basket allocation sheet found in {filename}")
+                    
+                    # Try to read classroom allocation details
+                    classroom_allocation_details = []
+                    try:
+                        classroom_df = pd.read_excel(file_path, sheet_name='Classroom_Allocation')
+                        classroom_allocation_details = normalize_classroom_allocation_records(classroom_df.to_dict('records'))
+                        print(f"   [SCHOOL] Found classroom allocation details: {len(classroom_allocation_details)} entries")
+                    except:
+                        print(f"   [WARN] No classroom allocation sheet found in {filename}")
+                    
+                    # Try to read configuration details to reflect current settings
+                    configuration_summary = {}
+                    try:
+                        config_df = pd.read_excel(file_path, sheet_name='Configuration')
+                        if not config_df.empty and {'Parameter', 'Value'}.issubset(config_df.columns):
+                            configuration_summary = dict(zip(config_df['Parameter'], config_df['Value']))
                         else:
-                            print(f"[SCHOOL] No classroom allocations found in {filename}; applying allocation on-the-fly")
-                        
-                        df_a = allocate_classrooms_for_timetable(df_a, classroom_data_df, course_info, sem, branch, 'A', basket_courses_map)
-                        if not df_b.empty:
-                            df_b = allocate_classrooms_for_timetable(df_b, classroom_data_df, course_info, sem, branch, 'B', basket_courses_map)
+                            configuration_summary = config_df.to_dict('records')
+                        print(f"   [CONFIG] Loaded configuration details for {filename}")
+                    except:
+                        print(f"   [WARN] No configuration sheet found in {filename}")
+                        configuration_summary = {}
+                    
+                    # Convert to HTML tables with basket-aware, classroom-aware, and color-aware processing
+                    # Choose table ids based on whether it's a Section_A sheet or a Timetable-only sheet
+                    if branch:
+                        table_id_a = f"sem{sem}_{branch}_A" if sheet_name_a.endswith('Section_A') else f"sem{sem}_{branch}_whole"
+                        table_id_b = f"sem{sem}_{branch}_B"
+                    else:
+                        table_id_a = f"sem{sem}_A" if sheet_name_a.endswith('Section_A') else f"sem{sem}_whole"
+                        table_id_b = f"sem{sem}_B"
 
-                        # Build classroom allocation details for UI and verification
-                        classroom_allocation_details = normalize_classroom_allocation_records(create_classroom_allocation_detail_with_tracking([df_a, df_b], classroom_data_df, sem, branch).to_dict('records'))
-                        has_classroom_allocation = True
+                    # Enforce semester-level allowed baskets BEFORE rendering HTML so disallowed basket entries are not shown or treated as scheduled
+                    allowed_baskets_map = {
+                        1: ['ELECTIVE_B1'],
+                        3: ['ELECTIVE_B3'],
+                        5: ['ELECTIVE_B4', 'ELECTIVE_B5'],
+                        7: ['ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9']
+                    }
+                    allowed_set = set(allowed_baskets_map.get(sem, []))
 
-                        # Persist allocation sheets back into the Excel file (replace existing sheets if present)
+                    def _sanitize_df_baskets(df):
+                        if df.empty:
+                            return df
+                        df_copy = df.copy()
+                        basket_names = ['ELECTIVE_B1','ELECTIVE_B2','ELECTIVE_B3','ELECTIVE_B4','ELECTIVE_B5','ELECTIVE_B6','ELECTIVE_B7','ELECTIVE_B8','ELECTIVE_B9','HSS_B1','HSS_B2']
+                        def _sanitize_val(val):
+                            if not isinstance(val, str):
+                                return val
+                            upper = val.upper()
+                            for b in basket_names:
+                                if b in upper:
+                                    return val if b in allowed_set else 'Free'
+                            return val
+                        for col in df_copy.columns:
+                            df_copy[col] = df_copy[col].apply(_sanitize_val)
+                        return df_copy
+
+                    def _remove_direct_elective_courses(df):
+                        """Ensure electives are not hard-scheduled as regular courses (they should appear via baskets)."""
+                        # Preserve electives exactly as provided in the file so existing schedules
+                        # retain their courses instead of being blanked out during display/allocation.
+                        return df
+
+                    df_a = _sanitize_df_baskets(df_a)
+                    if not df_b.empty:
+                        df_b = _sanitize_df_baskets(df_b)
+
+                    # Remove any directly scheduled elective courses to avoid duplicates (electives are handled via baskets)
+                    df_a = _remove_direct_elective_courses(df_a)
+                    if not df_b.empty:
+                        df_b = _remove_direct_elective_courses(df_b)
+
+                    # Build basket courses map early (before allocation) so it's available for on-the-fly allocation
+                    course_baskets = separate_courses_by_type(data_frames, sem, branch) if data_frames else {'core_courses': [], 'elective_courses': []}
+                
+                    # Build comprehensive basket courses map including ALL elective courses for this semester
+                    # BUT: only add courses from course_data.csv if they're not already in basket_courses_map
+                    # (preserves courses from Basket_Allocation sheets in the Excel file)
+                    if not course_baskets['elective_courses'].empty and 'Basket' in course_baskets['elective_courses'].columns:
+                        for _, course in course_baskets['elective_courses'].iterrows():
+                            raw_basket = course.get('Basket', 'Unknown')
+                            basket = str(raw_basket).strip().upper() if pd.notna(raw_basket) else 'Unknown'
+                            course_code = course['Course Code']
+                            if basket not in basket_courses_map:
+                                basket_courses_map[basket] = []
+                            if course_code not in basket_courses_map[basket]:
+                                basket_courses_map[basket].append(course_code)
+
+                    # ALWAYS try to allocate classrooms if classroom data exists and file doesn't have complete allocation
+                    # This ensures classrooms appear on the website even for old/partial timetable files
+                    classroom_allocation_details = classroom_allocation_details if 'classroom_allocation_details' in locals() else []
+                    classroom_data_df = data_frames.get('classroom') if data_frames else None
+                    allocated_and_persisted = False
+
+                    # Count how many non-empty, non-Free cells DON'T have classroom info
+                    def count_unallocated_cells(df):
+                        count = 0
+                        for col in df.columns:
+                            for val in df[col]:
+                                if isinstance(val, str) and val.strip() and val.strip() != 'Free':
+                                    if '[' not in val or ']' not in val:
+                                        count += 1
+                        return count
+
+                    unallocated_a = count_unallocated_cells(df_a)
+                    unallocated_b = count_unallocated_cells(df_b)
+                    total_unallocated = unallocated_a + unallocated_b
+
+                    # If we have ANY unallocated courses OR no classroom info, allocate on-the-fly
+                    should_allocate_onthefly = (not has_classroom_allocation or total_unallocated > 0) and classroom_data_df is not None and not classroom_data_df.empty
+                
+                    if should_allocate_onthefly:
                         try:
-                            with pd.ExcelWriter(file_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-                                # Properly prepare DataFrames for Excel writing (convert index to column)
-                                # Handle both cases: index named 'Time Slot' and index named something else
-                                if df_a.index.name == 'Time Slot':
-                                    df_a_for_excel = df_a.reset_index(drop=False)
-                                elif 'Time Slot' not in df_a.columns:
-                                    df_a_for_excel = df_a.reset_index(drop=False).rename(columns={df_a.index.name or 'index': 'Time Slot'})
-                                else:
-                                    df_a_for_excel = df_a.copy()
-                                
-                                df_a_for_excel.to_excel(writer, sheet_name='Section_A', index=False)
-                                
-                                if not df_b.empty:
-                                    if df_b.index.name == 'Time Slot':
-                                        df_b_for_excel = df_b.reset_index(drop=False)
-                                    elif 'Time Slot' not in df_b.columns:
-                                        df_b_for_excel = df_b.reset_index(drop=False).rename(columns={df_b.index.name or 'index': 'Time Slot'})
+                            if has_classroom_allocation:
+                                print(f"[SCHOOL] Partial classroom allocations found in {filename} ({total_unallocated} unallocated); completing allocation on-the-fly")
+                            else:
+                                print(f"[SCHOOL] No classroom allocations found in {filename}; applying allocation on-the-fly")
+                        
+                            df_a = allocate_classrooms_for_timetable(df_a, classroom_data_df, course_info, sem, branch, 'A', basket_courses_map)
+                            if not df_b.empty:
+                                df_b = allocate_classrooms_for_timetable(df_b, classroom_data_df, course_info, sem, branch, 'B', basket_courses_map)
+
+                            # Build classroom allocation details for UI and verification
+                            classroom_allocation_details = normalize_classroom_allocation_records(create_classroom_allocation_detail_with_tracking([df_a, df_b], classroom_data_df, sem, branch).to_dict('records'))
+                            has_classroom_allocation = True
+
+                            # Persist allocation sheets back into the Excel file (replace existing sheets if present)
+                            try:
+                                with pd.ExcelWriter(file_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                                    # Properly prepare DataFrames for Excel writing (convert index to column)
+                                    # Handle both cases: index named 'Time Slot' and index named something else
+                                    if df_a.index.name == 'Time Slot':
+                                        df_a_for_excel = df_a.reset_index(drop=False)
+                                    elif 'Time Slot' not in df_a.columns:
+                                        df_a_for_excel = df_a.reset_index(drop=False).rename(columns={df_a.index.name or 'index': 'Time Slot'})
                                     else:
-                                        df_b_for_excel = df_b.copy()
-                                    df_b_for_excel.to_excel(writer, sheet_name='Section_B', index=False)
+                                        df_a_for_excel = df_a.copy()
+                                
+                                    df_a_for_excel.to_excel(writer, sheet_name='Section_A', index=False)
+                                
+                                    if not df_b.empty:
+                                        if df_b.index.name == 'Time Slot':
+                                            df_b_for_excel = df_b.reset_index(drop=False)
+                                        elif 'Time Slot' not in df_b.columns:
+                                            df_b_for_excel = df_b.reset_index(drop=False).rename(columns={df_b.index.name or 'index': 'Time Slot'})
+                                        else:
+                                            df_b_for_excel = df_b.copy()
+                                        df_b_for_excel.to_excel(writer, sheet_name='Section_B', index=False)
 
-                                # Classroom verification sheets
-                                class_report = create_classroom_utilization_report(classroom_data_df, [df_a, df_b], [])
-                                class_report.to_excel(writer, sheet_name='Classroom_Utilization', index=False)
-                                pd.DataFrame(classroom_allocation_details).to_excel(writer, sheet_name='Classroom_Allocation', index=False)
+                                    # Classroom verification sheets
+                                    class_report = create_classroom_utilization_report(classroom_data_df, [df_a, df_b], [])
+                                    class_report.to_excel(writer, sheet_name='Classroom_Utilization', index=False)
+                                    pd.DataFrame(classroom_allocation_details).to_excel(writer, sheet_name='Classroom_Allocation', index=False)
 
-                                # Persist basket per-course allocations to a dedicated sheet
-                                try:
-                                    rows = []
-                                    for basket_name, courses in (basket_courses_map or {}).items():
-                                        for course in courses:
-                                            rooms = [rec.get('room') for rec in classroom_allocation_details if rec.get('course') == course and rec.get('room')]
-                                            unique_rooms = sorted(set([r for r in rooms if r]))
-                                            if not unique_rooms and branch and sem:
-                                                timetable_keys = [f"{branch}_sem{sem}_secA", f"{branch}_sem{sem}_secB", f"{branch}_sem{sem}_secWhole"]
-                                                tracker_rooms = []
-                                                for tk in timetable_keys:
-                                                    alloc_map = _TIMETABLE_CLASSROOM_ALLOCATIONS.get(tk, {})
-                                                    for alloc in alloc_map.values():
-                                                        c = alloc.get('course')
-                                                        room_val = alloc.get('classroom') or alloc.get('room')
-                                                        if c == course and room_val:
-                                                            tracker_rooms.append(room_val)
-                                                if tracker_rooms:
-                                                    unique_rooms = sorted(set(tracker_rooms))
-                                            rows.append({'Basket Name': basket_name, 'Course': course, 'Allocated Rooms': ', '.join(unique_rooms) if unique_rooms else ''})
-                                    if rows:
-                                        pd.DataFrame(rows).to_excel(writer, sheet_name='Basket_Course_Allocations', index=False)
-                                except Exception:
-                                    pass
+                                    # Persist basket per-course allocations to a dedicated sheet
+                                    try:
+                                        rows = []
+                                        for basket_name, courses in (basket_courses_map or {}).items():
+                                            for course in courses:
+                                                rooms = [rec.get('room') for rec in classroom_allocation_details if rec.get('course') == course and rec.get('room')]
+                                                unique_rooms = sorted(set([r for r in rooms if r]))
+                                                if not unique_rooms and branch and sem:
+                                                    timetable_keys = [f"{branch}_sem{sem}_secA", f"{branch}_sem{sem}_secB", f"{branch}_sem{sem}_secWhole"]
+                                                    tracker_rooms = []
+                                                    for tk in timetable_keys:
+                                                        alloc_map = _TIMETABLE_CLASSROOM_ALLOCATIONS.get(tk, {})
+                                                        for alloc in alloc_map.values():
+                                                            c = alloc.get('course')
+                                                            room_val = alloc.get('classroom') or alloc.get('room')
+                                                            if c == course and room_val:
+                                                                tracker_rooms.append(room_val)
+                                                    if tracker_rooms:
+                                                        unique_rooms = sorted(set(tracker_rooms))
+                                                rows.append({'Basket Name': basket_name, 'Course': course, 'Allocated Rooms': ', '.join(unique_rooms) if unique_rooms else ''})
+                                        if rows:
+                                            pd.DataFrame(rows).to_excel(writer, sheet_name='Basket_Course_Allocations', index=False)
+                                    except Exception:
+                                        pass
 
-                            print(f"   [SCHOOL] Persisted classroom allocations to {filename}")
-                            allocated_and_persisted = True
-                        except Exception as persist_e:
-                            print(f"   [WARN] Could not persist allocations to file {filename}: {persist_e}")
-                    except Exception as alloc_e:
-                        print(f"   [WARN] On-the-fly classroom allocation failed for {filename}: {alloc_e}")
-                        traceback.print_exc()
+                                print(f"   [SCHOOL] Persisted classroom allocations to {filename}")
+                                allocated_and_persisted = True
+                            except Exception as persist_e:
+                                print(f"   [WARN] Could not persist allocations to file {filename}: {persist_e}")
+                        except Exception as alloc_e:
+                            print(f"   [WARN] On-the-fly classroom allocation failed for {filename}: {alloc_e}")
+                            traceback.print_exc()
 
-                html_a = convert_dataframe_to_html_with_baskets(df_a, table_id_a, course_colors, basket_colors, course_info)
-                html_b = convert_dataframe_to_html_with_baskets(df_b, table_id_b, course_colors, basket_colors, course_info) if not df_b.empty else ""
+                    html_a = convert_dataframe_to_html_with_baskets(df_a, table_id_a, course_colors, basket_colors, course_info)
+                    html_b = convert_dataframe_to_html_with_baskets(df_b, table_id_b, course_colors, basket_colors, course_info) if not df_b.empty else ""
                 
-                # Extract unique courses AND baskets from the actual schedule
-                unique_courses_a, unique_baskets_a = extract_unique_courses_with_baskets(df_a, basket_allocations)
-                unique_courses_b, unique_baskets_b = extract_unique_courses_with_baskets(df_b, basket_allocations) if not df_b.empty else ([], [])
+                    # Extract unique courses AND baskets from the actual schedule
+                    unique_courses_a, unique_baskets_a = extract_unique_courses_with_baskets(df_a, basket_allocations)
+                    unique_courses_b, unique_baskets_b = extract_unique_courses_with_baskets(df_b, basket_allocations) if not df_b.empty else ([], [])
                 
-                # Filter baskets by semester mapping to enforce allowed elective baskets per semester
-                allowed_baskets_map = {
-                    1: ['ELECTIVE_B1'],
-                    3: ['ELECTIVE_B3'],
-                    5: ['ELECTIVE_B4', 'ELECTIVE_B5'],
-                    7: ['ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9']
-                }
-                if sem in allowed_baskets_map:
-                    allowed = set(allowed_baskets_map[sem])
-                    # Only keep allowed baskets detected in the schedule
-                    unique_baskets_a = [b for b in unique_baskets_a if b in allowed]
-                    unique_baskets_b = [b for b in unique_baskets_b if b in allowed]
-                    print(f"   [MAP] Allowed baskets for semester {sem}: {allowed}")
+                    # Filter baskets by semester mapping to enforce allowed elective baskets per semester
+                    allowed_baskets_map = {
+                        1: ['ELECTIVE_B1'],
+                        3: ['ELECTIVE_B3'],
+                        5: ['ELECTIVE_B4', 'ELECTIVE_B5'],
+                        7: ['ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9']
+                    }
+                    if sem in allowed_baskets_map:
+                        allowed = set(allowed_baskets_map[sem])
+                        # Only keep allowed baskets detected in the schedule
+                        unique_baskets_a = [b for b in unique_baskets_a if b in allowed]
+                        unique_baskets_b = [b for b in unique_baskets_b if b in allowed]
+                        print(f"   [MAP] Allowed baskets for semester {sem}: {allowed}")
 
-                # Ensure Semester 7 always shows all required elective baskets in legends (even if empty)
-                if sem == 7:
-                    required_sem7_baskets = ['ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9']
-                    for b in required_sem7_baskets:
-                        if b not in unique_baskets_a:
-                            unique_baskets_a.append(b)
-                        if b not in unique_baskets_b:
-                            unique_baskets_b.append(b)
-                        # Ensure map has an entry so legends render the basket name
-                        basket_courses_map.setdefault(b, [])
+                    # Ensure Semester 7 always shows all required elective baskets in legends (even if empty)
+                    if sem == 7:
+                        required_sem7_baskets = ['ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9']
+                        for b in required_sem7_baskets:
+                            if b not in unique_baskets_a:
+                                unique_baskets_a.append(b)
+                            if b not in unique_baskets_b:
+                                unique_baskets_b.append(b)
+                            # Ensure map has an entry so legends render the basket name
+                            basket_courses_map.setdefault(b, [])
                 
-                # Create comprehensive course lists for legends including ALL basket courses
-                all_core_courses = course_baskets['core_courses']['Course Code'].tolist() if not course_baskets['core_courses'].empty else []
-                all_elective_courses = course_baskets['elective_courses']['Course Code'].tolist() if not course_baskets['elective_courses'].empty else []
+                    # Create comprehensive course lists for legends including ALL basket courses
+                    all_core_courses = course_baskets['core_courses']['Course Code'].tolist() if not course_baskets['core_courses'].empty else []
+                    all_elective_courses = course_baskets['elective_courses']['Course Code'].tolist() if not course_baskets['elective_courses'].empty else []
 
-                # Also include courses from Basket_Allocation sheets so they don't get filtered out
-                for courses_list in basket_courses_map.values():
-                    if courses_list:
-                        all_elective_courses.extend([c for c in courses_list if c not in all_elective_courses])
+                    # Also include courses from Basket_Allocation sheets so they don't get filtered out
+                    for courses_list in basket_courses_map.values():
+                        if courses_list:
+                            all_elective_courses.extend([c for c in courses_list if c not in all_elective_courses])
 
-                elective_set = set(all_elective_courses)
-                core_set = set(all_core_courses)
+                    elective_set = set(all_elective_courses)
+                    core_set = set(all_core_courses)
 
-                def _filter_basket_map_to_electives(bmap):
-                    """Keep only elective course codes inside basket maps to avoid core leakage into elective legends."""
-                    if not bmap:
-                        return {}
-                    filtered = {}
-                    for bname, courses in bmap.items():
-                        filtered_courses = [c for c in courses if c in elective_set]
-                        filtered[bname] = filtered_courses
-                    return filtered
+                    def _filter_basket_map_to_electives(bmap):
+                        """Keep only elective course codes inside basket maps to avoid core leakage into elective legends."""
+                        if not bmap:
+                            return {}
+                        filtered = {}
+                        for bname, courses in bmap.items():
+                            filtered_courses = [c for c in courses if c in elective_set]
+                            filtered[bname] = filtered_courses
+                        return filtered
                 
-                # FIXED: Remove duplicate basket entries and empty baskets
-                # Combine scheduled courses with all basket courses for complete legends
-                legend_courses_a = set(unique_courses_a)
-                legend_courses_b = set(unique_courses_b)
+                    # FIXED: Remove duplicate basket entries and empty baskets
+                    # Combine scheduled courses with all basket courses for complete legends
+                    legend_courses_a = set(unique_courses_a)
+                    legend_courses_b = set(unique_courses_b)
                 
-                # For mid-semester timetables, add all courses from the schedule
-                if timetable_type in ['pre_mid', 'post_mid']:
-                    # Add all courses from the schedule for mid-semester timetables
-                    all_courses_in_schedule = set(unique_courses_a).union(set(unique_courses_b))
-                    legend_courses_a.update(all_courses_in_schedule)
-                    legend_courses_b.update(all_courses_in_schedule)
+                    # For mid-semester timetables, add all courses from the schedule
+                    if timetable_type in ['pre_mid', 'post_mid']:
+                        # Add all courses from the schedule for mid-semester timetables
+                        all_courses_in_schedule = set(unique_courses_a).union(set(unique_courses_b))
+                        legend_courses_a.update(all_courses_in_schedule)
+                        legend_courses_b.update(all_courses_in_schedule)
                 
-                supplemental_baskets = []
-                if sem == 5:
-                    supplemental_baskets = ['ELECTIVE_B4']
-                if sem == 7:
-                    # Ensure sem7 basket legends include all four baskets
-                    supplemental_baskets = supplemental_baskets + ['ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9']
+                    supplemental_baskets = []
+                    if sem == 5:
+                        supplemental_baskets = ['ELECTIVE_B4']
+                    if sem == 7:
+                        # Ensure sem7 basket legends include all four baskets
+                        supplemental_baskets = supplemental_baskets + ['ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9']
 
-                # Add all elective courses from baskets that appear in the schedule
-                for basket_name in unique_baskets_a:
-                    if basket_name in basket_courses_map and basket_courses_map[basket_name]:
-                        legend_courses_a.update(basket_courses_map[basket_name])
-                
-                for basket_name in unique_baskets_b:
-                    if basket_name in basket_courses_map and basket_courses_map[basket_name]:
-                        legend_courses_b.update(basket_courses_map[basket_name])
-
-                # Ensure semester 5 includes ELECTIVE_B4 courses even if slots share across sections
-                if supplemental_baskets:
-                    for basket_name in supplemental_baskets:
+                    # Add all elective courses from baskets that appear in the schedule
+                    for basket_name in unique_baskets_a:
                         if basket_name in basket_courses_map and basket_courses_map[basket_name]:
                             legend_courses_a.update(basket_courses_map[basket_name])
+                
+                    for basket_name in unique_baskets_b:
+                        if basket_name in basket_courses_map and basket_courses_map[basket_name]:
                             legend_courses_b.update(basket_courses_map[basket_name])
 
-                # Ensure all core courses for this semester/branch appear in legends even if missing from the timetable
-                legend_courses_a.update(core_set)
-                legend_courses_b.update(core_set)
-                
-                # FIXED: Create clean basket lists without duplicates
-                # For Semester 7, include ALL required baskets even if they have empty course lists
-                if sem == 7:
-                    required_sem7_baskets = ['ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9']
-                    # Ensure all required baskets are in the map
-                    for basket_name in required_sem7_baskets:
-                        basket_courses_map.setdefault(basket_name, [])
-                    # Include baskets that either have courses OR are required for Semester 7
-                    clean_baskets_a = [basket for basket in unique_baskets_a if basket in basket_courses_map and (basket_courses_map[basket] or basket in required_sem7_baskets)]
-                    clean_baskets_b = [basket for basket in unique_baskets_b if basket in basket_courses_map and (basket_courses_map[basket] or basket in required_sem7_baskets)]
-                    # Add any missing required baskets
-                    for basket_name in required_sem7_baskets:
-                        if basket_name not in clean_baskets_a:
-                            clean_baskets_a.append(basket_name)
-                        if basket_name not in clean_baskets_b:
-                            clean_baskets_b.append(basket_name)
-                else:
-                    # Other semesters: only include baskets with courses
-                    clean_baskets_a = [basket for basket in unique_baskets_a if basket in basket_courses_map and basket_courses_map[basket]]
-                    clean_baskets_b = [basket for basket in unique_baskets_b if basket in basket_courses_map and basket_courses_map[basket]]
+                    # Ensure semester 5 includes ELECTIVE_B4 courses even if slots share across sections
+                    if supplemental_baskets:
+                        for basket_name in supplemental_baskets:
+                            if basket_name in basket_courses_map and basket_courses_map[basket_name]:
+                                legend_courses_a.update(basket_courses_map[basket_name])
+                                legend_courses_b.update(basket_courses_map[basket_name])
 
-                if supplemental_baskets:
-                    for basket_name in supplemental_baskets:
-                        if basket_name in basket_courses_map and basket_courses_map[basket_name]:
+                    # Ensure all core courses for this semester/branch appear in legends even if missing from the timetable
+                    legend_courses_a.update(core_set)
+                    legend_courses_b.update(core_set)
+                
+                    # FIXED: Create clean basket lists without duplicates
+                    # For Semester 7, include ALL required baskets even if they have empty course lists
+                    if sem == 7:
+                        required_sem7_baskets = ['ELECTIVE_B6', 'ELECTIVE_B7', 'ELECTIVE_B8', 'ELECTIVE_B9']
+                        # Ensure all required baskets are in the map
+                        for basket_name in required_sem7_baskets:
+                            basket_courses_map.setdefault(basket_name, [])
+                        # Include baskets that either have courses OR are required for Semester 7
+                        clean_baskets_a = [basket for basket in unique_baskets_a if basket in basket_courses_map and (basket_courses_map[basket] or basket in required_sem7_baskets)]
+                        clean_baskets_b = [basket for basket in unique_baskets_b if basket in basket_courses_map and (basket_courses_map[basket] or basket in required_sem7_baskets)]
+                        # Add any missing required baskets
+                        for basket_name in required_sem7_baskets:
                             if basket_name not in clean_baskets_a:
                                 clean_baskets_a.append(basket_name)
                             if basket_name not in clean_baskets_b:
                                 clean_baskets_b.append(basket_name)
+                    else:
+                        # Other semesters: only include baskets with courses
+                        clean_baskets_a = [basket for basket in unique_baskets_a if basket in basket_courses_map and basket_courses_map[basket]]
+                        clean_baskets_b = [basket for basket in unique_baskets_b if basket in basket_courses_map and basket_courses_map[basket]]
 
-                # If a semester-level basket mapping is defined, filter the basket_courses_map to only include allowed baskets
-                if sem in allowed_baskets_map:
-                    allowed_set = set(allowed_baskets_map[sem])
-                    filtered_basket_courses_map = {k: v for k, v in basket_courses_map.items() if k in allowed_set}
-                else:
-                    filtered_basket_courses_map = basket_courses_map
+                    if supplemental_baskets:
+                        for basket_name in supplemental_baskets:
+                            if basket_name in basket_courses_map and basket_courses_map[basket_name]:
+                                if basket_name not in clean_baskets_a:
+                                    clean_baskets_a.append(basket_name)
+                                if basket_name not in clean_baskets_b:
+                                    clean_baskets_b.append(basket_name)
 
-                # Ensure elective basket legends only show true elective courses
-                basket_courses_map = _filter_basket_map_to_electives(basket_courses_map)
-                filtered_basket_courses_map = _filter_basket_map_to_electives(filtered_basket_courses_map)
+                    # If a semester-level basket mapping is defined, filter the basket_courses_map to only include allowed baskets
+                    if sem in allowed_baskets_map:
+                        allowed_set = set(allowed_baskets_map[sem])
+                        filtered_basket_courses_map = {k: v for k, v in basket_courses_map.items() if k in allowed_set}
+                    else:
+                        filtered_basket_courses_map = basket_courses_map
 
-                print(f"   [COLOR] Color coding: {len(course_colors)} course colors, {len(basket_colors)} basket colors")
-                print(f"   [STATS] Legend courses A: {len(legend_courses_a)}, Baskets A: {clean_baskets_a}")
-                print(f"   [STATS] Legend courses B: {len(legend_courses_b)}, Baskets B: {clean_baskets_b}")
+                    # Ensure elective basket legends only show true elective courses
+                    basket_courses_map = _filter_basket_map_to_electives(basket_courses_map)
+                    filtered_basket_courses_map = _filter_basket_map_to_electives(filtered_basket_courses_map)
+
+                    print(f"   [COLOR] Color coding: {len(course_colors)} course colors, {len(basket_colors)} basket colors")
+                    print(f"   [STATS] Legend courses A: {len(legend_courses_a)}, Baskets A: {clean_baskets_a}")
+                    print(f"   [STATS] Legend courses B: {len(legend_courses_b)}, Baskets B: {clean_baskets_b}")
                 
-                # Build per-basket per-course allocated rooms map for legend display
-                # This consolidates all rooms allocated to each basket course WITH day/time info
-                basket_course_allocations = {}
-                try:
-                    # Prefer the raw basket map so tests and provided basket sheets always surface their courses
-                    source_basket_map = basket_courses_map or {}
-                    for basket_name, course_list in source_basket_map.items():
-                        try:
-                            basket_course_allocations.setdefault(basket_name, {})
-                            for course_code in (course_list or []):
-                                room_allocations = []
-                                # Collect rooms WITH day/time from classroom_allocation_details
-                                try:
-                                    for rec in (classroom_allocation_details or []):
-                                        rec_course = rec.get('course')
-                                        if not rec_course:
-                                            continue
-                                        # Normalize to match base course code (strip session suffixes)
-                                        rec_course_clean = str(rec_course).replace(' (Tutorial)', '').replace(' (Lab)', '').strip()
-                                        if rec_course_clean == course_code and rec.get('room'):
-                                            # Use session_type from record if available, otherwise infer from course name
-                                            session_type = rec.get('session_type')
-                                            if not session_type:
-                                                session_type = 'Tutorial' if ' (Tutorial)' in str(rec_course) else ('Lab' if ' (Lab)' in str(rec_course) else 'Lecture')
-                                            room_allocations.append({
-                                                'room': str(rec.get('room')).strip(),
-                                                'day': rec.get('day') or rec.get('Day', ''),
-                                                'time': rec.get('time_slot') or rec.get('Time Slot', ''),
-                                                'type': session_type
-                                            })
-                                except Exception:
-                                    pass
-
-                                # Fallback: collect rooms from internal tracker if details missing
-                                if not room_allocations and branch and sem:
+                    # Build per-basket per-course allocated rooms map for legend display
+                    # This consolidates all rooms allocated to each basket course WITH day/time info
+                    basket_course_allocations = {}
+                    try:
+                        # Prefer the raw basket map so tests and provided basket sheets always surface their courses
+                        source_basket_map = basket_courses_map or {}
+                        for basket_name, course_list in source_basket_map.items():
+                            try:
+                                basket_course_allocations.setdefault(basket_name, {})
+                                for course_code in (course_list or []):
+                                    room_allocations = []
+                                    # Collect rooms WITH day/time from classroom_allocation_details
                                     try:
-                                        timetable_keys = [f"{branch}_sem{sem}_secA", f"{branch}_sem{sem}_secB", f"{branch}_sem{sem}_secWhole"]
-                                        for tk in timetable_keys:
-                                            alloc_map = _TIMETABLE_CLASSROOM_ALLOCATIONS.get(tk, {})
-                                            for key, alloc in alloc_map.items():
-                                                c = alloc.get('course')
-                                                room_val = alloc.get('classroom') or alloc.get('room')
-                                                # Normalize course name from tracker to match base code
-                                                c_clean = str(c).replace(' (Tutorial)', '').replace(' (Lab)', '').strip() if c else None
-                                                if c_clean == course_code and room_val:
-                                                    # Extract day/time from key (format: Day_TimeSlot)
-                                                    parts = key.split('_')
-                                                    day = parts[0] if len(parts) > 0 else ''
-                                                    time = parts[1] if len(parts) > 1 else ''
-                                                    # Use session_type from alloc if available, otherwise infer from course name
-                                                    session_type = alloc.get('type')
-                                                    if not session_type:
-                                                        session_type = 'Tutorial' if (c and ' (Tutorial)' in str(c)) else ('Lab' if (c and ' (Lab)' in str(c)) else 'Lecture')
-                                                    room_allocations.append({
-                                                        'room': str(room_val).strip(),
-                                                        'day': day,
-                                                        'time': time,
-                                                        'type': session_type
-                                                    })
+                                        for rec in (classroom_allocation_details or []):
+                                            rec_course = rec.get('course')
+                                            if not rec_course:
+                                                continue
+                                            # Normalize to match base course code (strip session suffixes)
+                                            rec_course_clean = str(rec_course).replace(' (Tutorial)', '').replace(' (Lab)', '').strip()
+                                            if rec_course_clean == course_code and rec.get('room'):
+                                                # Use session_type from record if available, otherwise infer from course name
+                                                session_type = rec.get('session_type')
+                                                if not session_type:
+                                                    session_type = 'Tutorial' if ' (Tutorial)' in str(rec_course) else ('Lab' if ' (Lab)' in str(rec_course) else 'Lecture')
+                                                room_allocations.append({
+                                                    'room': str(rec.get('room')).strip(),
+                                                    'day': rec.get('day') or rec.get('Day', ''),
+                                                    'time': rec.get('time_slot') or rec.get('Time Slot', ''),
+                                                    'type': session_type
+                                                })
                                     except Exception:
                                         pass
 
-                                # Deduplicate room allocations - for common courses, keep only one allocation per day+time
-                                # (Common courses use the same room for both sections, but might appear twice in records)
-                                seen_slots = set()
-                                unique_allocations = []
-                                for alloc in room_allocations:
-                                    slot_key = (alloc['day'], alloc['time'])
-                                    if slot_key not in seen_slots:
-                                        seen_slots.add(slot_key)
-                                        unique_allocations.append(alloc)
+                                    # Fallback: collect rooms from internal tracker if details missing
+                                    if not room_allocations and branch and sem:
+                                        try:
+                                            timetable_keys = [f"{branch}_sem{sem}_secA", f"{branch}_sem{sem}_secB", f"{branch}_sem{sem}_secWhole"]
+                                            for tk in timetable_keys:
+                                                alloc_map = _TIMETABLE_CLASSROOM_ALLOCATIONS.get(tk, {})
+                                                for key, alloc in alloc_map.items():
+                                                    c = alloc.get('course')
+                                                    room_val = alloc.get('classroom') or alloc.get('room')
+                                                    # Normalize course name from tracker to match base code
+                                                    c_clean = str(c).replace(' (Tutorial)', '').replace(' (Lab)', '').strip() if c else None
+                                                    if c_clean == course_code and room_val:
+                                                        # Extract day/time from key (format: Day_TimeSlot)
+                                                        parts = key.split('_')
+                                                        day = parts[0] if len(parts) > 0 else ''
+                                                        time = parts[1] if len(parts) > 1 else ''
+                                                        # Use session_type from alloc if available, otherwise infer from course name
+                                                        session_type = alloc.get('type')
+                                                        if not session_type:
+                                                            session_type = 'Tutorial' if (c and ' (Tutorial)' in str(c)) else ('Lab' if (c and ' (Lab)' in str(c)) else 'Lecture')
+                                                        room_allocations.append({
+                                                            'room': str(room_val).strip(),
+                                                            'day': day,
+                                                            'time': time,
+                                                            'type': session_type
+                                                        })
+                                        except Exception:
+                                            pass
+
+                                    # Deduplicate room allocations - for common courses, keep only one allocation per day+time
+                                    # (Common courses use the same room for both sections, but might appear twice in records)
+                                    seen_slots = set()
+                                    unique_allocations = []
+                                    for alloc in room_allocations:
+                                        slot_key = (alloc['day'], alloc['time'])
+                                        if slot_key not in seen_slots:
+                                            seen_slots.add(slot_key)
+                                            unique_allocations.append(alloc)
                                 
-                                # Store with full details; set None if no allocation found
-                                basket_course_allocations[basket_name][course_code] = unique_allocations if unique_allocations else None
-                        except Exception:
-                            # Ensure basket key exists even if an error occurs
-                            basket_course_allocations.setdefault(basket_name, {})
-                except Exception:
-                    basket_course_allocations = {}
+                                    # Store with full details; set None if no allocation found
+                                    basket_course_allocations[basket_name][course_code] = unique_allocations if unique_allocations else None
+                            except Exception:
+                                # Ensure basket key exists even if an error occurs
+                                basket_course_allocations.setdefault(basket_name, {})
+                    except Exception:
+                        basket_course_allocations = {}
 
-                # Compute scheduled core courses (non-basket) from the actual timetable
-                elective_code_set = set(all_elective_courses)
-                scheduled_core_courses_a = [code for code in unique_courses_a if code not in elective_code_set]
-                scheduled_core_courses_b = [code for code in unique_courses_b if code not in elective_code_set]
+                    # Compute scheduled core courses (non-basket) from the actual timetable
+                    elective_code_set = set(all_elective_courses)
+                    scheduled_core_courses_a = [code for code in unique_courses_a if code not in elective_code_set]
+                    scheduled_core_courses_b = [code for code in unique_courses_b if code not in elective_code_set]
                 
-                def build_course_legend_entries(course_codes):
-                    legend_entries = []
-                    for code in sorted(course_codes):
-                        # Use helper to get department-specific course info
-                        info = get_course_info_by_dept(course_info, code, branch)
-                        ltpsc_value = info.get('ltpsc', '') if info else ''
+                    def build_course_legend_entries(course_codes):
+                        legend_entries = []
+                        for code in sorted(course_codes):
+                            # Use helper to get department-specific course info
+                            info = get_course_info_by_dept(course_info, code, branch)
+                            ltpsc_value = info.get('ltpsc', '') if info else ''
 
-                        # Normalize term to explicit labels for legend (Pre-Mid, Post-Mid, Full Sem)
-                        raw_term = info.get('term_type') if info else None
-                        if raw_term:
-                            upper_term = str(raw_term).upper()
-                            if 'PRE' in upper_term:
-                                term_label = 'Pre-Mid'
-                            elif 'POST' in upper_term:
-                                term_label = 'Post-Mid'
+                            # Normalize term to explicit labels for legend (Pre-Mid, Post-Mid, Full Sem)
+                            raw_term = info.get('term_type') if info else None
+                            if raw_term:
+                                upper_term = str(raw_term).upper()
+                                if 'PRE' in upper_term:
+                                    term_label = 'Pre-Mid'
+                                elif 'POST' in upper_term:
+                                    term_label = 'Post-Mid'
+                                else:
+                                    term_label = 'Full Sem'
                             else:
                                 term_label = 'Full Sem'
-                        else:
-                            term_label = 'Full Sem'
 
-                        parts = []
-                        if ltpsc_value:
-                            parts.append(ltpsc_value)
-                        # Always include the term label so legends show Pre-Mid/Post-Mid/Full Sem
-                        parts.append(term_label)
+                            parts = []
+                            if ltpsc_value:
+                                parts.append(ltpsc_value)
+                            # Always include the term label so legends show Pre-Mid/Post-Mid/Full Sem
+                            parts.append(term_label)
 
-                        display = f"{code} ({' | '.join(parts)})" if parts else code
-                        legend_entries.append({
-                            'code': code,
-                            'name': info.get('name', ''),
-                            'ltpsc': ltpsc_value,
-                            'term': term_label,
-                            'display': display
-                        })
-                    return legend_entries
+                            display = f"{code} ({' | '.join(parts)})" if parts else code
+                            legend_entries.append({
+                                'code': code,
+                                'name': info.get('name', ''),
+                                'ltpsc': ltpsc_value,
+                                'term': term_label,
+                                'display': display
+                            })
+                        return legend_entries
                 
-                # Build legends separated into core vs elective for UI clarity
-                elective_legends_a = build_course_legend_entries([c for c in legend_courses_a if c in elective_set])
-                elective_legends_b = build_course_legend_entries([c for c in legend_courses_b if c in elective_set])
-                core_legends_a = build_course_legend_entries([c for c in legend_courses_a if c not in elective_set])
-                core_legends_b = build_course_legend_entries([c for c in legend_courses_b if c not in elective_set])
+                    # Build legends separated into core vs elective for UI clarity
+                    elective_legends_a = build_course_legend_entries([c for c in legend_courses_a if c in elective_set])
+                    elective_legends_b = build_course_legend_entries([c for c in legend_courses_b if c in elective_set])
+                    core_legends_a = build_course_legend_entries([c for c in legend_courses_a if c not in elective_set])
+                    core_legends_b = build_course_legend_entries([c for c in legend_courses_b if c not in elective_set])
                 
-                # Debug: print classroom allocation details for forced_conflict test to diagnose intermittent failures
-# forced_conflict debug dump removed
+                    # Debug: print classroom allocation details for forced_conflict test to diagnose intermittent failures
+    # forced_conflict debug dump removed
 
 
 
-                # Add timetable for Section A or Whole
-                timetable_data = {
-                    'semester': sem,
-                    'section': 'A' if sheet_used == 'Section_A' else ('Whole' if branch and branch != 'CSE' else 'A'),
-                    'branch': branch,
-                    'filename': filename,
-                    'html': html_a,
-                    'courses': list(legend_courses_a),  # Use enhanced course list
-                    'baskets': clean_baskets_a,  # Use cleaned basket list
-                    'basket_courses_map': filtered_basket_courses_map,
-                    'course_info': course_info,
-                    'course_colors': course_colors,
-                    'basket_colors': basket_colors,
-                    'core_courses': all_core_courses,
-                    'elective_courses': all_elective_courses,
-                    'scheduled_core_courses': scheduled_core_courses_a,
-                    'is_basket_timetable': (timetable_type == 'basket'),
-                    'is_pre_mid_timetable': (timetable_type == 'pre_mid'),
-                    'is_post_mid_timetable': (timetable_type == 'post_mid'),
-                    'all_basket_courses': filtered_basket_courses_map,  # Include filtered basket courses for legends
-                    'has_classroom_allocation': has_classroom_allocation,
-                    'classroom_details': classroom_allocation_details,
-                    'basket_course_allocations': basket_course_allocations,
-                    'configuration': configuration_summary,
-                    'course_legends': elective_legends_a + core_legends_a,
-                    'core_course_legends': core_legends_a,
-                    'elective_course_legends': elective_legends_a,
-                    'timetable_type': timetable_type  # Add type for frontend filtering
-                }
-                timetables.append(timetable_data)
-                
-                # Add timetable for Section B (if it exists)
-                if not df_b.empty and html_b:
-                    timetables.append({
+                    # Add timetable for Section A or Whole
+                    timetable_data = {
                         'semester': sem,
-                        'section': 'B',
+                        'section': 'A' if sheet_name_a.endswith('Section_A') else ('Whole' if branch and branch != 'CSE' else 'A'),
                         'branch': branch,
                         'filename': filename,
-                        'html': html_b,
-                        'courses': list(legend_courses_b),  # Use enhanced course list
-                        'baskets': clean_baskets_b,  # Use cleaned basket list
+                        'html': html_a,
+                        'courses': list(legend_courses_a),  # Use enhanced course list
+                        'baskets': clean_baskets_a,  # Use cleaned basket list
                         'basket_courses_map': filtered_basket_courses_map,
                         'course_info': course_info,
                         'course_colors': course_colors,
                         'basket_colors': basket_colors,
                         'core_courses': all_core_courses,
                         'elective_courses': all_elective_courses,
-                        'scheduled_core_courses': scheduled_core_courses_b,
+                        'scheduled_core_courses': scheduled_core_courses_a,
                         'is_basket_timetable': (timetable_type == 'basket'),
                         'is_pre_mid_timetable': (timetable_type == 'pre_mid'),
                         'is_post_mid_timetable': (timetable_type == 'post_mid'),
@@ -7522,15 +8476,47 @@ def get_timetables():
                         'classroom_details': classroom_allocation_details,
                         'basket_course_allocations': basket_course_allocations,
                         'configuration': configuration_summary,
-                        'course_legends': elective_legends_b + core_legends_b,
-                        'core_course_legends': core_legends_b,
-                        'elective_course_legends': elective_legends_b,
+                        'course_legends': elective_legends_a + core_legends_a,
+                        'core_course_legends': core_legends_a,
+                        'elective_course_legends': elective_legends_a,
                         'timetable_type': timetable_type  # Add type for frontend filtering
-                    })
+                    }
+                    timetables.append(timetable_data)
                 
-                print(f"[OK] Loaded {timetable_type.upper()} timetable: {filename}")
-                print(f"   Type: {timetable_type}")
-                print(f"   Classroom allocation: {'[OK] YES' if has_classroom_allocation else '[FAIL] NO'}")
+                    # Add timetable for Section B (if it exists)
+                    if not df_b.empty and html_b:
+                        timetables.append({
+                            'semester': sem,
+                            'section': 'B',
+                            'branch': branch,
+                            'filename': filename,
+                            'html': html_b,
+                            'courses': list(legend_courses_b),  # Use enhanced course list
+                            'baskets': clean_baskets_b,  # Use cleaned basket list
+                            'basket_courses_map': filtered_basket_courses_map,
+                            'course_info': course_info,
+                            'course_colors': course_colors,
+                            'basket_colors': basket_colors,
+                            'core_courses': all_core_courses,
+                            'elective_courses': all_elective_courses,
+                            'scheduled_core_courses': scheduled_core_courses_b,
+                            'is_basket_timetable': (timetable_type == 'basket'),
+                            'is_pre_mid_timetable': (timetable_type == 'pre_mid'),
+                            'is_post_mid_timetable': (timetable_type == 'post_mid'),
+                            'all_basket_courses': filtered_basket_courses_map,  # Include filtered basket courses for legends
+                            'has_classroom_allocation': has_classroom_allocation,
+                            'classroom_details': classroom_allocation_details,
+                            'basket_course_allocations': basket_course_allocations,
+                            'configuration': configuration_summary,
+                            'course_legends': elective_legends_b + core_legends_b,
+                            'core_course_legends': core_legends_b,
+                            'elective_course_legends': elective_legends_b,
+                            'timetable_type': timetable_type  # Add type for frontend filtering
+                        })
+                
+                    print(f"[OK] Loaded {timetable_type.upper()} timetable: {filename}")
+                    print(f"   Type: {timetable_type}")
+                    print(f"   Classroom allocation: {'[OK] YES' if has_classroom_allocation else '[FAIL] NO'}")
                 
             except Exception as e:
                 print(f"[FAIL] Error reading {timetable_type} timetable {filename}: {e}")
@@ -7841,7 +8827,7 @@ def upload_files():
         reset_classroom_usage_tracker()
         print("[RESET] Reset classroom usage tracker for new timetable generation")
         
-        # Generate ONLY basket timetables for all branches and semesters
+        # Generate consolidated timetables for all branches and semesters
         branches = ['CSE', 'DSAI', 'ECE']
         target_semesters = [1, 3, 5, 7]
         success_count = 0
@@ -7856,32 +8842,32 @@ def upload_files():
                 'uploaded_files': uploaded_files
             }), 400
         
-        # Use the basket-based generation endpoint instead of individual course generation
+        # Generate consolidated timetables (one file per branch per semester)
         for sem in target_semesters:
             for branch in branches:
                 try:
-                    print(f"[RESET] Generating BASKET timetable for {branch} Semester {sem}...")
+                    print(f"[RESET] Generating consolidated timetable for {branch} Semester {sem}...")
                     
-                    # Use basket-based scheduling
-                    success = export_semester_timetable_with_baskets(data_frames, sem, branch)
+                    # Use consolidated generation
+                    success = export_consolidated_semester_timetable(data_frames, sem, branch)
                     
-                    filename = f"sem{sem}_{branch}_timetable_baskets.xlsx"
+                    filename = f"sem{sem}_{branch}_timetable.xlsx"
                     filepath = os.path.join(OUTPUT_DIR, filename)
                     
                     if success and os.path.exists(filepath):
                         success_count += 1
                         generated_files.append(filename)
-                        print(f"[OK] Successfully generated BASKET timetable: {filename}")
+                        print(f"[OK] Successfully generated consolidated timetable: {filename}")
                     else:
-                        print(f"[FAIL] Basket timetable not created: {filename}")
+                        print(f"[FAIL] Consolidated timetable not created: {filename}")
                         
                 except Exception as e:
-                    print(f"[FAIL] Error generating basket timetable for {branch} semester {sem}: {e}")
+                    print(f"[FAIL] Error generating consolidated timetable for {branch} semester {sem}: {e}")
                     traceback.print_exc()
 
         return jsonify({
             'success': True,
-            'message': f'Successfully uploaded {len(uploaded_files)} files and generated {success_count} BASKET timetables!',
+            'message': f'Successfully uploaded {len(uploaded_files)} files and generated {success_count} consolidated timetables!',
             'uploaded_files': uploaded_files,
             'generated_count': success_count,
             'files': generated_files
@@ -7896,8 +8882,8 @@ def upload_files():
         }), 500
 
 
-def export_semester_timetable_with_baskets_common(dfs, semester, branch, common_elective_allocations):
-    """Export timetable using pre-allocated common basket slots"""
+def export_semester_timetable_with_baskets_common(dfs, semester, branch, common_elective_allocations, minimal_only=False):
+    """Export timetable using pre-allocated common basket slots. Set minimal_only=True to emit only timetable sheets."""
     try:
         print(f"[STATS] Generating timetable for Semester {semester}, Branch {branch} with COMMON basket slots...")
         
@@ -7915,24 +8901,25 @@ def export_semester_timetable_with_baskets_common(dfs, semester, branch, common_
             section_a.to_excel(writer, sheet_name='Section_A')
             section_b.to_excel(writer, sheet_name='Section_B')
             
-            # Create basket allocations summary from the common allocations
-            basket_allocations = {}
-            for allocation in common_elective_allocations.values():
-                if allocation:
-                    basket_name = allocation['basket_name']
-                    if basket_name not in basket_allocations:
-                        basket_allocations[basket_name] = {
-                            'lectures': allocation['lectures'],
-                            'tutorial': allocation['tutorial'],
-                            'courses': allocation['all_courses_in_basket']
-                        }
-            
-            basket_summary = create_basket_summary(basket_allocations, semester, branch)
-            basket_summary.to_excel(writer, sheet_name='Basket_Allocation', index=False)
-            
-            course_summary = create_course_summary(dfs, semester, branch)
-            if not course_summary.empty:
-                course_summary.to_excel(writer, sheet_name='Course_Summary', index=False)
+            if not minimal_only:
+                # Create basket allocations summary from the common allocations
+                basket_allocations = {}
+                for allocation in common_elective_allocations.values():
+                    if allocation:
+                        basket_name = allocation['basket_name']
+                        if basket_name not in basket_allocations:
+                            basket_allocations[basket_name] = {
+                                'lectures': allocation['lectures'],
+                                'tutorial': allocation['tutorial'],
+                                'courses': allocation['all_courses_in_basket']
+                            }
+                
+                basket_summary = create_basket_summary(basket_allocations, semester, branch)
+                basket_summary.to_excel(writer, sheet_name='Basket_Allocation', index=False)
+                
+                course_summary = create_course_summary(dfs, semester, branch)
+                if not course_summary.empty:
+                    course_summary.to_excel(writer, sheet_name='Course_Summary', index=False)
         
         print(f"[OK] Generated: {filename} with COMMON basket slots")
         return True
@@ -8059,7 +9046,7 @@ def generate_all_timetables():
 
 @app.route('/generate-timetable', methods=['POST'])
 def generate_timetable_with_config():
-    """Generate regular classroom timetables with optional dynamic time configuration."""
+    """Generate consolidated timetables with optional dynamic time configuration."""
     try:
         data = request.json or {}
         semester = int(data.get('semester'))
@@ -8074,9 +9061,9 @@ def generate_timetable_with_config():
         if dfs is None:
             return jsonify({'success': False, 'message': 'Failed to load CSV data'}), 500
 
-        # Generate with provided configuration
-        success = export_semester_timetable_with_baskets(dfs, semester, branch, time_config=time_config)
-        filename = f"sem{semester}_{branch}_timetable_baskets.xlsx"
+        # Generate consolidated timetable
+        success = export_consolidated_semester_timetable(dfs, semester, branch, time_config=time_config)
+        filename = f"sem{semester}_{branch}_timetable.xlsx"
         filepath = os.path.join(OUTPUT_DIR, filename)
 
         if success and os.path.exists(filepath):
@@ -8990,14 +9977,14 @@ def clean_exam_table_html(html):
 @app.route('/generate-with-baskets', methods=['POST'])
 def generate_timetables_with_baskets():
     try:
-        print("[RESET] Starting basket-based timetable generation with COMMON slots...")
+        print("[CONSOLIDATED] Starting consolidated timetable generation...")
         
-        # Clear existing basket timetables first
-        excel_files = glob.glob(os.path.join(OUTPUT_DIR, "*_baskets.xlsx"))
+        # Clear existing timetable files first
+        excel_files = glob.glob(os.path.join(OUTPUT_DIR, "sem*_*_timetable*.xlsx"))
         for file in excel_files:
             try:
                 os.remove(file)
-                print(f"[CLEAN] Removed old basket file: {file}")
+                print(f"[CLEAN] Removed old file: {file}")
             except Exception as e:
                 print(f"[WARN] Could not remove {file}: {e}")
 
@@ -9006,125 +9993,38 @@ def generate_timetables_with_baskets():
         if data_frames is None:
             return jsonify({'success': False, 'message': 'Failed to load CSV data'})
 
-        # Generate timetables using basket approach with COMMON slots
+        # Generate consolidated timetables (one file per branch per semester)
         departments = get_departments_from_data(data_frames)
         target_semesters = [1, 3, 5, 7]
         success_count = 0
         generated_files = []
         
-        # First, create COMMON basket allocations for each semester
-        common_basket_allocations = {}
-        for sem in target_semesters:
-            course_baskets_all = separate_courses_by_type(data_frames, sem)
-            elective_courses_all = course_baskets_all['elective_courses']
-            if not elective_courses_all.empty:
-                elective_allocations, basket_allocations = allocate_electives_by_baskets(elective_courses_all, sem)
-                common_basket_allocations[sem] = elective_allocations
-                print(f"[INFO] Created COMMON basket allocations for semester {sem}")
-
-        # Create COMMON mid-semester elective allocations (pre-mid and post-mid) per semester
-        pre_mid_common_allocations = {}
-        post_mid_common_allocations = {}
-        for sem in target_semesters:
-            mid_courses_all = separate_courses_by_mid_semester(data_frames, sem)
-            pre_mid_all = mid_courses_all.get('pre_mid_courses', pd.DataFrame())
-            post_mid_all = mid_courses_all.get('post_mid_courses', pd.DataFrame())
-
-            if not pre_mid_all.empty:
-                pre_mid_electives_all = pre_mid_all[pre_mid_all['Elective (Yes/No)'].astype(str).str.upper() == 'YES'] if 'Elective (Yes/No)' in pre_mid_all.columns else pd.DataFrame()
-                if not pre_mid_electives_all.empty:
-                    pre_mid_common_allocations[sem] = allocate_mid_semester_electives_by_baskets(pre_mid_electives_all, sem)
-                    print(f"[INFO] Created COMMON PRE-MID allocations for semester {sem}")
-
-            if not post_mid_all.empty:
-                post_mid_electives_all = post_mid_all[post_mid_all['Elective (Yes/No)'].astype(str).str.upper() == 'YES'] if 'Elective (Yes/No)' in post_mid_all.columns else pd.DataFrame()
-                if not post_mid_electives_all.empty:
-                    post_mid_common_allocations[sem] = allocate_mid_semester_electives_by_baskets(post_mid_electives_all, sem)
-                    print(f"[INFO] Created COMMON POST-MID allocations for semester {sem}")
-        
-        # Generate timetables for each branch using COMMON allocations
         for branch in departments:
             for sem in target_semesters:
                 try:
-                    if sem in common_basket_allocations:
-                        success = export_semester_timetable_with_baskets_common(
-                            data_frames, sem, branch, common_basket_allocations[sem]
-                        )
-                    else:
-                        success = export_semester_timetable_with_baskets(data_frames, sem, branch)
-                    
-                    filename = f"sem{sem}_{branch}_timetable_baskets.xlsx"
+                    print(f"\n[PROCESSING] Semester {sem}, Branch {branch}...")
+                    success = export_consolidated_semester_timetable(data_frames, sem, branch)
                     
                     if success:
+                        filename = f"sem{sem}_{branch}_timetable.xlsx"
                         success_count += 1
                         generated_files.append(filename)
-                        print(f"[OK] Successfully generated: {filename} with COMMON basket slots")
-                        
+                        print(f"[OK] Generated: {filename}")
                 except Exception as e:
-                    print(f"[FAIL] Error generating basket timetable for {branch} semester {sem}: {e}")
-        
-        # Also generate pre-mid and post-mid timetables
-        print("\n" + "="*80)
-        print("[RESET] Generating PRE-MID and POST-MID timetables...")
-        print("="*80)
-        pre_mid_count = 0
-        post_mid_count = 0
-        
-        for branch in departments:
-            for sem in target_semesters:
-                print(f"\n[SCHEDULE] Processing Semester {sem}, Branch {branch} for mid-semester timetables...")
-                try:
-                    # Generate mid-semester timetables (pre-mid and post-mid)
-                    mid_result = export_mid_semester_timetables(
-                        data_frames, sem, branch, None,
-                        pre_mid_common_allocations.get(sem, {}),
-                        post_mid_common_allocations.get(sem, {})
-                    )
-                    
-                    print(f"   Result for Semester {sem}, Branch {branch}:")
-                    print(f"      Pre-mid success: {mid_result.get('pre_mid_success', False)}")
-                    print(f"      Post-mid success: {mid_result.get('post_mid_success', False)}")
-                    print(f"      Pre-mid filename: {mid_result.get('pre_mid_filename', 'None')}")
-                    print(f"      Post-mid filename: {mid_result.get('post_mid_filename', 'None')}")
-                    
-                    if mid_result.get('pre_mid_success', False):
-                        pre_mid_count += 1
-                        generated_files.append(mid_result['pre_mid_filename'])
-                        print(f"[OK] Successfully generated PRE-MID: {mid_result['pre_mid_filename']}")
-                    else:
-                        print(f"[WARN] Pre-mid generation failed or no courses for Semester {sem}, Branch {branch}")
-                    
-                    if mid_result.get('post_mid_success', False):
-                        post_mid_count += 1
-                        generated_files.append(mid_result['post_mid_filename'])
-                        print(f"[OK] Successfully generated POST-MID: {mid_result['post_mid_filename']}")
-                    else:
-                        print(f"[WARN] Post-mid generation failed or no courses for Semester {sem}, Branch {branch}")
-                        
-                except Exception as e:
-                    print(f"[FAIL] Error generating mid-semester timetables for {branch} semester {sem}: {e}")
+                    print(f"[FAIL] Error generating timetable for {branch} semester {sem}: {e}")
                     traceback.print_exc()
         
-        print(f"\n[STATS] Mid-semester generation summary:")
-        print(f"   Pre-mid timetables generated: {pre_mid_count}")
-        print(f"   Post-mid timetables generated: {post_mid_count}")
-        print("="*80 + "\n")
-
-        total_count = success_count + pre_mid_count + post_mid_count
         return jsonify({
             'success': True, 
-            'message': f'Successfully generated {success_count} basket timetables, {pre_mid_count} pre-mid, and {post_mid_count} post-mid timetables!',
-            'generated_count': total_count,
-            'basket_count': success_count,
-            'pre_mid_count': pre_mid_count,
-            'post_mid_count': post_mid_count,
+            'message': f'Successfully generated {success_count} consolidated timetables!',
+            'generated_count': success_count,
             'files': generated_files
         })
-    
         
     except Exception as e:
-        print(f"[FAIL] Error in basket generation endpoint: {e}")
+        print(f"[FAIL] Error in consolidated generation endpoint: {e}")
         traceback.print_exc()
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
 
 @app.route('/generate-mid-semester', methods=['POST'])
 def generate_mid_semester_timetables():

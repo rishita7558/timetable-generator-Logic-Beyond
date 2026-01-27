@@ -3,7 +3,7 @@ Regenerate timetables for Semesters 1 and 3 (to include tutorials for ELECTIVE_B
 """
 import sys
 import os
-from app import export_semester_timetable_with_baskets, load_all_data, export_mid_semester_timetables
+from app import export_consolidated_semester_timetable, load_all_data, export_mid_semester_timetables
 
 def main():
     print("=" * 80)
@@ -23,7 +23,7 @@ def main():
     
     for branch in ['CSE', 'DSAI', 'ECE']:
         print(f"\n[START] Generating {branch} semester 1...")
-        success = export_semester_timetable_with_baskets(dfs, 1, branch)
+        success = export_consolidated_semester_timetable(dfs, 1, branch)
         if success:
             print(f"[OK] {branch} semester 1 completed")
         else:
@@ -41,7 +41,7 @@ def main():
     
     for branch in ['CSE', 'DSAI', 'ECE']:
         print(f"\n[START] Generating {branch} semester 3...")
-        success = export_semester_timetable_with_baskets(dfs, 3, branch)
+        success = export_consolidated_semester_timetable(dfs, 3, branch)
         if success:
             print(f"[OK] {branch} semester 3 completed")
         else:

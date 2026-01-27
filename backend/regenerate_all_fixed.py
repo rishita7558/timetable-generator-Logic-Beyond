@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import (
-    OUTPUT_DIR, load_all_data, export_semester_timetable_with_baskets
+    OUTPUT_DIR, load_all_data, export_consolidated_semester_timetable
 )
 import pandas as pd
 
@@ -24,7 +24,7 @@ def regenerate_all():
     
     # Delete old timetables
     print("\n[CLEANUP] Removing old timetable files...")
-    old_files = glob.glob(os.path.join(OUTPUT_DIR, "sem*_*_timetable_baskets.xlsx"))
+    old_files = glob.glob(os.path.join(OUTPUT_DIR, "sem*_*_timetable.xlsx"))
     for f in old_files:
         try:
             os.remove(f)
@@ -57,16 +57,16 @@ def regenerate_all():
             try:
                 print(f"\n[GEN] Generating {branch} semester {sem} timetable...")
                 
-                result = export_semester_timetable_with_baskets(dfs, sem, branch)
+                result = export_consolidated_semester_timetable(dfs, sem, branch)
                 
                 if result:
-                    filename = f"sem{sem}_{branch}_timetable_baskets.xlsx"
+                    filename = f"sem{sem}_{branch}_timetable.xlsx"
                     filepath = os.path.join(OUTPUT_DIR, filename)
                     
                     # Verify the file exists and check column structure
                     if os.path.exists(filepath):
                         try:
-                            sheet_name = 'Section_A' if branch == 'CSE' else 'Timetable'
+                            sheet_name = 'Regular_Section_A' if branch == 'CSE' else 'Regular_Timetable'
                             df = pd.read_excel(filepath, sheet_name=sheet_name)
                             columns = list(df.columns)
                             print(f"[OK] Generated {filename}")

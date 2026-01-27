@@ -9,7 +9,7 @@ import glob
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(__file__))
 
-from app import export_semester_timetable_with_baskets, load_all_data
+from app import export_consolidated_semester_timetable, load_all_data
 
 # Load the input data
 print("Loading input files...")
@@ -20,7 +20,7 @@ print("Generating semester 7 timetables...")
 for branch in ['CSE', 'DSAI', 'ECE']:
     try:
         print(f"  - Generating {branch} semester 7...")
-        export_semester_timetable_with_baskets(dfs, 7, branch)
+        export_consolidated_semester_timetable(dfs, 7, branch)
         print(f"    [OK] {branch} semester 7 completed")
     except Exception as e:
         print(f"    [ERROR] {branch}: {str(e)}")

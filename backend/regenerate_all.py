@@ -10,7 +10,7 @@ import pandas as pd
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(__file__))
 
-from app import export_semester_timetable_with_baskets, load_all_data
+from app import export_consolidated_semester_timetable, load_all_data
 
 # Load the input data
 print("Loading input files...")
@@ -59,7 +59,7 @@ for semester in SEMESTERS:
     for branch in BRANCHES:
         try:
             print(f"  Generating {branch}...", end=" ", flush=True)
-            export_semester_timetable_with_baskets(dfs, semester, branch)
+            export_consolidated_semester_timetable(dfs, semester, branch)
             print("[OK]")
             results[semester][branch] = 'SUCCESS'
         except Exception as e:
