@@ -1659,36 +1659,66 @@ function createBasketCourseItem(courseCode, courseInfo, basketColor, allocations
             if (alloc) {
                 // Check if it's the new format with day/time info
                 if (Array.isArray(alloc) && alloc.length > 0 && typeof alloc[0] === 'object' && alloc[0].room) {
-                    // New format: [{room: 'C101', day: 'Monday', time: '09:00-10:30'}, ...]
-                    
-                    // Group allocations by room+time+type (avoid merging tutorials with lectures)
-                    const grouped = {};
+                    // New format: [{room: 'C101', day: 'Monday', time: '09:00-10:30', type: 'Lecture'}, ...]
+
+                    // Group allocations by session type to surface Lecture + Tutorial info clearly
+                    const typeBuckets = {
+                        Lecture: [],
+                        Tutorial: [],
+                        Lab: [],
+                        Other: []
+                    };
+
                     alloc.forEach(item => {
-                        const sessionType = item.type || '';
-                        const key = `${item.room}|${item.time}|${sessionType}`;
-                        if (!grouped[key]) {
-                            grouped[key] = {
+                        const rawType = (item.type || '').toString().trim().toLowerCase();
+                        let normalizedType = 'Lecture';
+                        if (rawType.includes('tutorial')) normalizedType = 'Tutorial';
+                        else if (rawType.includes('lab')) normalizedType = 'Lab';
+                        else if (rawType.length === 0) normalizedType = 'Lecture';
+                        else if (!['lecture', 'tutorial', 'lab'].includes(rawType)) normalizedType = 'Other';
+
+                        const bucketKey = normalizedType;
+                        const key = `${item.room}|${item.time}|${normalizedType}`;
+                        const bucket = typeBuckets[bucketKey] || typeBuckets.Other;
+
+                        let grouped = bucket.find(entry => entry.key === key);
+                        if (!grouped) {
+                            grouped = {
+                                key,
                                 room: item.room,
                                 time: item.time,
-                                type: sessionType,
+                                type: normalizedType,
                                 days: []
                             };
+                            bucket.push(grouped);
                         }
-                        grouped[key].days.push(item.day);
+                        grouped.days.push(item.day);
                     });
-                    
-                    const groupedList = Object.values(grouped);
 
-                    // Render as "room, day, time" per session with a highlighted room tag
-                    const scheduleLines = groupedList.map(item => {
-                        const daysText = item.days.join(' & ');
-                        const lineText = `${daysText}, ${item.time}`;
-                        const typeBadge = item.type ? `<span class="schedule-type">${item.type}</span>` : '';
-                        return `<div class="basket-course-schedule-line">
-                                    <span class="room-chip">${item.room}</span>
-                                    <span class="schedule-text">${lineText} ${typeBadge}</span>
-                                </div>`;
-                    }).join('');
+                    const renderBucket = (bucketName, entries) => {
+                        if (!entries || entries.length === 0) return '';
+                        const lines = entries.map(item => {
+                            const daysText = item.days.join(' & ');
+                            const lineText = `${daysText}, ${item.time}`;
+                            return `<div class="basket-course-schedule-line">
+                                        <span class="room-chip">${item.room}</span>
+                                        <span class="schedule-text">${lineText}</span>
+                                    </div>`;
+                        }).join('');
+                        return `
+                            <div class="basket-course-type-block">
+                                <div class="basket-course-type-title">${bucketName}</div>
+                                <div class="basket-course-schedule">${lines}</div>
+                            </div>
+                        `;
+                    };
+
+                    const orderedBlocks = [
+                        renderBucket('Lecture', typeBuckets.Lecture),
+                        renderBucket('Tutorial', typeBuckets.Tutorial),
+                        renderBucket('Lab', typeBuckets.Lab),
+                        renderBucket('Other', typeBuckets.Other)
+                    ].filter(Boolean).join('');
 
                     roomDisplay = `
                         <div class="basket-course-room simple-schedule">
@@ -1696,7 +1726,7 @@ function createBasketCourseItem(courseCode, courseInfo, basketColor, allocations
                                 <i class="fas fa-door-open"></i>
                                 Class Schedule
                             </div>
-                            <div class="basket-course-schedule">${scheduleLines}</div>
+                            ${orderedBlocks}
                         </div>
                     `;
                 } else if (Array.isArray(alloc) && alloc.length > 1) {

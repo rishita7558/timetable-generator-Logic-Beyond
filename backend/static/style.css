@@ -5567,6 +5567,27 @@ body {
     margin-top: 0.4rem;
 }
 
+.basket-course-type-block {
+    margin-top: 0.55rem;
+    padding-top: 0.25rem;
+    border-top: 1px dashed #e2e8f0;
+}
+
+.basket-course-type-block:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+}
+
+.basket-course-type-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #334155;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 0.35rem;
+}
+
 .basket-course-schedule-line {
     display: flex;
     align-items: center;

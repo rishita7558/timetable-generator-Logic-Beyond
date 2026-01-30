@@ -1,1 +1,0 @@
-erministic and avoids cross
