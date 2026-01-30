@@ -2753,18 +2753,27 @@ def format_excel_worksheet(worksheet, course_colors=None, basket_colors=None, is
         worksheet.column_dimensions[column_letter].width = adjusted_width
 
 
-def export_consolidated_semester_timetable(dfs, semester, branch, time_config=None):
+def export_consolidated_semester_timetable(dfs, semester, branch, time_config=None, _reset_for_semester=True):
     """Export ONE consolidated Excel file per semester per branch containing:
     - Regular timetable sheets
     - Pre-mid timetable sheets  
     - Post-mid timetable sheets
     - Legend sheet with course info
+    
+    Args:
+        _reset_for_semester: Set to True for first branch of semester, False for subsequent branches
+                            to ensure common elective rooms are shared across all branches
     """
     
     print(f"\n[CONSOLIDATED] Generating consolidated timetable for Semester {semester}, Branch {branch}...")
     
-    # Reset classroom tracker
-    reset_classroom_usage_tracker()
+    # Reset classroom tracker ONLY for the first branch of this semester
+    # This ensures _GLOBAL_PREFERRED_CLASSROOMS persists across all branches of the same semester
+    if _reset_for_semester:
+        reset_classroom_usage_tracker()
+        global _GLOBAL_PREFERRED_CLASSROOMS
+        _GLOBAL_PREFERRED_CLASSROOMS = {}
+        print(f"[RESET] Cleared global preferred classrooms for new semester {semester}")
     
     # Get course info and generate unique colors
     course_info = get_course_info(dfs) if dfs else {}
@@ -5438,35 +5447,48 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                     is_tutorial = '(Tutorial)' in course_value
                     is_lab = '(Lab)' in course_value
                     
-                    print(f"      [BASKET-ENTRY] {day} {time_slot}: '{course_value}' contains {len(courses_in_basket)} courses")
+                    # Determine session type for common room tracking
+                    session_type = 'Tutorial' if is_tutorial else ('Lab' if is_lab else 'Lecture')
+                    
+                    print(f"      [BASKET-ENTRY] {day} {time_slot}: '{course_value}' contains {len(courses_in_basket)} courses ({session_type})")
                     
                     for course_code in courses_in_basket:
                         # Get enrollment for this course
                         enrollment = course_enrollment.get(course_code, 40)
                         
-                        # Each elective course gets its own appropriate classroom based on enrollment
-                        # Don't force them to share the same room
-                        course_pref_key = f"{course_code}_{day}_{time_slot}"
-                        existing_room = course_preferred_classrooms.get(course_pref_key)
-                        suitable_classroom = None
+                        # CRITICAL: Elective courses in baskets should use COMMON classrooms across all sections
+                        # Use a special key that's section-independent to track common elective rooms
+                        common_elective_key = f"ELECTIVE_COMMON_{course_code}_{session_type}"
                         
-                        if existing_room and room_available(existing_room, day, time_slot):
-                            # Reuse previously assigned room for this course in this slot
-                            suitable_classroom = existing_room
-                            print(f"         [BASKET-REUSE] {course_code} -> {existing_room}")
+                        suitable_classroom = None
+                        existing_common_room = _GLOBAL_PREFERRED_CLASSROOMS.get(common_elective_key)
+                        
+                        if existing_common_room:
+                            # CRITICAL FIX: For electives, FORCEFULLY REUSE the common room
+                            # DO NOT check room_available() because:
+                            # - The room is intentionally "booked" for ALL sections at this time
+                            # - Both sections share one enrollment, so one room suffices
+                            # - All sections of same semester MUST use same classroom
+                            suitable_classroom = existing_common_room
+                            print(f"         [BASKET-COMMON-REUSE] {course_code} ({session_type}) -> {existing_common_room} (ALL sections share this room)")
                         else:
-                            # Allocate a new room based on enrollment
+                            # Allocate a new common room based on enrollment
+                            # For electives, all sections at same time should share the SAME room
                             suitable_classroom = allocate_regular_classroom(
                                 enrollment, day, time_slot, 
-                                is_common_course=False,  # Each course gets its own room
+                                is_common_course=True,  # Electives are COMMON - all sections share one room
                                 is_lab_session=is_lab, 
                                 course_code=course_code
                             )
                             if suitable_classroom:
-                                course_preferred_classrooms[course_pref_key] = suitable_classroom
-                                print(f"         [BASKET-ALLOC] {course_code} -> {suitable_classroom} ({enrollment} students)")
+                                # Store as common room for all sections
+                                _GLOBAL_PREFERRED_CLASSROOMS[common_elective_key] = suitable_classroom
+                                print(f"         [BASKET-COMMON-NEW] {course_code} ({session_type}) -> {suitable_classroom} (NEW common room for all sections)")
                         
                         if suitable_classroom:
+                            # Reserve the room in the tracker
+                            reserve_room(suitable_classroom, day, time_slot)
+                            
                             # Track allocation (but don't update cell display)
                             allocation_key = f"{day}_{time_slot}_{course_code}"
                             _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key] = {
@@ -5474,9 +5496,12 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                 'classroom': suitable_classroom,
                                 'enrollment': enrollment,
                                 'conflict': False,
-                                'basket': basket_name
+                                'basket': basket_name,
+                                'type': session_type
                             }
                             allocation_count += 1
+                        else:
+                            print(f"         [BASKET-WARN] {day} {time_slot}: No classroom available for {course_code} in {basket_name}")
                 
                 # Keep ONLY the basket name in the cell (no classroom info)
                 schedule_with_rooms.loc[time_slot, day] = course_value
@@ -5786,15 +5811,17 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         # Use a special key that's section-independent to track common elective rooms
                         common_elective_key = f"ELECTIVE_COMMON_{individual_course}_{session_type}"
 
-                        # If this course's common room is already established, reuse it only if free
+                        # If this course's common room is already established, reuse it
                         existing_common_room = _GLOBAL_PREFERRED_CLASSROOMS.get(common_elective_key)
 
                         if existing_common_room:
-                            if room_available(existing_common_room, day, time_slot):
-                                individual_classroom = existing_common_room
-                                print(f"        [USING-COMMON] {day} {time_slot}: {individual_course} -> {existing_common_room} (COMMON ELECTIVE - shared across sections)")
-                            else:
-                                print(f"        [COMMON-BUSY] {day} {time_slot}: Preferred common room {existing_common_room} unavailable for {individual_course}; reallocating")
+                            # CRITICAL FIX: For electives, FORCEFULLY REUSE the common room
+                            # DO NOT check room_available() because:
+                            # - The room is intentionally "booked" for ALL sections at this time
+                            # - Both sections share one enrollment, so one room suffices
+                            # - All sections of same semester MUST use same classroom
+                            individual_classroom = existing_common_room
+                            print(f"        [USING-COMMON] {day} {time_slot}: {individual_course} -> {existing_common_room} (COMMON ELECTIVE - shared across sections)")
 
                         if not individual_classroom:
                             # IMPORTANT: Basket elective courses ARE common courses
@@ -9104,12 +9131,14 @@ def upload_files():
         
         # Generate consolidated timetables (one file per branch per semester)
         for sem in target_semesters:
-            for branch in branches:
+            for branch_idx, branch in enumerate(branches):
                 try:
                     print(f"[RESET] Generating consolidated timetable for {branch} Semester {sem}...")
                     
                     # Use consolidated generation
-                    success = export_consolidated_semester_timetable(data_frames, sem, branch)
+                    # Reset only for the first branch of each semester to preserve common elective rooms
+                    reset_for_sem = (branch_idx == 0)
+                    success = export_consolidated_semester_timetable(data_frames, sem, branch, _reset_for_semester=reset_for_sem)
                     
                     filename = f"sem{sem}_{branch}_timetable.xlsx"
                     filepath = os.path.join(OUTPUT_DIR, filename)
