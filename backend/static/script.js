@@ -7,9 +7,10 @@ let currentBranchFilter = 'all';
 let currentTimetableTypeFilter = 'all';
 let uploadedFiles = [];
 let isUploadSectionVisible = false;
-let currentExamTimetables = [];
-let isExamSectionVisible = false;
-let allExamTimetables = [];
+// EXAM VARIABLES - COMMENTED OUT
+// let currentExamTimetables = [];
+// let isExamSectionVisible = false;
+// let allExamTimetables = [];
 let showAllSchedules = false;
 
 // Course information database - will be populated from server data
@@ -190,7 +191,8 @@ function initializeApp() {
     loadStats();
     loadTimetables();
     
-    initializeExamSystem();
+    // initializeExamSystem(); // COMMENTED OUT - EXAM SECTION DISABLED
+    // EXAM SYSTEM INITIALIZATION DISABLED
 
     console.log("✅ Application initialized successfully");
 }
@@ -409,8 +411,9 @@ function updateProcessButton() {
         'course_data.csv',
         'faculty_availability.csv', 
         'classroom_data.csv',
-        'student_data.csv',
-        'exams_data.csv'
+        'student_data.csv'
+        // EXAM DATA - COMMENTED OUT
+        // 'exams_data.csv'
     ];
     
     const hasAllRequired = requiredFiles.every(requiredFile => {
@@ -658,8 +661,9 @@ function debugFileMatchingClient() {
         'course_data.csv',
         'faculty_availability.csv', 
         'classroom_data.csv',
-        'student_data.csv',
-        'exams_data.csv'
+        'student_data.csv'
+        // EXAM DATA - COMMENTED OUT
+        // 'exams_data.csv'
     ];
     
     requiredFiles.forEach(requiredFile => {
@@ -2459,8 +2463,9 @@ function debugFileMatching() {
         'course_data.csv',
         'faculty_availability.csv', 
         'classroom_data.csv',
-        'student_data.csv',
-        'exams_data.csv'
+        'student_data.csv'
+        // EXAM DATA - COMMENTED OUT
+        // 'exams_data.csv'
     ];
     
     requiredFiles.forEach(requiredFile => {
@@ -2931,6 +2936,8 @@ function loadCurrentSettings() {
     if (sidebarEl) sidebarEl.checked = uiConfig.settings.sidebarCollapsed;
 }
 
+// EXAM SYSTEM - COMMENTED OUT
+/*
 function initializeExamSystem() {
     console.log("📝 Initializing exam system...");
     
@@ -4197,6 +4204,7 @@ async function clearAllSchedulesFromDisplay() {
         showNotification('❌ Error clearing schedules from display', 'error');
     }
 }
+*/
 
 // Update the exam view section initialization
 function initializeExamSystem() {
@@ -4870,6 +4878,7 @@ window.debugFileMatching = debugFileMatching;
 window.verifyDataLoad = verifyDataLoad;
 window.clearCache = clearCache;
 window.resetFilters = resetFilters;
-window.downloadExamTimetable = downloadExamTimetable;
-window.printExamTimetable = printExamTimetable;
-window.showExamGenerateSection = showExamGenerateSection;
+// EXAM FUNCTIONS - COMMENTED OUT
+// window.downloadExamTimetable = downloadExamTimetable;
+// window.printExamTimetable = printExamTimetable;
+// window.showExamGenerateSection = showExamGenerateSection;
