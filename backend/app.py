@@ -5427,6 +5427,10 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
         for time_slot in schedule_df.index:
             course_value = schedule_df.loc[time_slot, day]
             
+            # Handle case where .loc returns a Series (duplicate index) - take first value
+            if isinstance(course_value, pd.Series):
+                course_value = course_value.iloc[0] if len(course_value) > 0 else 'Free'
+            
             # Skip free slots, lunch breaks
             if course_value in ['Free', 'LUNCH BREAK']:
                 continue
@@ -5463,23 +5467,24 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         enrollment = course_enrollment.get(course_code, 40)
                         
                         # CRITICAL: Elective courses in baskets should use COMMON classrooms across all sections
-                        # Use a special key that's section-independent to track common elective rooms
-                        common_elective_key = f"ELECTIVE_COMMON_{course_code}_{session_type}"
+                        # Use a key that includes day+time+course+session so:
+                        # 1. Same course at same day/time across sections shares the SAME room (within-semester common)
+                        # 2. Same course at different day/time gets appropriate room for that slot
+                        # 3. Different courses at same day/time get DIFFERENT rooms (cross-semester isolation)
+                        common_elective_key = f"ELECTIVE_COMMON_{day}_{time_slot}_{course_code}_{session_type}"
                         
                         suitable_classroom = None
                         existing_common_room = _GLOBAL_PREFERRED_CLASSROOMS.get(common_elective_key)
                         
                         if existing_common_room:
-                            # CRITICAL FIX: For electives, FORCEFULLY REUSE the common room
-                            # DO NOT check room_available() because:
-                            # - The room is intentionally "booked" for ALL sections at this time
-                            # - Both sections share one enrollment, so one room suffices
-                            # - All sections of same semester MUST use same classroom
+                            # For electives at the SAME day/time/course, reuse the common room
+                            # This ensures all sections of same semester use same classroom
+                            # The room is intentionally shared - both sections attend together
                             suitable_classroom = existing_common_room
-                            print(f"         [BASKET-COMMON-REUSE] {course_code} ({session_type}) -> {existing_common_room} (ALL sections share this room)")
+                            print(f"         [BASKET-COMMON-REUSE] {course_code} ({session_type}) -> {existing_common_room} (ALL sections share this room at {day} {time_slot})")
                         else:
                             # Allocate a new common room based on enrollment
-                            # For electives, all sections at same time should share the SAME room
+                            # This checks _CLASSROOM_USAGE_TRACKER to avoid conflicts with other semesters/baskets
                             suitable_classroom = allocate_regular_classroom(
                                 enrollment, day, time_slot, 
                                 is_common_course=True,  # Electives are COMMON - all sections share one room
@@ -5487,9 +5492,9 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                 course_code=course_code
                             )
                             if suitable_classroom:
-                                # Store as common room for all sections
+                                # Store as common room for all sections at this specific day/time
                                 _GLOBAL_PREFERRED_CLASSROOMS[common_elective_key] = suitable_classroom
-                                print(f"         [BASKET-COMMON-NEW] {course_code} ({session_type}) -> {suitable_classroom} (NEW common room for all sections)")
+                                print(f"         [BASKET-COMMON-NEW] {course_code} ({session_type}) -> {suitable_classroom} (NEW common room for all sections at {day} {time_slot})")
                         
                         if suitable_classroom:
                             # Reserve the room in the tracker
@@ -5505,6 +5510,7 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                 'basket': basket_name,
                                 'type': session_type
                             }
+                            print(f"         [BASKET-STORED] Key: {timetable_key}/{allocation_key} -> {suitable_classroom} for {course_code} ({session_type})")
                             allocation_count += 1
                         else:
                             print(f"         [BASKET-WARN] {day} {time_slot}: No classroom available for {course_code} in {basket_name}")
@@ -5533,11 +5539,11 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                     enrollment = course_enrollment.get(clean_code, 40)
                     
                     # CRITICAL: Each elective course should use the SAME room across all sections (common)
-                    # Use global common room key for electives
+                    # Use global common room key for electives - include day/time to avoid cross-semester conflicts
                     session_type = 'Tutorial' if is_tutorial else ('Lab' if is_lab else 'Lecture')
-                    common_elective_key = f"ELECTIVE_COMMON_{clean_code}_{session_type}"
+                    common_elective_key = f"ELECTIVE_COMMON_{day}_{time_slot}_{clean_code}_{session_type}"
                     
-                    # Check if this course already has a common room allocated
+                    # Check if this course already has a common room allocated at this day/time
                     existing_common_room = _GLOBAL_PREFERRED_CLASSROOMS.get(common_elective_key)
                     suitable_classroom = None
                     
@@ -5569,9 +5575,9 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                 break
                         
                         if suitable_classroom:
-                            # Store as common room for all sections
+                            # Store as common room for all sections at this specific day/time
                             _GLOBAL_PREFERRED_CLASSROOMS[common_elective_key] = suitable_classroom
-                            print(f"        [ESTABLISH-COMMON] {day} {time_slot}: {clean_code} -> {suitable_classroom} (NEW common room for all sections)")
+                            print(f"        [ESTABLISH-COMMON] {day} {time_slot}: {clean_code} -> {suitable_classroom} (NEW common room for all sections at {day} {time_slot})")
                     
                     if suitable_classroom:
                         # Reserve and track
@@ -5814,18 +5820,16 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         
                         # IMPORTANT: For basket elective courses, all sections/branches at same time should use SAME room
                         # Basket courses with same course code should use the SAME room across all sections
-                        # Use a special key that's section-independent to track common elective rooms
-                        common_elective_key = f"ELECTIVE_COMMON_{individual_course}_{session_type}"
+                        # Include day/time in the key to avoid cross-semester conflicts at different time slots
+                        common_elective_key = f"ELECTIVE_COMMON_{day}_{time_slot}_{individual_course}_{session_type}"
 
-                        # If this course's common room is already established, reuse it
+                        # If this course's common room is already established at this day/time, reuse it
                         existing_common_room = _GLOBAL_PREFERRED_CLASSROOMS.get(common_elective_key)
 
                         if existing_common_room:
-                            # CRITICAL FIX: For electives, FORCEFULLY REUSE the common room
-                            # DO NOT check room_available() because:
-                            # - The room is intentionally "booked" for ALL sections at this time
-                            # - Both sections share one enrollment, so one room suffices
-                            # - All sections of same semester MUST use same classroom
+                            # For electives at the SAME day/time/course, reuse the common room
+                            # This ensures all sections of same semester use same classroom
+                            # The room is intentionally shared - both sections attend together
                             individual_classroom = existing_common_room
                             print(f"        [USING-COMMON] {day} {time_slot}: {individual_course} -> {existing_common_room} (COMMON ELECTIVE - shared across sections)")
 
@@ -7987,9 +7991,9 @@ def get_timetables():
         for file_path in excel_files:
             filename = os.path.basename(file_path)
 
-            # Reset trackers per file so allocations don't bleed across timetables
-            # (keeps tests deterministic and avoids cross-file room exhaustion)
-            reset_classroom_usage_tracker()
+            # DO NOT reset trackers per file - we need to track classroom usage ACROSS all semester files
+            # to prevent conflicts like ELECTIVE_B1 (sem1) and ELECTIVE_B6 (sem7) getting the same room
+            # The tracker is already reset once at the start of get_timetables() which is sufficient
             
             # Consolidated files contain Regular/PreMid/PostMid sheets - process Regular sheet
             timetable_type = 'regular'
@@ -8265,6 +8269,16 @@ def get_timetables():
                             if not df_b.empty:
                                 df_b = allocate_classrooms_for_timetable(df_b, classroom_data_df, course_info, sem, branch, 'B', basket_courses_map)
 
+                            # DEBUG: Print what's in _TIMETABLE_CLASSROOM_ALLOCATIONS after allocation
+                            print(f"\n[DEBUG-ALLOC] After allocation for {branch} Sem {sem}:")
+                            for tk, allocs in _TIMETABLE_CLASSROOM_ALLOCATIONS.items():
+                                if f"sem{sem}" in tk and branch in tk:
+                                    print(f"   {tk}: {len(allocs)} allocations")
+                                    basket_allocs = [(k, v) for k, v in allocs.items() if v.get('basket')]
+                                    print(f"   Basket allocations: {len(basket_allocs)}")
+                                    for k, v in list(basket_allocs)[:10]:
+                                        print(f"      {k} -> {v.get('classroom')} ({v.get('basket')}, {v.get('type')})")
+
                             # Build classroom allocation details for UI and verification
                             classroom_allocation_details = normalize_classroom_allocation_records(create_classroom_allocation_detail_with_tracking([df_a, df_b], classroom_data_df, sem, branch).to_dict('records'))
                             has_classroom_allocation = True
@@ -8486,9 +8500,11 @@ def get_timetables():
                     # Build per-basket per-course allocated rooms map for legend display
                     # This consolidates all rooms allocated to each basket course WITH day/time info
                     basket_course_allocations = {}
+                    print(f"   [BASKET-ALLOC] Building basket_course_allocations from {len(classroom_allocation_details or [])} allocation records")
                     try:
                         # Prefer the raw basket map so tests and provided basket sheets always surface their courses
                         source_basket_map = basket_courses_map or {}
+                        print(f"   [BASKET-ALLOC] Processing {len(source_basket_map)} baskets: {list(source_basket_map.keys())}")
                         for basket_name, course_list in source_basket_map.items():
                             try:
                                 basket_course_allocations.setdefault(basket_name, {})
@@ -8532,28 +8548,49 @@ def get_timetables():
                                 # FALLBACK: Try course-by-course extraction from classroom_allocation_details
                                 for course_code in (course_list or []):
                                     room_allocations = []
+                                    print(f"   [BASKET-COURSE] Processing {basket_name} -> {course_code}")
                                     # Collect rooms WITH day/time from classroom_allocation_details
                                     try:
                                         for rec in (classroom_allocation_details or []):
-                                            rec_course = rec.get('course')
+                                            rec_course = rec.get('course') or rec.get('Course')
                                             if not rec_course:
                                                 continue
                                             # Normalize to match base course code (strip session suffixes)
                                             rec_course_clean = str(rec_course).replace(' (Tutorial)', '').replace(' (Lab)', '').strip()
-                                            if rec_course_clean == course_code and rec.get('room'):
+                                            if rec_course_clean == course_code and (rec.get('room') or rec.get('Room Number')):
                                                 # Use session_type from record if available, otherwise infer from course name
-                                                session_type = rec.get('session_type')
+                                                session_type = rec.get('session_type') or rec.get('Session Type')
                                                 if not session_type:
                                                     session_type = 'Tutorial' if ' (Tutorial)' in str(rec_course) else ('Lab' if ' (Lab)' in str(rec_course) else 'Lecture')
+                                                room_val = rec.get('room') or rec.get('Room Number')
+                                                day_val = rec.get('day') or rec.get('Day', '')
+                                                time_val = rec.get('time_slot') or rec.get('time') or rec.get('Time Slot', '')
+                                                
+                                                # Skip entries where day or time contains basket keywords (invalid entries from header rows)
+                                                day_upper = str(day_val).upper()
+                                                time_upper = str(time_val).upper()
+                                                if 'ELECTIVE' in day_upper or 'ELECTIVE' in time_upper or 'HSS_' in day_upper or 'HSS_' in time_upper:
+                                                    continue
+                                                # Skip entries with empty day/time
+                                                if not day_val or not time_val:
+                                                    continue
+                                                    
+                                                print(f"   [BASKET-MATCH] Found {rec_course} -> {room_val} on {day_val} at {time_val} ({session_type})")
                                                 room_allocations.append({
-                                                    'room': str(rec.get('room')).strip(),
-                                                    'day': rec.get('day') or rec.get('Day', ''),
-                                                    'time': rec.get('time_slot') or rec.get('Time Slot', ''),
+                                                    'room': str(room_val).strip(),
+                                                    'day': day_val,
+                                                    'time': time_val,
                                                     'type': session_type
                                                 })
-                                    except Exception:
+                                    except Exception as e:
+                                        print(f"   [BASKET-ERR] Error extracting from classroom_allocation_details for {course_code}: {e}")
                                         pass
 
+                                    if room_allocations:
+                                        print(f"   [BASKET-SUCCESS] {basket_name} -> {course_code}: {len(room_allocations)} allocations from classroom_allocation_details")
+                                    else:
+                                        print(f"   [BASKET-FALLBACK] {basket_name} -> {course_code}: No allocations from classroom_allocation_details, trying _TIMETABLE_CLASSROOM_ALLOCATIONS")
+                                    
                                     # Fallback: collect rooms from internal tracker if details missing
                                     if not room_allocations and branch and sem:
                                         try:
@@ -8570,6 +8607,16 @@ def get_timetables():
                                                         parts = key.split('_')
                                                         day = parts[0] if len(parts) > 0 else ''
                                                         time = parts[1] if len(parts) > 1 else ''
+                                                        
+                                                        # Skip entries where day or time contains basket keywords (invalid entries)
+                                                        day_upper = str(day).upper()
+                                                        time_upper = str(time).upper()
+                                                        if 'ELECTIVE' in day_upper or 'ELECTIVE' in time_upper or 'HSS_' in day_upper or 'HSS_' in time_upper:
+                                                            continue
+                                                        # Skip entries with empty day/time
+                                                        if not day or not time:
+                                                            continue
+                                                        
                                                         # Use session_type from alloc if available, otherwise infer from course name
                                                         session_type = alloc.get('type')
                                                         if not session_type:
@@ -8585,9 +8632,19 @@ def get_timetables():
 
                                     # Deduplicate room allocations - for common courses, keep only one allocation per day+time
                                     # (Common courses use the same room for both sections, but might appear twice in records)
+                                    # Also filter out invalid allocations where day/time contains basket names
+                                    basket_keywords = ['ELECTIVE_', 'HSS_', 'PROF_', 'OE_', 'ELECTIVE']
                                     seen_slots = set()
                                     unique_allocations = []
                                     for alloc in room_allocations:
+                                        day_str = str(alloc.get('day', '')).upper()
+                                        time_str = str(alloc.get('time', '')).upper()
+                                        # Skip allocations where day or time contains basket keywords (invalid entries)
+                                        if any(kw in day_str or kw in time_str for kw in basket_keywords):
+                                            continue
+                                        # Skip allocations with empty or invalid day/time
+                                        if not alloc.get('day') or not alloc.get('time'):
+                                            continue
                                         slot_key = (alloc['day'], alloc['time'])
                                         if slot_key not in seen_slots:
                                             seen_slots.add(slot_key)
@@ -8595,6 +8652,12 @@ def get_timetables():
                                 
                                     # Store with full details; set None if no allocation found
                                     basket_course_allocations[basket_name][course_code] = unique_allocations if unique_allocations else None
+                                    if unique_allocations:
+                                        print(f"   [BASKET-SUCCESS] {basket_name} -> {course_code}: {len(unique_allocations)} allocations")
+                                        for alloc in unique_allocations:
+                                            print(f"      {alloc['room']} on {alloc['day']} at {alloc['time']} ({alloc['type']})")
+                                    else:
+                                        print(f"   [BASKET-WARN] {basket_name} -> {course_code}: NO allocations found")
                             except Exception:
                                 # Ensure basket key exists even if an error occurs
                                 basket_course_allocations.setdefault(basket_name, {})
