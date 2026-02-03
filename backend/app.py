@@ -3438,7 +3438,7 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
         title_cell.fill = title_fill
         title_cell.font = title_font
         title_cell.alignment = Alignment(horizontal='center', vertical='center')
-        course_info_ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=5)
+        course_info_ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=6)
         course_info_ws.row_dimensions[1].height = 25
 
         current_row = 3
@@ -3460,11 +3460,11 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
             section_cell.fill = section_fill
             section_cell.font = section_font
             section_cell.alignment = Alignment(horizontal='left', vertical='center')
-            course_info_ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=5)
+            course_info_ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
             current_row += 1
 
             # Headers
-            headers = ['Course Code', 'Course Name', 'L-T-P-S-C', 'Term Type', 'Display Format']
+            headers = ['Course Code', 'Course Name', 'L-T-P-S-C', 'Term Type', 'Faculty', 'Display Format']
             for col_idx, header in enumerate(headers, start=1):
                 cell = course_info_ws.cell(row=current_row, column=col_idx, value=header)
                 cell.fill = header_fill
@@ -3479,6 +3479,7 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                 ltpsc = info.get('ltpsc', 'N/A')
                 term_type = info.get('term_type', 'Full Sem')
                 course_name = info.get('name', 'N/A')
+                faculty = info.get('instructor', 'N/A')
                 # Display format like on website: "CODE (L-T-P-S-C | Term)"
                 display_format = f"{course_code} ({ltpsc} | {term_type})" if ltpsc != 'N/A' else f"{course_code} ({term_type})"
 
@@ -3487,6 +3488,7 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                     course_name,
                     ltpsc,
                     term_type,
+                    faculty,
                     display_format
                 ]
                 for col_idx, value in enumerate(row_data, start=1):
@@ -3503,11 +3505,11 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
             section_cell.fill = section_fill
             section_cell.font = section_font
             section_cell.alignment = Alignment(horizontal='left', vertical='center')
-            course_info_ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=5)
+            course_info_ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
             current_row += 1
 
             # Headers
-            headers = ['Course Code', 'Course Name', 'L-T-P-S-C', 'Basket', 'Display Format']
+            headers = ['Course Code', 'Course Name', 'L-T-P-S-C', 'Basket', 'Faculty', 'Display Format']
             for col_idx, header in enumerate(headers, start=1):
                 cell = course_info_ws.cell(row=current_row, column=col_idx, value=header)
                 cell.fill = header_fill
@@ -3521,6 +3523,7 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                 info = course_info.get(course_code, {})
                 ltpsc = info.get('ltpsc', 'N/A')
                 course_name = info.get('name', 'N/A')
+                faculty = info.get('instructor', 'N/A')
                 # Get basket name from basket_allocations; fallback to course dataframe if missing
                 basket = 'Unknown'
                 for basket_name, basket_info in (basket_allocations or {}).items():
@@ -3545,6 +3548,7 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                     course_name,
                     ltpsc,
                     basket,
+                    faculty,
                     display_format
                 ]
                 for col_idx, value in enumerate(row_data, start=1):
@@ -3561,11 +3565,11 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
             section_cell.fill = section_fill
             section_cell.font = section_font
             section_cell.alignment = Alignment(horizontal='left', vertical='center')
-            course_info_ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=5)
+            course_info_ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
             current_row += 1
 
             # Headers
-            headers = ['Course Code', 'Course Name', 'L-T-P-S-C', 'Term Type', 'Display Format']
+            headers = ['Course Code', 'Course Name', 'L-T-P-S-C', 'Term Type', 'Faculty', 'Display Format']
             for col_idx, header in enumerate(headers, start=1):
                 cell = course_info_ws.cell(row=current_row, column=col_idx, value=header)
                 cell.fill = header_fill
@@ -3580,6 +3584,7 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                 ltpsc = info.get('ltpsc', 'N/A')
                 term_type = info.get('term_type', 'Full Sem')
                 course_name = info.get('name', 'N/A')
+                faculty = info.get('instructor', 'N/A')
                 display_format = f"{course_code} ({ltpsc} | {term_type})" if ltpsc != 'N/A' else f"{course_code} ({term_type})"
 
                 row_data = [
@@ -3587,6 +3592,7 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                     course_name,
                     ltpsc,
                     term_type,
+                    faculty,
                     display_format
                 ]
                 for col_idx, value in enumerate(row_data, start=1):
@@ -3600,7 +3606,8 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
         course_info_ws.column_dimensions['B'].width = 40
         course_info_ws.column_dimensions['C'].width = 12
         course_info_ws.column_dimensions['D'].width = 20
-        course_info_ws.column_dimensions['E'].width = 35
+        course_info_ws.column_dimensions['E'].width = 25  # Faculty column
+        course_info_ws.column_dimensions['F'].width = 35  # Display Format column
 
         wb.save(filepath)
         print(f"[OK] Consolidated timetable saved: {filename}")
