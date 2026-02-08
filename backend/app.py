@@ -78,6 +78,10 @@ _FACULTY_SCHEDULE_TRACKER = {}
 # Structure: { classroom_id: { (day, time_slot): { course_code, faculty, semester, branch, section } } }
 _CLASSROOM_SCHEDULE_TRACKER = {}
 
+# Track minor course slots for audit purposes (minors have no faculty)
+# Structure: { (day, time_slot, semester): { minor_name, classroom, branch, section, schedule_type } }
+_MINOR_SCHEDULE_TRACKER = {}
+
 def normalize_time_slot_label(val):
     """Convert numeric or short labels to canonical time slot strings."""
     try:
@@ -300,7 +304,7 @@ def normalize_faculty_name(name):
 def reset_classroom_usage_tracker():
     """Reset the classroom usage tracker (call before generating new timetables)"""
     global _CLASSROOM_USAGE_TRACKER, _TIMETABLE_CLASSROOM_ALLOCATIONS, _COMMON_COURSE_SCHEDULE, _COMMON_COURSE_ROOMS, _LAB_ROOM_ALLOCATIONS
-    global _FACULTY_SCHEDULE_TRACKER, _CLASSROOM_SCHEDULE_TRACKER, _FACULTY_BOOKING_TRACKER
+    global _FACULTY_SCHEDULE_TRACKER, _CLASSROOM_SCHEDULE_TRACKER, _FACULTY_BOOKING_TRACKER, _MINOR_SCHEDULE_TRACKER
     _CLASSROOM_USAGE_TRACKER = {}
     _TIMETABLE_CLASSROOM_ALLOCATIONS = {}
     _COMMON_COURSE_SCHEDULE = {}
@@ -309,6 +313,7 @@ def reset_classroom_usage_tracker():
     _FACULTY_SCHEDULE_TRACKER = {}
     _CLASSROOM_SCHEDULE_TRACKER = {}
     _FACULTY_BOOKING_TRACKER = {}  # Reset faculty booking tracker
+    _MINOR_SCHEDULE_TRACKER = {}  # Reset minor schedule tracker
     initialize_classroom_usage_tracker()
     print("[RESET] Classroom usage tracker, faculty booking tracker, and audit trackers reset for new timetable generation")
 
@@ -439,9 +444,10 @@ def get_course_faculty_list(course, course_info_map=None, section=None, branch=N
     faculty_list = [normalize_faculty_name(f.strip()) for f in faculty_str.split(',')]
     faculty_list = [f for f in faculty_list if f and f.lower() not in ['unknown', 'n/a', 'na', '']]
     
-    # SPECIAL HANDLING: For CSE courses with exactly 2 faculty, assign by section
+    # SPECIAL HANDLING: For CSE courses with 2 or more faculty, assign by section
     # 1st faculty -> Section A, 2nd faculty -> Section B
-    if branch == 'CSE' and len(faculty_list) == 2 and section in ['A', 'B']:
+    # If 3+ faculty names, ignore all beyond the 2nd
+    if branch == 'CSE' and len(faculty_list) >= 2 and section in ['A', 'B']:
         if section == 'A':
             return [faculty_list[0]]  # First faculty teaches Section A
         else:  # section == 'B'
@@ -634,22 +640,37 @@ def populate_audit_trackers_from_timetables(dfs, output_dir):
                             # Handle basket entries
                             is_basket = any(kw in clean_code.upper() for kw in ['ELECTIVE_', 'HSS_', 'PROF_', 'OE_'])
                             
-                            if not course_code and not is_basket:
+                            # Handle MINOR entries (format: "MINOR: CourseName" or just "MINOR")
+                            is_minor = clean_code.upper().startswith('MINOR')
+                            
+                            if not course_code and not is_basket and not is_minor:
                                 # Skip if we can't identify the course
                                 continue
                             
                             # Look up course info to get faculty and course name
-                            if course_code:
-                                info = course_info.get(course_code, course_info.get(f"{course_code}_{branch}", {}))
+                            if is_minor:
+                                # Minor courses - extract the minor name and track as minor slot
+                                if ':' in clean_code:
+                                    minor_name = clean_code.split(':', 1)[1].strip()
+                                else:
+                                    minor_name = clean_code
+                                course_code = f"MINOR_{minor_name.replace(' ', '_')}"
+                                course_name = minor_name
+                                faculty_raw = ''  # Minor courses don't have assigned faculty
+                                print(f"[AUDIT MINOR] {day} {time_slot}: Detected minor slot '{minor_name}' in {branch} Sem {semester} ({schedule_type})")
+                            elif course_code:
+                                # FIXED: Look up branch-specific key FIRST, then fallback to generic
+                                info = course_info.get(f"{course_code}_{branch}", course_info.get(course_code, {}))
                                 course_name = info.get('name', '')
                                 faculty_raw = info.get('instructor', '')
                                 
                                 # CSE SECTION-SPECIFIC FIX: For CSE courses with multiple faculty,
                                 # 1st faculty is for Section A, 2nd faculty is for Section B
+                                # If 3+ faculty, ignore all beyond the 2nd
                                 # Only track the faculty for the current section
                                 if branch == 'CSE' and section in ['A', 'B'] and faculty_raw:
                                     faculty_list = [f.strip() for f in faculty_raw.split(',') if f.strip()]
-                                    if len(faculty_list) == 2:
+                                    if len(faculty_list) >= 2:
                                         # Section A gets first faculty, Section B gets second
                                         if section == 'A':
                                             faculty_raw = faculty_list[0]
@@ -1133,6 +1154,7 @@ def generate_classroom_audit_file(dfs, output_dir):
                             # Check for CONFLICTS - multiple entries with DIFFERENT courses at same slot
                             # within the SAME schedule period (Pre-Mid or Post-Mid)
                             # Group entries by period to detect real conflicts
+                            # NOTE: Common courses (same course code, different sections) are NOT conflicts
                             entries_by_period = {}
                             for entry in matching_entries:
                                 sem_info = entry.get('semester', '')
@@ -1148,11 +1170,23 @@ def generate_classroom_audit_file(dfs, output_dir):
                                 entries_by_period[period_key].append(entry)
                             
                             # Check for double-booking within each period
+                            # A conflict is when we have DIFFERENT courses (by code) in the same period
+                            # Same course code in different sections is NOT a conflict (common course sharing room)
                             is_conflict = False
                             conflict_courses = []
                             conflict_periods = []
                             for period_key, period_entries in entries_by_period.items():
-                                unique_courses_in_period = set(e.get('course_code', '') for e in period_entries if e.get('course_code'))
+                                # Get unique course codes in this period (normalize to base code)
+                                unique_courses_in_period = set()
+                                for e in period_entries:
+                                    course_code = e.get('course_code', '')
+                                    if course_code:
+                                        # Normalize: Remove MINOR_ prefix variations, get base code
+                                        base_code = course_code.split('_')[0] if course_code.startswith('MINOR_') else course_code
+                                        unique_courses_in_period.add(base_code)
+                                
+                                # Only flag as conflict if we have truly different courses
+                                # (more than 1 unique course code in the same period)
                                 if len(unique_courses_in_period) > 1:
                                     is_conflict = True
                                     conflict_courses.extend(unique_courses_in_period)
