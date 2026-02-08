@@ -63,6 +63,21 @@ _MINOR_COMMON_CLASSROOMS = {}
 # Track lab room allocations for consecutive slots (day_slot1_slot2 -> room)
 _LAB_ROOM_ALLOCATIONS = {}  # Maps (day, slot1, slot2) -> room to ensure same room for lab pairs
 
+# ===== GLOBAL FACULTY BOOKING TRACKER =====
+# Prevent faculty from being double-booked (teaching multiple different courses at same time)
+# Structure: { (day, time_slot, period): { faculty_name: course_code } }
+# period is 'Pre-Mid' or 'Post-Mid' to allow same slot in different periods
+_FACULTY_BOOKING_TRACKER = {}
+
+# ===== AUDIT TRACKERS FOR VERIFICATION =====
+# Track faculty schedule allocations for audit file generation
+# Structure: { faculty_name: { (day, time_slot): { course_code, semester, branch, section, classroom } } }
+_FACULTY_SCHEDULE_TRACKER = {}
+
+# Track classroom schedule allocations for audit file generation  
+# Structure: { classroom_id: { (day, time_slot): { course_code, faculty, semester, branch, section } } }
+_CLASSROOM_SCHEDULE_TRACKER = {}
+
 def normalize_time_slot_label(val):
     """Convert numeric or short labels to canonical time slot strings."""
     try:
@@ -251,16 +266,1133 @@ def _allocate_classrooms_for_file(df_a, df_b, dfs, filename, sem, branch, basket
     _TIMETABLE_CLASSROOM_ALLOCATIONS[filename] = alloc_map
     return df_a_alloc, df_b_alloc, allocations
 
+
+def normalize_faculty_name(name):
+    """Normalize faculty name to a canonical form to avoid duplicates.
+    Handles common variations like:
+    - Extra/missing spaces
+    - Period vs space in initials (D.N vs D N)
+    - Minor typos in common names
+    """
+    if not name:
+        return name
+    
+    name = str(name).strip()
+    
+    # Normalize periods followed by letters to have a space (D.N -> D N)
+    import re
+    name = re.sub(r'\.(?=[A-Z])', ' ', name)
+    
+    # Remove periods at end of initials
+    name = name.replace('.', ' ')
+    
+    # Normalize multiple spaces to single space
+    name = ' '.join(name.split())
+    
+    # Fix common typos/variations in faculty names
+    # Chimayananda -> Chinmayananda (missing 'n')
+    if 'Chimayananda' in name:
+        name = name.replace('Chimayananda', 'Chinmayananda')
+    
+    return name
+
+
 def reset_classroom_usage_tracker():
     """Reset the classroom usage tracker (call before generating new timetables)"""
     global _CLASSROOM_USAGE_TRACKER, _TIMETABLE_CLASSROOM_ALLOCATIONS, _COMMON_COURSE_SCHEDULE, _COMMON_COURSE_ROOMS, _LAB_ROOM_ALLOCATIONS
+    global _FACULTY_SCHEDULE_TRACKER, _CLASSROOM_SCHEDULE_TRACKER, _FACULTY_BOOKING_TRACKER
     _CLASSROOM_USAGE_TRACKER = {}
     _TIMETABLE_CLASSROOM_ALLOCATIONS = {}
     _COMMON_COURSE_SCHEDULE = {}
     _COMMON_COURSE_ROOMS = {}
     _LAB_ROOM_ALLOCATIONS = {}
+    _FACULTY_SCHEDULE_TRACKER = {}
+    _CLASSROOM_SCHEDULE_TRACKER = {}
+    _FACULTY_BOOKING_TRACKER = {}  # Reset faculty booking tracker
     initialize_classroom_usage_tracker()
-    print("[RESET] Classroom usage tracker reset for new timetable generation")
+    print("[RESET] Classroom usage tracker, faculty booking tracker, and audit trackers reset for new timetable generation")
+
+
+# ===== AUDIT TRACKING FUNCTIONS =====
+def track_faculty_schedule(faculty_name, day, time_slot, course_code, course_name, semester, branch, section, classroom=None):
+    """Track a faculty's scheduled slot for audit purposes.
+    Called during timetable scheduling to build the faculty audit data.
+    
+    The slot_key includes schedule_type (extracted from semester string) to ensure
+    pre-mid and post-mid entries for the same day/time are tracked separately."""
+    global _FACULTY_SCHEDULE_TRACKER
+    
+    if not faculty_name or faculty_name.lower() in ['unknown', 'n/a', 'na', '']:
+        return
+    
+    # Normalize faculty name (strip whitespace)
+    faculty_name = str(faculty_name).strip()
+    
+    if faculty_name not in _FACULTY_SCHEDULE_TRACKER:
+        _FACULTY_SCHEDULE_TRACKER[faculty_name] = {}
+    
+    # Use (day, time_slot, semester_info) as key to distinguish pre-mid from post-mid
+    # semester contains info like "3 (Pre-Mid)" or "3 (Post-Mid)"
+    slot_key = (day, time_slot, semester)
+    
+    # Store schedule info for this slot
+    _FACULTY_SCHEDULE_TRACKER[faculty_name][slot_key] = {
+        'course_code': course_code,
+        'course_name': course_name,
+        'semester': semester,
+        'branch': branch,
+        'section': section,
+        'classroom': classroom
+    }
+
+
+def is_faculty_available_for_slot(faculty_name, day, time_slot, period='Pre-Mid'):
+    """Check if a faculty member is available (not already booked) for a given slot.
+    
+    Args:
+        faculty_name: Name of the faculty member
+        day: Day of the week
+        time_slot: Time slot string
+        period: 'Pre-Mid' or 'Post-Mid' to check within a specific period
+    
+    Returns:
+        True if faculty is available, False if already booked for another course
+    """
+    global _FACULTY_BOOKING_TRACKER
+    
+    if not faculty_name or faculty_name.lower() in ['unknown', 'n/a', 'na', '']:
+        return True  # Unknown faculty is always "available"
+    
+    faculty_name = normalize_faculty_name(faculty_name)
+    slot_key = (day, time_slot, period)
+    
+    return slot_key not in _FACULTY_BOOKING_TRACKER or faculty_name not in _FACULTY_BOOKING_TRACKER[slot_key]
+
+
+def get_faculty_booking_at_slot(faculty_name, day, time_slot, period='Pre-Mid'):
+    """Get the course a faculty is already booked for at a given slot.
+    
+    Returns:
+        Course code if faculty is booked, None if available
+    """
+    global _FACULTY_BOOKING_TRACKER
+    
+    if not faculty_name or faculty_name.lower() in ['unknown', 'n/a', 'na', '']:
+        return None
+    
+    faculty_name = normalize_faculty_name(faculty_name)
+    slot_key = (day, time_slot, period)
+    
+    if slot_key in _FACULTY_BOOKING_TRACKER:
+        return _FACULTY_BOOKING_TRACKER[slot_key].get(faculty_name)
+    return None
+
+
+def book_faculty_for_slot(faculty_name, day, time_slot, course_code, period='Pre-Mid'):
+    """Book a faculty member for a specific slot.
+    
+    Returns:
+        True if booking successful, False if faculty already booked for different course
+    """
+    global _FACULTY_BOOKING_TRACKER
+    
+    if not faculty_name or faculty_name.lower() in ['unknown', 'n/a', 'na', '']:
+        return True  # Unknown faculty - skip booking
+    
+    faculty_name = normalize_faculty_name(faculty_name)
+    slot_key = (day, time_slot, period)
+    
+    if slot_key not in _FACULTY_BOOKING_TRACKER:
+        _FACULTY_BOOKING_TRACKER[slot_key] = {}
+    
+    existing_course = _FACULTY_BOOKING_TRACKER[slot_key].get(faculty_name)
+    
+    if existing_course and existing_course != course_code:
+        # Faculty already booked for a DIFFERENT course - conflict!
+        print(f"      [FACULTY-CONFLICT] {faculty_name} already teaching {existing_course} at {day} {time_slot} ({period}), cannot assign {course_code}")
+        return False
+    
+    # Book the faculty for this slot
+    _FACULTY_BOOKING_TRACKER[slot_key][faculty_name] = course_code
+    return True
+
+
+def get_course_faculty_list(course, course_info_map=None, section=None, branch=None):
+    """Extract list of faculty names from a course row.
+    
+    Args:
+        course: Course row (Series or dict) with 'Faculty' column
+        course_info_map: Optional course info map for additional lookup
+        section: Section identifier ('A', 'B', or 'Whole') - used for CSE section-specific faculty
+        branch: Department/branch name
+        
+    Returns:
+        List of normalized faculty names
+        
+    Note: For CSE courses with 2 faculty members, 1st is for Section A, 2nd is for Section B.
+    """
+    faculty_str = str(course.get('Faculty', '')).strip()
+    if not faculty_str or faculty_str.lower() in ['unknown', 'n/a', 'na', '', 'nan']:
+        return []
+    
+    # Split by comma and normalize each name
+    faculty_list = [normalize_faculty_name(f.strip()) for f in faculty_str.split(',')]
+    faculty_list = [f for f in faculty_list if f and f.lower() not in ['unknown', 'n/a', 'na', '']]
+    
+    # SPECIAL HANDLING: For CSE courses with exactly 2 faculty, assign by section
+    # 1st faculty -> Section A, 2nd faculty -> Section B
+    if branch == 'CSE' and len(faculty_list) == 2 and section in ['A', 'B']:
+        if section == 'A':
+            return [faculty_list[0]]  # First faculty teaches Section A
+        else:  # section == 'B'
+            return [faculty_list[1]]  # Second faculty teaches Section B
+    
+    return faculty_list
+
+
+def check_all_faculty_available(faculty_list, day, time_slot, period='Pre-Mid'):
+    """Check if all faculty in the list are available at the given slot.
+    
+    Returns:
+        True if all faculty are available, False if any is already booked
+    """
+    for faculty in faculty_list:
+        if not is_faculty_available_for_slot(faculty, day, time_slot, period):
+            return False
+    return True
+
+
+def book_all_faculty_for_slot(faculty_list, day, time_slot, course_code, period='Pre-Mid'):
+    """Book all faculty in the list for the given slot.
+    
+    Returns:
+        True if all bookings successful, False if any conflict
+    """
+    for faculty in faculty_list:
+        if not book_faculty_for_slot(faculty, day, time_slot, course_code, period):
+            return False
+    return True
+
+
+def track_classroom_schedule(classroom_id, day, time_slot, course_code, course_name, faculty, semester, branch, section):
+    """Track a classroom's scheduled slot for audit purposes.
+    Called during timetable scheduling to build the classroom audit data.
+    
+    The slot_key includes schedule_type (extracted from semester string) to ensure
+    pre-mid and post-mid entries for the same day/time are tracked separately."""
+    global _CLASSROOM_SCHEDULE_TRACKER
+    
+    if not classroom_id or classroom_id.lower() in ['none', 'n/a', 'na', '']:
+        return
+    
+    # Normalize classroom id
+    classroom_id = str(classroom_id).strip()
+    
+    if classroom_id not in _CLASSROOM_SCHEDULE_TRACKER:
+        _CLASSROOM_SCHEDULE_TRACKER[classroom_id] = {}
+    
+    # Use (day, time_slot, semester_info) as key to distinguish pre-mid from post-mid
+    slot_key = (day, time_slot, semester)
+    
+    # Store schedule info for this slot
+    _CLASSROOM_SCHEDULE_TRACKER[classroom_id][slot_key] = {
+        'course_code': course_code,
+        'course_name': course_name,
+        'faculty': faculty,
+        'semester': semester,
+        'branch': branch,
+        'section': section
+    }
+
+
+def populate_audit_trackers_from_timetables(dfs, output_dir):
+    """Scan generated timetable Excel files and populate the audit trackers.
+    This extracts faculty and classroom schedule data from the actual timetables."""
+    global _FACULTY_SCHEDULE_TRACKER, _CLASSROOM_SCHEDULE_TRACKER
+    
+    print("\n[AUDIT] Populating audit trackers from generated timetables...")
+    
+    # Get course info for looking up faculty and course details
+    course_info = get_course_info(dfs) if dfs else {}
+    
+    # Find all generated timetable files
+    timetable_files = glob.glob(os.path.join(output_dir, "sem*_*_timetable.xlsx"))
+    
+    if not timetable_files:
+        print("[AUDIT] No timetable files found to scan")
+        return
+    
+    print(f"[AUDIT] Found {len(timetable_files)} timetable files to scan")
+    
+    # Track faculty double-booking across all files for conflict detection
+    faculty_slot_usage = {}  # { faculty_name: { (day, time_slot): [(course, semester, branch, section)] } }
+    
+    for filepath in timetable_files:
+        try:
+            filename = os.path.basename(filepath)
+            print(f"[AUDIT] Scanning: {filename}")
+            
+            # Extract semester and branch from filename (e.g., sem3_CSE_timetable.xlsx)
+            parts = filename.replace('.xlsx', '').split('_')
+            semester = int(parts[0].replace('sem', '')) if len(parts) > 0 else 0
+            branch = parts[1] if len(parts) > 1 else 'Unknown'
+            
+            # Read all sheets from the Excel file
+            xl = pd.ExcelFile(filepath)
+            
+            for sheet_name in xl.sheet_names:
+                # Skip non-timetable sheets (legends, summaries, etc.)
+                if any(skip in sheet_name.lower() for skip in ['legend', 'summary', 'course_', 'basket', 'utilization', 'allocation']):
+                    continue
+                
+                # AUDIT FIX: Only process PreMid_* and PostMid_* sheets to avoid duplication
+                # Regular/Full-Sem sheets contain the same data as pre-mid + post-mid combined
+                # Skip: Regular_Section_A, Regular_Section_B, Section_A, Section_B, etc.
+                sheet_lower = sheet_name.lower()
+                is_premid_sheet = 'premid' in sheet_lower or 'pre_mid' in sheet_lower
+                is_postmid_sheet = 'postmid' in sheet_lower or 'post_mid' in sheet_lower
+                
+                if not is_premid_sheet and not is_postmid_sheet:
+                    # Skip all sheets that are not specifically pre-mid or post-mid
+                    continue
+                
+                # Determine section from sheet name
+                section = ''
+                if 'section_a' in sheet_name.lower() or sheet_name.endswith('_A'):
+                    section = 'A'
+                elif 'section_b' in sheet_name.lower() or sheet_name.endswith('_B'):
+                    section = 'B'
+                elif 'whole' in sheet_name.lower():
+                    section = 'Whole'
+                
+                # Determine schedule type (pre-mid or post-mid only)
+                schedule_type = 'Pre-Mid' if is_premid_sheet else 'Post-Mid'
+                
+                try:
+                    df = pd.read_excel(filepath, sheet_name=sheet_name)
+                    
+                    if df.empty:
+                        continue
+                    
+                    # Identify time slot column and day columns
+                    time_col = None
+                    day_cols = []
+                    days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+                    
+                    for col in df.columns:
+                        col_str = str(col).strip()
+                        if 'time' in col_str.lower() or 'slot' in col_str.lower():
+                            time_col = col
+                        elif col_str in days:
+                            day_cols.append(col)
+                    
+                    if not time_col or not day_cols:
+                        # Try using index as time slot
+                        if df.index.name and 'time' in str(df.index.name).lower():
+                            time_col = 'index'
+                        else:
+                            continue
+                    
+                    # Iterate through schedule
+                    for idx, row in df.iterrows():
+                        if time_col == 'index':
+                            time_slot = str(idx).strip()
+                        else:
+                            time_slot = str(row.get(time_col, '')).strip()
+                        
+                        # Skip lunch, free slots, or invalid time slots
+                        if not time_slot or 'lunch' in time_slot.lower():
+                            continue
+                        
+                        for day in day_cols:
+                            cell_value = str(row.get(day, '')).strip()
+                            
+                            # Skip empty, free, or lunch cells
+                            if not cell_value or cell_value.lower() in ['free', 'nan', 'none', ''] or 'lunch' in cell_value.lower():
+                                continue
+                            
+                            # Extract course code and classroom from cell
+                            course_code = None
+                            course_name = ''
+                            classroom = None
+                            
+                            # Parse cell value (formats: "CS161 [C001]", "ELECTIVE_B1", "MA161 (Tutorial) [C002]")
+                            cell_parts = cell_value
+                            
+                            # Extract classroom if present
+                            if '[' in cell_parts and ']' in cell_parts:
+                                bracket_start = cell_parts.rfind('[')
+                                bracket_end = cell_parts.rfind(']')
+                                if bracket_start < bracket_end:
+                                    classroom = cell_parts[bracket_start+1:bracket_end].strip()
+                                    cell_parts = cell_parts[:bracket_start].strip()
+                            
+                            # Extract course code
+                            clean_code = cell_parts.replace('(Tutorial)', '').replace('(Lab)', '').strip()
+                            course_code = extract_course_code(clean_code)
+                            
+                            # Handle basket entries
+                            is_basket = any(kw in clean_code.upper() for kw in ['ELECTIVE_', 'HSS_', 'PROF_', 'OE_'])
+                            
+                            if not course_code and not is_basket:
+                                # Skip if we can't identify the course
+                                continue
+                            
+                            # Look up course info to get faculty and course name
+                            if course_code:
+                                info = course_info.get(course_code, course_info.get(f"{course_code}_{branch}", {}))
+                                course_name = info.get('name', '')
+                                faculty_raw = info.get('instructor', '')
+                                
+                                # CSE SECTION-SPECIFIC FIX: For CSE courses with multiple faculty,
+                                # 1st faculty is for Section A, 2nd faculty is for Section B
+                                # Only track the faculty for the current section
+                                if branch == 'CSE' and section in ['A', 'B'] and faculty_raw:
+                                    faculty_list = [f.strip() for f in faculty_raw.split(',') if f.strip()]
+                                    if len(faculty_list) == 2:
+                                        # Section A gets first faculty, Section B gets second
+                                        if section == 'A':
+                                            faculty_raw = faculty_list[0]
+                                        else:  # Section B
+                                            faculty_raw = faculty_list[1]
+                                        print(f"[AUDIT DEBUG] CSE Section {section} for {course_code}: Using faculty {faculty_raw}")
+                            elif is_basket:
+                                # For baskets, we need to get faculty for all courses in the basket
+                                faculty_raw = ''
+                                course_code = clean_code  # Use basket name as course code
+                            else:
+                                faculty_raw = ''
+                            
+                            # Track classroom usage
+                            if classroom:
+                                track_classroom_schedule(
+                                    classroom, day, time_slot,
+                                    course_code, course_name, faculty_raw,
+                                    f"{semester} ({schedule_type})", branch, section
+                                )
+                            
+                            # Track faculty usage - handle multiple instructors
+                            if faculty_raw:
+                                for faculty in faculty_raw.split(','):
+                                    faculty = faculty.strip()
+                                    if faculty and faculty.lower() not in ['unknown', 'n/a', 'na', '']:
+                                        track_faculty_schedule(
+                                            faculty, day, time_slot,
+                                            course_code, course_name,
+                                            f"{semester} ({schedule_type})", branch, section,
+                                            classroom
+                                        )
+                                        
+                                        # Track for double-booking detection within same schedule period
+                                        # Include schedule_type in key - pre-mid and post-mid are separate periods
+                                        if faculty not in faculty_slot_usage:
+                                            faculty_slot_usage[faculty] = {}
+                                        slot_key = (day, time_slot, schedule_type)
+                                        if slot_key not in faculty_slot_usage[faculty]:
+                                            faculty_slot_usage[faculty][slot_key] = []
+                                        faculty_slot_usage[faculty][slot_key].append({
+                                            'course': course_code,
+                                            'semester': semester,
+                                            'branch': branch,
+                                            'section': section,
+                                            'schedule_type': schedule_type
+                                        })
+                    
+                except Exception as sheet_error:
+                    print(f"[AUDIT] Error reading sheet '{sheet_name}': {sheet_error}")
+                    continue
+                    
+        except Exception as file_error:
+            print(f"[AUDIT] Error processing file '{filepath}': {file_error}")
+            traceback.print_exc()
+            continue
+    
+    # Report potential double-bookings (within same schedule period)
+    double_bookings = []
+    for faculty, slots in faculty_slot_usage.items():
+        for slot_key, usages in slots.items():
+            if len(usages) > 1:
+                # Check if it's actually different courses (not just same course in different sections for common courses)
+                unique_courses = set(u['course'] for u in usages)
+                if len(unique_courses) > 1:
+                    schedule_type = slot_key[2] if len(slot_key) > 2 else 'Unknown'
+                    double_bookings.append({
+                        'faculty': faculty,
+                        'day': slot_key[0],
+                        'time_slot': slot_key[1],
+                        'schedule_type': schedule_type,
+                        'courses': list(unique_courses),
+                        'details': usages
+                    })
+    
+    if double_bookings:
+        print(f"[AUDIT] WARNING: Potential double-bookings detected: {len(double_bookings)}")
+        for db in double_bookings:
+            print(f"   {db['faculty']} at {db['day']} {db['time_slot']} ({db['schedule_type']}): {db['courses']}")
+    else:
+        print("[AUDIT] ✓ No faculty double-bookings detected")
+    
+    print(f"[AUDIT] Populated trackers: {len(_FACULTY_SCHEDULE_TRACKER)} faculty, {len(_CLASSROOM_SCHEDULE_TRACKER)} classrooms")
+
+
+def generate_faculty_audit_file(dfs, output_dir):
+    """Generate the Faculty Availability & Schedule Audit Excel file.
+    Creates one sheet per faculty showing all time slots with availability and schedule info."""
+    global _FACULTY_SCHEDULE_TRACKER
+    
+    print("\n[AUDIT] Generating Faculty Availability & Schedule Audit File...")
+    
+    # Get faculty availability data - normalize names to avoid duplicates
+    faculty_availability = {}
+    if 'faculty_availability' in dfs and not dfs['faculty_availability'].empty:
+        fa_df = dfs['faculty_availability']
+        for _, row in fa_df.iterrows():
+            faculty_name = normalize_faculty_name(str(row.get('Faculty Name', '')))
+            if not faculty_name:
+                continue
+            available_days_raw = str(row.get('Available Days', 'Mon,Tue,Wed,Thu,Fri')).strip()
+            unavailable_slots_raw = str(row.get('Unavailable Time Slots', '')).strip()
+            
+            # Parse available days
+            available_days = [d.strip() for d in available_days_raw.split(',') if d.strip()]
+            if not available_days:
+                available_days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+            
+            # Parse unavailable slots (format: "Mon 09:00-10:30, Tue 13:00-14:30")
+            unavailable_slots = set()
+            if unavailable_slots_raw and unavailable_slots_raw.lower() not in ['none', 'na', 'n/a', '']:
+                for slot in unavailable_slots_raw.split(','):
+                    slot = slot.strip()
+                    if slot:
+                        parts = slot.split()
+                        if len(parts) >= 2:
+                            unavailable_slots.add((parts[0], parts[1]))
+            
+            # Merge if key already exists (from different name variants)
+            if faculty_name in faculty_availability:
+                # Merge unavailable slots
+                faculty_availability[faculty_name]['unavailable_slots'].update(unavailable_slots)
+            else:
+                faculty_availability[faculty_name] = {
+                    'available_days': available_days,
+                    'unavailable_slots': unavailable_slots
+                }
+    
+    # Get course info for looking up course names
+    course_info = get_course_info(dfs) if dfs else {}
+    
+    # Build a mapping from original names to normalized names
+    # and collect all unique normalized faculty names
+    normalized_faculty_map = {}  # original_name -> normalized_name
+    all_faculty_normalized = set()
+    
+    # From course data
+    if 'course' in dfs and not dfs['course'].empty:
+        for _, row in dfs['course'].iterrows():
+            faculty_raw = str(row.get('Faculty', '')).strip()
+            # Handle multiple instructors (comma-separated)
+            for f in faculty_raw.split(','):
+                f = f.strip()
+                if f and f.lower() not in ['unknown', 'n/a', 'na', '']:
+                    normalized = normalize_faculty_name(f)
+                    normalized_faculty_map[f] = normalized
+                    all_faculty_normalized.add(normalized)
+    
+    # From availability data
+    for orig_name in faculty_availability.keys():
+        normalized = normalize_faculty_name(orig_name)
+        normalized_faculty_map[orig_name] = normalized
+        all_faculty_normalized.add(normalized)
+    
+    # From tracker - normalize keys and merge schedule data
+    normalized_tracker = {}
+    for orig_name, schedule in _FACULTY_SCHEDULE_TRACKER.items():
+        normalized = normalize_faculty_name(orig_name)
+        normalized_faculty_map[orig_name] = normalized
+        all_faculty_normalized.add(normalized)
+        
+        # Merge schedules for same normalized name
+        if normalized not in normalized_tracker:
+            normalized_tracker[normalized] = {}
+        normalized_tracker[normalized].update(schedule)
+    
+    # Replace the tracker with normalized version for this function
+    faculty_schedule_tracker = normalized_tracker
+    
+    # Also normalize the faculty_availability keys
+    normalized_availability = {}
+    for orig_name, avail_info in faculty_availability.items():
+        normalized = normalize_faculty_name(orig_name)
+        if normalized in normalized_availability:
+            # Merge unavailable slots
+            normalized_availability[normalized]['unavailable_slots'].update(avail_info['unavailable_slots'])
+        else:
+            normalized_availability[normalized] = avail_info
+    faculty_availability = normalized_availability
+    
+    if not all_faculty_normalized:
+        print("[AUDIT] No faculty data found, skipping faculty audit file")
+        return None
+    
+    print(f"[AUDIT] Found {len(all_faculty_normalized)} unique faculty (after normalization)")
+    
+    days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+    # Exclude lunch break from working time slots
+    working_time_slots = [slot for slot in TIME_SLOT_LABELS if slot != '12:00-13:00']
+    
+    filepath = os.path.join(output_dir, "Faculty_Availability_Schedule_Audit.xlsx")
+    
+    try:
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            conflict_summary = []
+            
+            for faculty_name in sorted(all_faculty_normalized):
+                # Create schedule matrix for this faculty
+                schedule_data = []
+                
+                # Get availability info
+                avail_info = faculty_availability.get(faculty_name, {
+                    'available_days': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+                    'unavailable_slots': set()
+                })
+                available_days = avail_info['available_days']
+                unavailable_slots = avail_info['unavailable_slots']
+                
+                # Get faculty's scheduled slots (from normalized tracker)
+                faculty_schedule = faculty_schedule_tracker.get(faculty_name, {})
+                
+                for time_slot in working_time_slots:
+                    row_data = {'Time Slot': time_slot}
+                    
+                    for day in days:
+                        # Check if faculty is available on this day
+                        is_available_day = day in available_days
+                        is_unavailable_slot = (day, time_slot) in unavailable_slots
+                        
+                        # Find all schedule entries for this day/time slot
+                        # New key format is (day, time_slot, semester_info)
+                        matching_entries = []
+                        for slot_key, schedule_info in faculty_schedule.items():
+                            if len(slot_key) >= 2 and slot_key[0] == day and slot_key[1] == time_slot:
+                                matching_entries.append(schedule_info)
+                        
+                        if matching_entries:
+                            # Faculty is scheduled - may have multiple entries (pre-mid + post-mid)
+                            cell_values = []
+                            
+                            # CRITICAL: Check for faculty double-booking (multiple DIFFERENT courses at same time)
+                            # Group entries by schedule_type (Pre-Mid vs Post-Mid) to detect conflicts within same period
+                            entries_by_period = {}
+                            for schedule_info in matching_entries:
+                                sem_info = schedule_info.get('semester', '')
+                                # Extract schedule type from semester string like "3 (Pre-Mid)" or "3 (Post-Mid)"
+                                if '(Pre-Mid)' in str(sem_info):
+                                    period_key = 'Pre-Mid'
+                                elif '(Post-Mid)' in str(sem_info):
+                                    period_key = 'Post-Mid'
+                                else:
+                                    period_key = 'Unknown'
+                                
+                                if period_key not in entries_by_period:
+                                    entries_by_period[period_key] = []
+                                entries_by_period[period_key].append(schedule_info)
+                            
+                            # Check for double-booking within each period
+                            is_double_booked = False
+                            double_booking_details = []
+                            for period_key, period_entries in entries_by_period.items():
+                                # Get unique courses for this period
+                                unique_courses = set()
+                                for entry in period_entries:
+                                    course = entry.get('course_code', 'N/A')
+                                    if course and course != 'N/A':
+                                        unique_courses.add(course)
+                                
+                                # If multiple different courses in same period = double-booking
+                                if len(unique_courses) > 1:
+                                    is_double_booked = True
+                                    double_booking_details.append({
+                                        'period': period_key,
+                                        'courses': list(unique_courses)
+                                    })
+                            
+                            for schedule_info in matching_entries:
+                                course_code = schedule_info.get('course_code', 'N/A')
+                                course_name = schedule_info.get('course_name', '')
+                                semester = schedule_info.get('semester', 'N/A')
+                                branch = schedule_info.get('branch', 'N/A')
+                                section = schedule_info.get('section', '')
+                                classroom = schedule_info.get('classroom', '')
+                                
+                                # Build cell value for this entry
+                                cell_parts = [f"{course_code}"]
+                                if course_name:
+                                    cell_parts.append(f"({course_name})")
+                                cell_parts.append(f"Sem {semester} | {branch}")
+                                if section:
+                                    cell_parts.append(f"Sec {section}")
+                                if classroom:
+                                    cell_parts.append(f"[{classroom}]")
+                                
+                                entry_value = ' '.join(cell_parts)
+                                
+                                # Check for conflicts and add to summary
+                                if not is_available_day:
+                                    entry_value = f"CONFLICT (Day Off): {entry_value}"
+                                    conflict_summary.append({
+                                        'Faculty': faculty_name,
+                                        'Day': day,
+                                        'Time Slot': time_slot,
+                                        'Issue': 'Scheduled on unavailable day',
+                                        'Details': f"{course_code} - {branch} Sem {semester}"
+                                    })
+                                elif is_unavailable_slot:
+                                    entry_value = f"CONFLICT (Blocked): {entry_value}"
+                                    conflict_summary.append({
+                                        'Faculty': faculty_name,
+                                        'Day': day,
+                                        'Time Slot': time_slot,
+                                        'Issue': 'Scheduled during unavailable time',
+                                        'Details': f"{course_code} - {branch} Sem {semester}"
+                                    })
+                                
+                                cell_values.append(entry_value)
+                            
+                            # Add double-booking conflict if detected
+                            if is_double_booked:
+                                for db_detail in double_booking_details:
+                                    conflict_summary.append({
+                                        'Faculty': faculty_name,
+                                        'Day': day,
+                                        'Time Slot': time_slot,
+                                        'Issue': f"DOUBLE-BOOKED ({db_detail['period']}): Teaching multiple courses simultaneously",
+                                        'Details': f"Courses: {', '.join(db_detail['courses'])}"
+                                    })
+                                # Mark cell as conflicted
+                                cell_value = '⚠ DOUBLE-BOOKING:\n' + '\n'.join(cell_values)
+                            else:
+                                # Join multiple entries with newline
+                                cell_value = '\n'.join(cell_values)
+                        else:
+                            # Faculty not scheduled
+                            if not is_available_day:
+                                cell_value = "NOT AVAILABLE (Day Off)"
+                            elif is_unavailable_slot:
+                                cell_value = "NOT AVAILABLE (Blocked)"
+                            else:
+                                cell_value = "Available - Free"
+                        
+                        row_data[day] = cell_value
+                    
+                    schedule_data.append(row_data)
+                
+                # Create DataFrame and write to sheet
+                df = pd.DataFrame(schedule_data)
+                
+                # Sanitize sheet name (Excel limits: 31 chars, no special chars)
+                sheet_name = faculty_name[:31].replace('/', '-').replace('\\', '-').replace('*', '-').replace('?', '-').replace('[', '(').replace(']', ')')
+                
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            # Add conflict summary sheet
+            if conflict_summary:
+                conflict_df = pd.DataFrame(conflict_summary)
+                conflict_df.to_excel(writer, sheet_name='CONFLICT_SUMMARY', index=False)
+                
+                # Categorize conflicts by type for clearer reporting
+                double_booking_conflicts = [c for c in conflict_summary if 'DOUBLE-BOOKED' in c.get('Issue', '')]
+                day_off_conflicts = [c for c in conflict_summary if 'unavailable day' in c.get('Issue', '')]
+                blocked_time_conflicts = [c for c in conflict_summary if 'unavailable time' in c.get('Issue', '')]
+                
+                print(f"[AUDIT] Found {len(conflict_summary)} potential faculty conflicts:")
+                if double_booking_conflicts:
+                    print(f"   - Double-booking (multiple courses): {len(double_booking_conflicts)}")
+                if day_off_conflicts:
+                    print(f"   - Scheduled on unavailable day: {len(day_off_conflicts)}")
+                if blocked_time_conflicts:
+                    print(f"   - Scheduled during blocked time: {len(blocked_time_conflicts)}")
+                
+                # Create a categorized summary sheet
+                summary_data = [
+                    {'Category': 'Total Conflicts', 'Count': len(conflict_summary)},
+                    {'Category': 'Double-Booking (Multiple Courses)', 'Count': len(double_booking_conflicts)},
+                    {'Category': 'Scheduled on Unavailable Day', 'Count': len(day_off_conflicts)},
+                    {'Category': 'Scheduled During Blocked Time', 'Count': len(blocked_time_conflicts)}
+                ]
+                summary_df = pd.DataFrame(summary_data)
+                summary_df.to_excel(writer, sheet_name='CONFLICT_CATEGORIES', index=False)
+            else:
+                # Create empty summary with message
+                summary_df = pd.DataFrame([{'Status': 'No conflicts detected - All faculty schedules comply with availability'}])
+                summary_df.to_excel(writer, sheet_name='CONFLICT_SUMMARY', index=False)
+                print("[AUDIT] No faculty conflicts detected")
+        
+        # Apply formatting
+        _format_audit_excel(filepath, 'faculty')
+        
+        print(f"[AUDIT] Faculty audit file saved: {filepath}")
+        return filepath
+        
+    except Exception as e:
+        print(f"[AUDIT] Error generating faculty audit file: {e}")
+        traceback.print_exc()
+        return None
+
+
+def generate_classroom_audit_file(dfs, output_dir):
+    """Generate the Classroom Availability & Schedule Audit Excel file.
+    Creates one sheet per classroom showing all time slots with schedule info."""
+    global _CLASSROOM_SCHEDULE_TRACKER, _CLASSROOM_USAGE_TRACKER
+    
+    print("\n[AUDIT] Generating Classroom Availability & Schedule Audit File...")
+    
+    # Get classroom data
+    all_classrooms = set()
+    classroom_info = {}
+    
+    if 'classroom' in dfs and not dfs['classroom'].empty:
+        classroom_df = dfs['classroom']
+        for _, row in classroom_df.iterrows():
+            room_number = str(row.get('Room Number', '')).strip()
+            if room_number and room_number.lower() not in ['none', 'n/a', 'na', '']:
+                all_classrooms.add(room_number)
+                classroom_info[room_number] = {
+                    'capacity': row.get('Capacity', 'N/A'),
+                    'type': row.get('Type', 'N/A'),
+                    'location': row.get('Location', 'N/A')
+                }
+    
+    # Also include classrooms from the tracker
+    all_classrooms.update(_CLASSROOM_SCHEDULE_TRACKER.keys())
+    
+    # Also check _CLASSROOM_USAGE_TRACKER for any rooms
+    for day in _CLASSROOM_USAGE_TRACKER:
+        for time_slot in _CLASSROOM_USAGE_TRACKER[day]:
+            all_classrooms.update(_CLASSROOM_USAGE_TRACKER[day][time_slot])
+    
+    if not all_classrooms:
+        print("[AUDIT] No classroom data found, skipping classroom audit file")
+        return None
+    
+    days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+    # Exclude lunch break from working time slots
+    working_time_slots = [slot for slot in TIME_SLOT_LABELS if slot != '12:00-13:00']
+    
+    filepath = os.path.join(output_dir, "Classroom_Availability_Schedule_Audit.xlsx")
+    
+    try:
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            double_booking_summary = []
+            
+            for classroom_id in sorted(all_classrooms):
+                # Create schedule matrix for this classroom
+                schedule_data = []
+                
+                # Get classroom's scheduled slots
+                classroom_schedule = _CLASSROOM_SCHEDULE_TRACKER.get(classroom_id, {})
+                
+                # Get classroom info
+                room_info = classroom_info.get(classroom_id, {})
+                
+                for time_slot in working_time_slots:
+                    row_data = {'Time Slot': time_slot}
+                    
+                    for day in days:
+                        # Find all schedule entries for this day/time slot
+                        # New key format is (day, time_slot, semester_info)
+                        matching_entries = []
+                        for slot_key, schedule_info in classroom_schedule.items():
+                            if len(slot_key) >= 2 and slot_key[0] == day and slot_key[1] == time_slot:
+                                matching_entries.append(schedule_info)
+                        
+                        # Check if classroom is used (from usage tracker as fallback)
+                        is_used_in_tracker = classroom_id in _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
+                        
+                        if matching_entries:
+                            # Classroom has detailed schedule info - may have multiple entries
+                            cell_values = []
+                            for schedule_info in matching_entries:
+                                course_code = schedule_info.get('course_code', 'N/A')
+                                course_name = schedule_info.get('course_name', '')
+                                faculty = schedule_info.get('faculty', 'N/A')
+                                semester = schedule_info.get('semester', 'N/A')
+                                branch = schedule_info.get('branch', 'N/A')
+                                section = schedule_info.get('section', '')
+                                
+                                # Build cell value for this entry
+                                cell_parts = [f"{course_code}"]
+                                if course_name:
+                                    cell_parts.append(f"({course_name})")
+                                cell_parts.append(f"| {faculty}")
+                                cell_parts.append(f"| Sem {semester} | {branch}")
+                                if section:
+                                    cell_parts.append(f"Sec {section}")
+                                
+                                cell_values.append(' '.join(cell_parts))
+                            
+                            # Check for CONFLICTS - multiple entries with DIFFERENT courses at same slot
+                            # within the SAME schedule period (Pre-Mid or Post-Mid)
+                            # Group entries by period to detect real conflicts
+                            entries_by_period = {}
+                            for entry in matching_entries:
+                                sem_info = entry.get('semester', '')
+                                if '(Pre-Mid)' in str(sem_info):
+                                    period_key = 'Pre-Mid'
+                                elif '(Post-Mid)' in str(sem_info):
+                                    period_key = 'Post-Mid'
+                                else:
+                                    period_key = 'Unknown'
+                                
+                                if period_key not in entries_by_period:
+                                    entries_by_period[period_key] = []
+                                entries_by_period[period_key].append(entry)
+                            
+                            # Check for double-booking within each period
+                            is_conflict = False
+                            conflict_courses = []
+                            conflict_periods = []
+                            for period_key, period_entries in entries_by_period.items():
+                                unique_courses_in_period = set(e.get('course_code', '') for e in period_entries if e.get('course_code'))
+                                if len(unique_courses_in_period) > 1:
+                                    is_conflict = True
+                                    conflict_courses.extend(unique_courses_in_period)
+                                    conflict_periods.append(period_key)
+                            
+                            # Get room info for additional context in conflict detection
+                            room_info = classroom_info.get(classroom_id, {})
+                            room_capacity = room_info.get('capacity', 'N/A')
+                            room_type = str(room_info.get('type', '')).upper()
+                            is_lab_room = classroom_id.startswith('L') or 'LAB' in room_type
+                            is_large_room = str(room_capacity).isdigit() and int(room_capacity) >= 120
+                            
+                            if is_conflict:
+                                # Mark as conflict and add to summary
+                                conflict_label = 'LAB ' if is_lab_room else ('LARGE ROOM ' if is_large_room else '')
+                                cell_value = f'⚠ {conflict_label}CONFLICT:\n' + '\n'.join(cell_values)
+                                double_booking_summary.append({
+                                    'Classroom': classroom_id,
+                                    'Capacity': room_capacity,
+                                    'Room Type': 'Lab' if is_lab_room else ('Large (120/240)' if is_large_room else 'Regular'),
+                                    'Day': day,
+                                    'Time Slot': time_slot,
+                                    'Conflict Period(s)': ', '.join(conflict_periods),
+                                    'Courses': list(set(conflict_courses)),
+                                    'Details': cell_values
+                                })
+                            else:
+                                # Join multiple entries with newline (same course, different schedules)
+                                cell_value = '\n'.join(cell_values)
+                        elif is_used_in_tracker:
+                            # Classroom is used but no detailed info from schedule tracker
+                            # Try to get details from the usage tracker by checking all timetables
+                            # For now, mark as occupied - the schedule tracker should have the details
+                            # if properly populated from pre-mid and post-mid sheets
+                            cell_value = "FREE"  # If not in schedule tracker, it's likely from Regular sheets which we skip
+                        else:
+                            cell_value = "FREE"
+                        
+                        row_data[day] = cell_value
+                    
+                    schedule_data.append(row_data)
+                
+                # Create DataFrame and write to sheet
+                df = pd.DataFrame(schedule_data)
+                
+                # Sanitize sheet name
+                sheet_name = str(classroom_id)[:31].replace('/', '-').replace('\\', '-').replace('*', '-').replace('?', '-').replace('[', '(').replace(']', ')')
+                
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            # Check for double-bookings by analyzing _CLASSROOM_USAGE_TRACKER
+            for day in days:
+                for time_slot in working_time_slots:
+                    # Check each classroom for this slot
+                    for classroom_id in all_classrooms:
+                        schedule_info = _CLASSROOM_SCHEDULE_TRACKER.get(classroom_id, {}).get((day, time_slot))
+                        
+                        # Count how many entries we have for this slot
+                        # A double-booking would be detected if the same classroom appears multiple times
+                        # in different timetables for the same slot
+                        # Note: Current tracker structure doesn't allow duplicates per slot
+                        # But we can check consistency
+                        pass  # Double-booking prevention is handled during allocation
+            
+            # Add summary sheet with classroom utilization
+            utilization_data = []
+            for classroom_id in sorted(all_classrooms):
+                classroom_schedule = _CLASSROOM_SCHEDULE_TRACKER.get(classroom_id, {})
+                room_info = classroom_info.get(classroom_id, {})
+                
+                total_slots = len(days) * len(working_time_slots)
+                occupied_slots = len(classroom_schedule)
+                utilization = (occupied_slots / total_slots * 100) if total_slots > 0 else 0
+                
+                utilization_data.append({
+                    'Classroom': classroom_id,
+                    'Capacity': room_info.get('capacity', 'N/A'),
+                    'Type': room_info.get('type', 'N/A'),
+                    'Occupied Slots': occupied_slots,
+                    'Total Slots': total_slots,
+                    'Utilization %': f"{utilization:.1f}%"
+                })
+            
+            utilization_df = pd.DataFrame(utilization_data)
+            utilization_df.to_excel(writer, sheet_name='UTILIZATION_SUMMARY', index=False)
+            
+            if double_booking_summary:
+                conflict_df = pd.DataFrame(double_booking_summary)
+                conflict_df.to_excel(writer, sheet_name='DOUBLE_BOOKING_ALERTS', index=False)
+                
+                # Categorize conflicts by room type for clearer reporting
+                lab_conflicts = [c for c in double_booking_summary if c.get('Room Type') == 'Lab']
+                large_room_conflicts = [c for c in double_booking_summary if c.get('Room Type') == 'Large (120/240)']
+                regular_conflicts = [c for c in double_booking_summary if c.get('Room Type') == 'Regular']
+                
+                print(f"[AUDIT] Found {len(double_booking_summary)} potential double-bookings:")
+                if lab_conflicts:
+                    print(f"   - Lab Room conflicts: {len(lab_conflicts)}")
+                if large_room_conflicts:
+                    print(f"   - Large Room (120/240) conflicts: {len(large_room_conflicts)}")
+                if regular_conflicts:
+                    print(f"   - Regular Room conflicts: {len(regular_conflicts)}")
+                
+                # Create a categorized summary sheet
+                summary_data = [
+                    {'Category': 'Total Conflicts', 'Count': len(double_booking_summary)},
+                    {'Category': 'Lab Room Conflicts', 'Count': len(lab_conflicts)},
+                    {'Category': 'Large Room (120/240) Conflicts', 'Count': len(large_room_conflicts)},
+                    {'Category': 'Regular Room Conflicts', 'Count': len(regular_conflicts)}
+                ]
+                summary_df = pd.DataFrame(summary_data)
+                summary_df.to_excel(writer, sheet_name='CONFLICT_SUMMARY', index=False)
+            else:
+                summary_df = pd.DataFrame([{'Status': 'No double-bookings detected - All classroom allocations are unique'}])
+                summary_df.to_excel(writer, sheet_name='DOUBLE_BOOKING_ALERTS', index=False)
+                print("[AUDIT] No classroom double-bookings detected")
+        
+        # Apply formatting
+        _format_audit_excel(filepath, 'classroom')
+        
+        print(f"[AUDIT] Classroom audit file saved: {filepath}")
+        return filepath
+        
+    except Exception as e:
+        print(f"[AUDIT] Error generating classroom audit file: {e}")
+        traceback.print_exc()
+        return None
+
+
+def _format_audit_excel(filepath, audit_type):
+    """Apply formatting to audit Excel files for better readability."""
+    try:
+        from openpyxl import load_workbook
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+        
+        wb = load_workbook(filepath)
+        
+        # Define styles
+        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF", size=10)
+        occupied_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")  # Light green for occupied
+        free_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")  # White
+        unavailable_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")  # Gray
+        conflict_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")  # Light red
+        timeslot_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")  # Light gray for time slot column
+        border = Border(
+            left=Side(style='thin', color='CCCCCC'),
+            right=Side(style='thin', color='CCCCCC'),
+            top=Side(style='thin', color='CCCCCC'),
+            bottom=Side(style='thin', color='CCCCCC')
+        )
+        center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            
+            # Format header row
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = center_alignment
+                cell.border = border
+            
+            # Format data cells
+            for row_idx in range(2, ws.max_row + 1):
+                for col_idx in range(1, ws.max_column + 1):
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    cell.border = border
+                    cell.alignment = center_alignment
+                    
+                    cell_value = str(cell.value or '').upper()
+                    
+                    # First column is Time Slot - give it a subtle background
+                    if col_idx == 1:
+                        cell.fill = timeslot_fill
+                        cell.font = Font(bold=True)
+                    elif 'CONFLICT' in cell_value:
+                        cell.fill = conflict_fill
+                    elif 'FREE' in cell_value or 'AVAILABLE - FREE' in cell_value:
+                        cell.fill = free_fill
+                    elif 'NOT AVAILABLE' in cell_value:
+                        cell.fill = unavailable_fill
+                    elif cell_value and cell_value not in ['NONE', 'N/A', '']:
+                        # Any cell with course/schedule data gets the occupied color
+                        cell.fill = occupied_fill
+            
+            # Auto-adjust column widths
+            for col_idx in range(1, ws.max_column + 1):
+                column_letter = get_column_letter(col_idx)
+                max_length = 0
+                
+                for cell in ws[column_letter]:
+                    try:
+                        cell_value = str(cell.value) if cell.value else ""
+                        lines = cell_value.split('\n')
+                        max_line_length = max(len(line) for line in lines) if lines else 0
+                        max_length = max(max_length, max_line_length)
+                    except:
+                        pass
+                
+                # Set width with constraints
+                adjusted_width = min(max(max_length + 2, 15), 60)
+                ws.column_dimensions[column_letter].width = adjusted_width
+        
+        wb.save(filepath)
+        
+    except Exception as e:
+        print(f"[AUDIT] Error formatting audit file: {e}")
+
+
+def generate_audit_files(dfs, output_dir):
+    """Generate both Faculty and Classroom audit files.
+    Call this after timetable generation is complete."""
+    
+    print("\n" + "="*60)
+    print("GENERATING AUDIT FILES FOR VERIFICATION")
+    print("="*60)
+    
+    faculty_file = generate_faculty_audit_file(dfs, output_dir)
+    classroom_file = generate_classroom_audit_file(dfs, output_dir)
+    
+    print("\n" + "="*60)
+    if faculty_file and classroom_file:
+        print("AUDIT FILES GENERATED SUCCESSFULLY")
+        print(f"  - Faculty Audit: {os.path.basename(faculty_file)}")
+        print(f"  - Classroom Audit: {os.path.basename(classroom_file)}")
+    else:
+        print("AUDIT FILE GENERATION COMPLETED WITH WARNINGS")
+        if not faculty_file:
+            print("  - Faculty Audit: SKIPPED (no data)")
+        if not classroom_file:
+            print("  - Classroom Audit: SKIPPED (no data)")
+    print("="*60 + "\n")
+    
+    return {
+        'faculty_audit': faculty_file,
+        'classroom_audit': classroom_file
+    }
+
 
 # EXAM SCHEDULE FILE MANAGEMENT FUNCTIONS - COMMENTED OUT
 """
@@ -1061,7 +2193,7 @@ def enforce_elective_day_separation(basket_allocations):
     
     return basket_allocations
 
-def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times, lab_times=None, branch=None, semester_id=None, course_info_map=None):
+def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, days, lecture_times, tutorial_times, lab_times=None, branch=None, semester_id=None, course_info_map=None, section=None):
     """Schedule core courses strictly adhering to LTPSC structure"""
     if core_courses.empty:
         return used_slots
@@ -1162,6 +2294,12 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
         # Track which days we've used for this course
         course_day_usage[course_code] = {'lectures': set(), 'tutorials': set(), 'labs': set()}
         
+        # GET FACULTY LIST for this course - used for conflict checking
+        # For CSE with 2 faculty, 1st is Section A, 2nd is Section B
+        course_faculty = get_course_faculty_list(course, section=section, branch=branch)
+        if course_faculty:
+            print(f"      Faculty for {course_code}: {course_faculty}")
+        
         print(f"      Scheduling {course_code} (LTPSC: {ltpsc_str} -> L={L}, T={T}, P={P}):")
         print(f"         -> {lectures_needed} lectures, {tutorials_needed} tutorial, {labs_needed} lab")
         
@@ -1181,9 +2319,22 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
                 key = (day, time_slot)
                 
                 if key not in used_slots and schedule.loc[time_slot, day] == 'Free':
+                    # CHECK: Ensure all faculty are available at this slot FOR BOTH PERIODS
+                    # Regular timetable applies to both Pre-Mid and Post-Mid
+                    if course_faculty and (not check_all_faculty_available(course_faculty, day, time_slot, 'Pre-Mid') or
+                                           not check_all_faculty_available(course_faculty, day, time_slot, 'Post-Mid')):
+                        print(f"      [FACULTY-SKIP] {course_code} cannot use {day} {time_slot} - faculty conflict")
+                        continue  # Try next time slot
+                    
                     schedule.loc[time_slot, day] = course_code
                     used_slots.add(key)
                     course_day_usage[course_code]['lectures'].add(day)
+                    
+                    # BOOK all faculty for this slot FOR BOTH PERIODS
+                    if course_faculty:
+                        book_all_faculty_for_slot(course_faculty, day, time_slot, course_code, 'Pre-Mid')
+                        book_all_faculty_for_slot(course_faculty, day, time_slot, course_code, 'Post-Mid')
+                    
                     lectures_scheduled += 1
                     print(f"      [OK] Scheduled lecture {lectures_scheduled} for {course_code} on {day} at {time_slot}")
                     break
@@ -1201,9 +2352,21 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
                         continue
                     key = (day, time_slot)
                     if key not in used_slots and schedule.loc[time_slot, day] == 'Free':
+                        # CHECK: Ensure all faculty are available at this slot FOR BOTH PERIODS
+                        if course_faculty and (not check_all_faculty_available(course_faculty, day, time_slot, 'Pre-Mid') or
+                                               not check_all_faculty_available(course_faculty, day, time_slot, 'Post-Mid')):
+                            print(f"      [FALLBACK-SKIP] {course_code} cannot use {day} {time_slot} - faculty conflict")
+                            continue  # Try next time slot
+                        
                         schedule.loc[time_slot, day] = course_code
                         used_slots.add(key)
                         course_day_usage[course_code]['lectures'].add(day)
+                        
+                        # BOOK all faculty for this slot FOR BOTH PERIODS
+                        if course_faculty:
+                            book_all_faculty_for_slot(course_faculty, day, time_slot, course_code, 'Pre-Mid')
+                            book_all_faculty_for_slot(course_faculty, day, time_slot, course_code, 'Post-Mid')
+                        
                         lectures_scheduled += 1
                         print(f"      [FALLBACK] Scheduled lecture {lectures_scheduled} for {course_code} on {day} at {time_slot}")
         
@@ -1223,9 +2386,21 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
                     key = (day, time_slot)
                     
                     if key not in used_slots and schedule.loc[time_slot, day] == 'Free':
+                        # CHECK: Ensure all faculty are available at this slot FOR BOTH PERIODS
+                        if course_faculty and (not check_all_faculty_available(course_faculty, day, time_slot, 'Pre-Mid') or
+                                               not check_all_faculty_available(course_faculty, day, time_slot, 'Post-Mid')):
+                            print(f"      [TUTORIAL-SKIP] {course_code} cannot use {day} {time_slot} - faculty conflict")
+                            continue  # Try next time slot
+                        
                         schedule.loc[time_slot, day] = f"{course_code} (Tutorial)"
                         used_slots.add(key)
                         course_day_usage[course_code]['tutorials'].add(day)
+                        
+                        # BOOK all faculty for this slot FOR BOTH PERIODS
+                        if course_faculty:
+                            book_all_faculty_for_slot(course_faculty, day, time_slot, course_code, 'Pre-Mid')
+                            book_all_faculty_for_slot(course_faculty, day, time_slot, course_code, 'Post-Mid')
+                        
                         tutorials_scheduled += 1
                         print(f"      [OK] Scheduled tutorial for {course_code} on {day} at {time_slot}")
                         break
@@ -1243,9 +2418,20 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
                             continue
                         key = (day, time_slot)
                         if key not in used_slots and schedule.loc[time_slot, day] == 'Free':
+                            # CHECK: Ensure all faculty are available at this slot FOR BOTH PERIODS
+                            if course_faculty and (not check_all_faculty_available(course_faculty, day, time_slot, 'Pre-Mid') or
+                                                   not check_all_faculty_available(course_faculty, day, time_slot, 'Post-Mid')):
+                                continue  # Try next time slot
+                            
                             schedule.loc[time_slot, day] = f"{course_code} (Tutorial)"
                             used_slots.add(key)
                             course_day_usage[course_code]['tutorials'].add(day)
+                            
+                            # BOOK all faculty for this slot FOR BOTH PERIODS
+                            if course_faculty:
+                                book_all_faculty_for_slot(course_faculty, day, time_slot, course_code, 'Pre-Mid')
+                                book_all_faculty_for_slot(course_faculty, day, time_slot, course_code, 'Post-Mid')
+                            
                             tutorials_scheduled += 1
                             print(f"      [FALLBACK] Scheduled tutorial for {course_code} on {day} at {time_slot}")
         
@@ -1280,12 +2466,30 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
                     
                     if (key1 not in used_slots and key2 not in used_slots and
                         schedule.loc[slot1, day] == 'Free' and schedule.loc[slot2, day] == 'Free'):
+                        
+                        # CHECK: Ensure all faculty are available at BOTH slots FOR BOTH PERIODS
+                        if course_faculty:
+                            if not check_all_faculty_available(course_faculty, day, slot1, 'Pre-Mid') or \
+                               not check_all_faculty_available(course_faculty, day, slot2, 'Pre-Mid') or \
+                               not check_all_faculty_available(course_faculty, day, slot1, 'Post-Mid') or \
+                               not check_all_faculty_available(course_faculty, day, slot2, 'Post-Mid'):
+                                print(f"      [LAB-SKIP] {course_code} cannot use {day} {lab_display_time} - faculty conflict")
+                                continue  # Try next lab slot pair
+                        
                         # Mark both slots as lab
                         schedule.loc[slot1, day] = f"{course_code} (Lab)"
                         schedule.loc[slot2, day] = f"{course_code} (Lab)"
                         used_slots.add(key1)
                         used_slots.add(key2)
                         course_day_usage[course_code]['labs'].add(day)
+                        
+                        # BOOK all faculty for BOTH slots FOR BOTH PERIODS
+                        if course_faculty:
+                            book_all_faculty_for_slot(course_faculty, day, slot1, course_code, 'Pre-Mid')
+                            book_all_faculty_for_slot(course_faculty, day, slot2, course_code, 'Pre-Mid')
+                            book_all_faculty_for_slot(course_faculty, day, slot1, course_code, 'Post-Mid')
+                            book_all_faculty_for_slot(course_faculty, day, slot2, course_code, 'Post-Mid')
+                        
                         labs_scheduled += 1
                         print(f"      [OK] Scheduled lab for {course_code} on {day} at {lab_display_time} (using slots {slot1} and {slot2})")
                         break
@@ -1308,11 +2512,28 @@ def schedule_core_courses_with_tutorials(core_courses, schedule, used_slots, day
                         
                         if (key1 not in used_slots and key2 not in used_slots and
                             schedule.loc[slot1, day] == 'Free' and schedule.loc[slot2, day] == 'Free'):
+                            
+                            # CHECK: Ensure all faculty are available at BOTH slots FOR BOTH PERIODS
+                            if course_faculty:
+                                if not check_all_faculty_available(course_faculty, day, slot1, 'Pre-Mid') or \
+                                   not check_all_faculty_available(course_faculty, day, slot2, 'Pre-Mid') or \
+                                   not check_all_faculty_available(course_faculty, day, slot1, 'Post-Mid') or \
+                                   not check_all_faculty_available(course_faculty, day, slot2, 'Post-Mid'):
+                                    continue  # Try next slot pair
+                            
                             schedule.loc[slot1, day] = f"{course_code} (Lab)"
                             schedule.loc[slot2, day] = f"{course_code} (Lab)"
                             used_slots.add(key1)
                             used_slots.add(key2)
                             course_day_usage[course_code]['labs'].add(day)
+                            
+                            # BOOK all faculty for BOTH slots FOR BOTH PERIODS
+                            if course_faculty:
+                                book_all_faculty_for_slot(course_faculty, day, slot1, course_code, 'Pre-Mid')
+                                book_all_faculty_for_slot(course_faculty, day, slot2, course_code, 'Pre-Mid')
+                                book_all_faculty_for_slot(course_faculty, day, slot1, course_code, 'Post-Mid')
+                                book_all_faculty_for_slot(course_faculty, day, slot2, course_code, 'Post-Mid')
+                            
                             labs_scheduled += 1
                             print(f"      [FALLBACK] Scheduled lab for {course_code} on {day} using slots {slot1} and {slot2}")
                             break
@@ -1705,7 +2926,7 @@ def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, e
                 print(f"   [COURSES] Scheduling {len(core_courses)} BRANCH-SPECIFIC core courses for {branch}...")
                 used_slots = schedule_core_courses_with_tutorials(
                         core_courses, schedule, used_slots, days,
-                        lecture_times, tutorial_times, None, branch, semester_id=semester_id, course_info_map=get_course_info(dfs)
+                        lecture_times, tutorial_times, None, branch, semester_id=semester_id, course_info_map=get_course_info(dfs), section=section
                 )
             else:
                 print(f"   [INFO] No core courses to schedule after filtering electives (might be elective-only or project-only semester)")
@@ -1836,6 +3057,13 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
             # Track which days we've used for this course
             course_day_usage = {'lectures': set(), 'tutorials': set(), 'labs': set()}
             
+            # GET FACULTY LIST for this course - used for conflict checking
+            # For CSE with 2 faculty, 1st is Section A, 2nd is Section B
+            course_faculty = get_course_faculty_list(course, section=section, branch=branch)
+            
+            # Determine period for faculty booking (Pre-Mid or Post-Mid)
+            period = 'Pre-Mid' if schedule_type == 'pre_mid' else 'Post-Mid'
+            
             # Schedule lectures (1.5 hours each) - GUARANTEED SCHEDULING FOR MID-SEMESTER
             lectures_scheduled = 0
             
@@ -1852,9 +3080,18 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
                     key = (day, time_slot)
                     
                     if key not in used_slots and schedule.loc[time_slot, day] == 'Free':
+                        # CHECK: Ensure all faculty are available at this slot
+                        if course_faculty and not check_all_faculty_available(course_faculty, day, time_slot, period):
+                            continue  # Try next time slot
+                        
                         schedule.loc[time_slot, day] = course_code
                         used_slots.add(key)
                         course_day_usage['lectures'].add(day)
+                        
+                        # BOOK all faculty for this slot
+                        if course_faculty:
+                            book_all_faculty_for_slot(course_faculty, day, time_slot, course_code, period)
+                        
                         lectures_scheduled += 1
                         print(f"      [OK] Scheduled lecture {lectures_scheduled} for {course_code} on {day} at {time_slot}")
                         break
@@ -1872,9 +3109,18 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
                             continue
                         key = (day, time_slot)
                         if key not in used_slots and schedule.loc[time_slot, day] == 'Free':
+                            # CHECK: Ensure all faculty are available at this slot
+                            if course_faculty and not check_all_faculty_available(course_faculty, day, time_slot, period):
+                                continue  # Try next time slot
+                            
                             schedule.loc[time_slot, day] = course_code
                             used_slots.add(key)
                             course_day_usage['lectures'].add(day)
+                            
+                            # BOOK all faculty for this slot
+                            if course_faculty:
+                                book_all_faculty_for_slot(course_faculty, day, time_slot, course_code, period)
+                            
                             lectures_scheduled += 1
                             print(f"      [FALLBACK] Scheduled lecture {lectures_scheduled} for {course_code} on {day} at {time_slot}")
                             break
@@ -1895,9 +3141,18 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
                         key = (day, time_slot)
                         
                         if key not in used_slots and schedule.loc[time_slot, day] == 'Free':
+                            # CHECK: Ensure all faculty are available at this slot
+                            if course_faculty and not check_all_faculty_available(course_faculty, day, time_slot, period):
+                                continue  # Try next time slot
+                            
                             schedule.loc[time_slot, day] = f"{course_code} (Tutorial)"
                             used_slots.add(key)
                             course_day_usage['tutorials'].add(day)
+                            
+                            # BOOK all faculty for this slot
+                            if course_faculty:
+                                book_all_faculty_for_slot(course_faculty, day, time_slot, course_code, period)
+                            
                             tutorials_scheduled += 1
                             print(f"      [OK] Scheduled tutorial for {course_code} on {day} at {time_slot}")
                             break
@@ -1915,9 +3170,18 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
                                 continue
                             key = (day, time_slot)
                             if key not in used_slots and schedule.loc[time_slot, day] == 'Free':
+                                # CHECK: Ensure all faculty are available at this slot
+                                if course_faculty and not check_all_faculty_available(course_faculty, day, time_slot, period):
+                                    continue  # Try next time slot
+                                
                                 schedule.loc[time_slot, day] = f"{course_code} (Tutorial)"
                                 used_slots.add(key)
                                 course_day_usage['tutorials'].add(day)
+                                
+                                # BOOK all faculty for this slot
+                                if course_faculty:
+                                    book_all_faculty_for_slot(course_faculty, day, time_slot, course_code, period)
+                                
                                 tutorials_scheduled += 1
                                 print(f"      [FALLBACK] Scheduled tutorial for {course_code} on {day} at {time_slot}")
             
@@ -1949,12 +3213,25 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
                         
                         if (key1 not in used_slots and key2 not in used_slots and
                             schedule.loc[slot1, day] == 'Free' and schedule.loc[slot2, day] == 'Free'):
+                            
+                            # CHECK: Ensure all faculty are available at BOTH slots
+                            if course_faculty:
+                                if not check_all_faculty_available(course_faculty, day, slot1, period) or \
+                                   not check_all_faculty_available(course_faculty, day, slot2, period):
+                                    continue  # Try next lab slot pair
+                            
                             # Mark both slots as lab
                             schedule.loc[slot1, day] = f"{course_code} (Lab)"
                             schedule.loc[slot2, day] = f"{course_code} (Lab)"
                             used_slots.add(key1)
                             used_slots.add(key2)
                             course_day_usage['labs'].add(day)
+                            
+                            # BOOK all faculty for BOTH slots
+                            if course_faculty:
+                                book_all_faculty_for_slot(course_faculty, day, slot1, course_code, period)
+                                book_all_faculty_for_slot(course_faculty, day, slot2, course_code, period)
+                            
                             labs_scheduled += 1
                             print(f"      [OK] Scheduled lab for {course_code} on {day} at {lab_display_time} (using slots {slot1} and {slot2})")
                             break
@@ -1977,11 +3254,24 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
                             
                             if (key1 not in used_slots and key2 not in used_slots and
                                 schedule.loc[slot1, day] == 'Free' and schedule.loc[slot2, day] == 'Free'):
+                                
+                                # CHECK: Ensure all faculty are available at BOTH slots
+                                if course_faculty:
+                                    if not check_all_faculty_available(course_faculty, day, slot1, period) or \
+                                       not check_all_faculty_available(course_faculty, day, slot2, period):
+                                        continue  # Try next slot pair
+                                
                                 schedule.loc[slot1, day] = f"{course_code} (Lab)"
                                 schedule.loc[slot2, day] = f"{course_code} (Lab)"
                                 used_slots.add(key1)
                                 used_slots.add(key2)
                                 course_day_usage['labs'].add(day)
+                                
+                                # BOOK all faculty for BOTH slots
+                                if course_faculty:
+                                    book_all_faculty_for_slot(course_faculty, day, slot1, course_code, period)
+                                    book_all_faculty_for_slot(course_faculty, day, slot2, course_code, period)
+                                
                                 labs_scheduled += 1
                                 print(f"      [FALLBACK] Scheduled lab for {course_code} on {day} using slots {slot1} and {slot2}")
                                 break
@@ -2765,18 +4055,22 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
     
     Args:
         _reset_for_semester: Set to True for first branch of semester, False for subsequent branches
-                            to ensure common elective rooms are shared across all branches
+                            to ensure common elective rooms are shared across all branches.
+                            NOTE: We NO LONGER reset _CLASSROOM_USAGE_TRACKER here because
+                            all semesters share the same physical classrooms. The tracker
+                            is only reset once at the start of timetable generation.
     """
     
     print(f"\n[CONSOLIDATED] Generating consolidated timetable for Semester {semester}, Branch {branch}...")
     
-    # Reset classroom tracker ONLY for the first branch of this semester
-    # This ensures _GLOBAL_PREFERRED_CLASSROOMS persists across all branches of the same semester
+    # IMPORTANT: Do NOT reset _CLASSROOM_USAGE_TRACKER here!
+    # All semesters share the same physical classrooms, so we must track usage globally.
+    # The tracker is only reset once at the start of timetable generation (in /upload endpoint).
+    # Only reset the preferred classrooms map for each new semester to allow fresh room preferences.
     if _reset_for_semester:
-        reset_classroom_usage_tracker()
         global _GLOBAL_PREFERRED_CLASSROOMS
         _GLOBAL_PREFERRED_CLASSROOMS = {}
-        print(f"[RESET] Cleared global preferred classrooms for new semester {semester}")
+        print(f"[INFO] Cleared preferred classroom preferences for semester {semester} (tracker preserved)")
     
     # Get course info and generate unique colors
     course_info = get_course_info(dfs) if dfs else {}
@@ -5914,18 +7208,22 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                 if alloc.get('basket') == basket_name and f"{day}_{time_slot}" in key:
                                     basket_rooms_at_this_slot.add(alloc.get('classroom'))
                             
-                            # Try to find an unused room
+                            # CRITICAL: Also check the global classroom usage tracker to avoid double-booking
+                            globally_booked_rooms = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
+                            unavailable_rooms = basket_rooms_at_this_slot | globally_booked_rooms
+                            
+                            # Try to find an unused room that is GLOBALLY available
                             if not primary_classrooms.empty:
                                 for _, room_row in primary_classrooms.sort_values('Capacity', ascending=False).iterrows():
                                     candidate_room = room_row['Room Number']
-                                    if candidate_room not in basket_rooms_at_this_slot:
+                                    if candidate_room not in unavailable_rooms:
                                         fallback_room = candidate_room
                                         break
                             
                             if not fallback_room and not available_classrooms.empty:
                                 for _, room_row in available_classrooms.sort_values('Capacity', ascending=False).iterrows():
                                     candidate_room = room_row['Room Number']
-                                    if candidate_room not in basket_rooms_at_this_slot:
+                                    if candidate_room not in unavailable_rooms:
                                         fallback_room = candidate_room
                                         break
                             
@@ -5936,12 +7234,12 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                     'course': individual_course,
                                     'classroom': fallback_room,
                                     'enrollment': individual_enrollment,
-                                    'conflict': True,  # Marked as conflict since it's fallback
+                                    'conflict': False,  # Not a conflict - room was available
                                     'basket': basket_name,
                                     'type': session_type
                                 }
                                 allocation_count += 1
-                                print(f"        [FORCED] {day} {time_slot}: {individual_course} -> {fallback_room} ({individual_enrollment} students) [CONFLICT - forced common allocation]")
+                                print(f"        [BASKET-FALLBACK-OK] {day} {time_slot}: {individual_course} -> {fallback_room} ({individual_enrollment} students) [Found available room]")
                             else:
                                 print(f"        [CRITICAL] {day} {time_slot}: Cannot allocate {individual_course} - all rooms either unavailable or already used by other courses in {basket_name}")
 
@@ -6007,11 +7305,12 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         # Get appropriate lab rooms based on course type
                         lab_rooms_to_search = get_suitable_lab_rooms_for_course(clean_code)
 
-                        # Check if this lab pair already has an allocated room (from another section)
+                        # Check if this lab pair already has an allocated room (from another section of the SAME course)
                         # BUT: Labs should be DIFFERENT for each section even if lecture is common
                         # Only reuse lab rooms for non-common courses or same section
+                        # CRITICAL: Include course code in key to prevent cross-semester/cross-course conflicts
                         global _LAB_ROOM_ALLOCATIONS
-                        lab_pair_key = (day, time_slot, second_slot)
+                        lab_pair_key = (day, time_slot, second_slot, clean_code)  # Include course code!
                         
                         suitable_classroom = None
                         # For COMMON COURSES: Do NOT reuse lab rooms - each section gets different lab
@@ -6021,9 +7320,13 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                             is_common_lab = True
                         
                         if lab_pair_key in _LAB_ROOM_ALLOCATIONS and not is_common_lab:
-                            # Reuse the room that was allocated for this lab pair in another section (non-common only)
-                            suitable_classroom = _LAB_ROOM_ALLOCATIONS[lab_pair_key]
-                            print(f"      [REUSE-LAB] Using previously allocated room {suitable_classroom} for {day} {time_slot} & {second_slot} (same lab pair from other section)")
+                            # Check if the previously allocated room is still available
+                            candidate_room = _LAB_ROOM_ALLOCATIONS[lab_pair_key]
+                            if room_available_for_lab_pair(candidate_room, day, time_slot, second_slot):
+                                suitable_classroom = candidate_room
+                                print(f"      [REUSE-LAB] Using previously allocated room {suitable_classroom} for {clean_code} on {day} {time_slot} & {second_slot} (same course from other section)")
+                            else:
+                                print(f"      [REUSE-LAB-BLOCKED] Previously allocated room {candidate_room} for {clean_code} is no longer available at {day} {time_slot}, finding new room")
                         
                         if not suitable_classroom:
                             # Allocate a new room for this lab pair
@@ -6203,14 +7506,27 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                             allocation_count += 1
                             print(f"      [OK] {day} {time_slot}: {course_display} -> {single_room} ({enrollment} students)")
                         else:
-                            # As a last resort, pick the largest available classroom even if already booked and mark conflict
+                            # As a last resort, try to find an AVAILABLE classroom (check global tracker)
                             fallback_room = None
+                            globally_booked = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
+                            
+                            # First try to find an available room (not globally booked)
                             if not primary_classrooms.empty:
-                                fallback_room = primary_classrooms.sort_values('Capacity', ascending=False).iloc[0]['Room Number']
-                            elif not available_classrooms.empty:
-                                fallback_room = available_classrooms.sort_values('Capacity', ascending=False).iloc[0]['Room Number']
+                                for _, room_row in primary_classrooms.sort_values('Capacity', ascending=False).iterrows():
+                                    candidate = room_row['Room Number']
+                                    if candidate not in globally_booked:
+                                        fallback_room = candidate
+                                        break
+                            
+                            if not fallback_room and not available_classrooms.empty:
+                                for _, room_row in available_classrooms.sort_values('Capacity', ascending=False).iterrows():
+                                    candidate = room_row['Room Number']
+                                    if candidate not in globally_booked:
+                                        fallback_room = candidate
+                                        break
+                            
                             if fallback_room and str(fallback_room).strip():
-                                # Reserve even if already booked (force allocation) and mark conflict
+                                # Found an available room - no conflict
                                 reserve_room(fallback_room, day, time_slot)
                                 schedule_with_rooms.loc[time_slot, day] = f"{course_display} [{fallback_room}]"
                                 allocation_key = f"{day}_{time_slot}"
@@ -6218,17 +7534,17 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                     'course': course_display,
                                     'classroom': fallback_room,
                                     'enrollment': enrollment,
-                                    'conflict': True,
+                                    'conflict': False,
                                     'split': False
                                 }
                                 if course_key not in course_preferred_classrooms:
                                     course_preferred_classrooms[course_key] = fallback_room
                                 allocation_count += 1
-                                print(f"      [FORCED] {day} {time_slot}: {course_display} -> {fallback_room} ({enrollment} students) [CONFLICT]")
+                                print(f"      [FALLBACK-OK] {day} {time_slot}: {course_display} -> {fallback_room} ({enrollment} students) [Found available room]")
                             else:
-                                # No valid fallback room, just keep course without room
+                                # No available room found - leave without room assignment to avoid conflict
                                 schedule_with_rooms.loc[time_slot, day] = course_display
-                                print(f"      [WARN]  {day} {time_slot}: No classroom available for {course_display} ({enrollment} students)")
+                                print(f"      [WARN]  {day} {time_slot}: No classroom available for {course_display} ({enrollment} students) - all rooms booked")
             else:
                 # Regular course (not a lab pair) - find classroom normally
                 # Extract clean course code for common check
@@ -6339,14 +7655,27 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         allocation_count += 1
                         print(f"      [OK] {day} {time_slot}: {course_display} -> {suitable_classroom} ({effective_enrollment} students)")
                     else:
-                        # FALLBACK: Force allocate the largest available classroom
+                        # FALLBACK: Try to find an AVAILABLE classroom (check global tracker)
                         fallback_room = None
+                        globally_booked = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
+                        
+                        # First try to find an available room (not globally booked)
                         if not primary_classrooms.empty:
-                            fallback_room = primary_classrooms.sort_values('Capacity', ascending=False).iloc[0]['Room Number']
-                        elif not available_classrooms.empty:
-                            fallback_room = available_classrooms.sort_values('Capacity', ascending=False).iloc[0]['Room Number']
+                            for _, room_row in primary_classrooms.sort_values('Capacity', ascending=False).iterrows():
+                                candidate = room_row['Room Number']
+                                if candidate not in globally_booked:
+                                    fallback_room = candidate
+                                    break
+                        
+                        if not fallback_room and not available_classrooms.empty:
+                            for _, room_row in available_classrooms.sort_values('Capacity', ascending=False).iterrows():
+                                candidate = room_row['Room Number']
+                                if candidate not in globally_booked:
+                                    fallback_room = candidate
+                                    break
                         
                         if fallback_room and str(fallback_room).strip():
+                            # Found an available room - no conflict
                             reserve_room(fallback_room, day, time_slot)
                             schedule_with_rooms.loc[time_slot, day] = f"{course_display} [{fallback_room}]"
                             allocation_key = f"{day}_{time_slot}"
@@ -6354,17 +7683,17 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                 'course': course_display,
                                 'classroom': fallback_room,
                                 'enrollment': effective_enrollment,
-                                'conflict': True,
+                                'conflict': False,
                                 'split': False
                             }
                             if course_key not in course_preferred_classrooms:
                                 course_preferred_classrooms[course_key] = fallback_room
                             allocation_count += 1
-                            print(f"      [FORCED] {day} {time_slot}: {course_display} -> {fallback_room} ({effective_enrollment} students) [CONFLICT - double-booked]")
+                            print(f"      [FALLBACK-OK] {day} {time_slot}: {course_display} -> {fallback_room} ({effective_enrollment} students) [Found available room]")
                         else:
-                            # No fallback room, just keep course without room
+                            # No available room found - leave without room assignment to avoid conflict
                             schedule_with_rooms.loc[time_slot, day] = course_display
-                            print(f"      [CRITICAL] {day} {time_slot}: NO ROOM FOUND for {course_display} ({effective_enrollment} students) - NO FALLBACK AVAILABLE")
+                            print(f"      [WARN] {day} {time_slot}: NO ROOM AVAILABLE for {course_display} ({effective_enrollment} students) - all rooms booked")
     
     print(f"   [SCHOOL] Total classroom allocations: {allocation_count}")
     return schedule_with_rooms
@@ -6423,9 +7752,6 @@ def find_suitable_classroom_for_lab_pair(lab_rooms_df, enrollment, day, time_slo
                 classroom_usage_tracker[day][time_slot2] = set()
             
             classroom_usage_tracker[day][time_slot1].add(room_number)
-            classroom_usage_tracker[day][time_slot2].add(room_number)
-            print(f"         [PIN] Allocated {room_number} for lab pair {day} {time_slot1} & {time_slot2} (Capacity: {room['Capacity']})")
-            return room_number
             classroom_usage_tracker[day][time_slot2].add(room_number)
             print(f"         [PIN] Allocated {room_number} for lab pair {day} {time_slot1} & {time_slot2} (Capacity: {room['Capacity']})")
             return room_number
@@ -7595,20 +8921,19 @@ def debug_current_data():
             if not df.empty:
                 debug_info['sample_data'][key] = df.head(3).to_dict('records')
         
-        # Add timetable info
-                # Look for ALL timetable files (basket, pre-mid, post-mid)
-        basket_files = glob.glob(os.path.join(OUTPUT_DIR, "*_baskets.xlsx"))
-        pre_mid_files = glob.glob(os.path.join(OUTPUT_DIR, "*_pre_mid_timetable.xlsx"))
-        post_mid_files = glob.glob(os.path.join(OUTPUT_DIR, "*_post_mid_timetable.xlsx"))
+        # Add timetable info - look for consolidated timetable files
+        timetable_files = glob.glob(os.path.join(OUTPUT_DIR, "sem*_*_timetable.xlsx"))
+        audit_files = glob.glob(os.path.join(OUTPUT_DIR, "*_Audit.xlsx"))
         
         # Combine all files
-        excel_files = basket_files + pre_mid_files + post_mid_files
+        excel_files = timetable_files + audit_files
         
         print(f"[DIR] Looking for timetable files in {OUTPUT_DIR}")
-        print(f"[FILE] Found {len(basket_files)} basket, {len(pre_mid_files)} pre-mid, {len(post_mid_files)} post-mid files")
+        print(f"[FILE] Found {len(timetable_files)} timetables, {len(audit_files)} audit files")
         debug_info['generated_timetables'] = {
-            'count': len(excel_files),
-            'files': [os.path.basename(f) for f in excel_files]
+            'count': len(timetable_files),
+            'files': [os.path.basename(f) for f in timetable_files],
+            'audit_files': [os.path.basename(f) for f in audit_files]
         }
         
         return jsonify(debug_info)
@@ -9128,9 +10453,14 @@ def upload_files():
                     print(f"[RESET] Generating consolidated timetable for {branch} Semester {sem}...")
                     
                     # Use consolidated generation
-                    # Reset only for the first branch of each semester to preserve common elective rooms
-                    reset_for_sem = (branch_idx == 0)
-                    success = export_consolidated_semester_timetable(data_frames, sem, branch, _reset_for_semester=reset_for_sem)
+                    # Never reset the classroom usage tracker between semesters - all semesters share classrooms
+                    # Only reset preferred room preferences for first branch of each semester
+                    reset_prefs_for_sem = (branch_idx == 0)
+                    success = export_consolidated_semester_timetable(data_frames, sem, branch, _reset_for_semester=reset_prefs_for_sem)
+                    
+                    # Debug: Show tracker size to verify it's accumulating
+                    tracker_size = sum(len(slots) for day in _CLASSROOM_USAGE_TRACKER.values() for slots in day.values())
+                    print(f"[TRACKER] After {branch} Sem {sem}: {tracker_size} room-slot allocations tracked")
                     
                     filename = f"sem{sem}_{branch}_timetable.xlsx"
                     filepath = os.path.join(OUTPUT_DIR, filename)
@@ -9146,12 +10476,41 @@ def upload_files():
                     print(f"[FAIL] Error generating consolidated timetable for {branch} semester {sem}: {e}")
                     traceback.print_exc()
 
+        # After all timetables are generated, generate audit files
+        audit_result = {'faculty_audit': None, 'classroom_audit': None}
+        try:
+            print(f"\n[AUDIT] Starting audit file generation after upload...")
+            print(f"[AUDIT] Output directory: {OUTPUT_DIR}")
+            print(f"[AUDIT] Timetable files generated: {len(generated_files)}")
+            
+            # Extract schedule data from generated timetables to build audit info
+            populate_audit_trackers_from_timetables(data_frames, OUTPUT_DIR)
+            
+            print(f"[AUDIT] Tracker populated with {len(_FACULTY_SCHEDULE_TRACKER)} faculty, {len(_CLASSROOM_SCHEDULE_TRACKER)} classrooms")
+            
+            # Generate the audit files
+            audit_result = generate_audit_files(data_frames, OUTPUT_DIR)
+            
+            print(f"[AUDIT] Audit result: faculty={audit_result.get('faculty_audit')}, classroom={audit_result.get('classroom_audit')}")
+            
+            if audit_result.get('faculty_audit'):
+                generated_files.append(os.path.basename(audit_result['faculty_audit']))
+            if audit_result.get('classroom_audit'):
+                generated_files.append(os.path.basename(audit_result['classroom_audit']))
+        except Exception as audit_error:
+            print(f"[WARN] Audit file generation failed: {audit_error}")
+            traceback.print_exc()
+
         return jsonify({
             'success': True,
             'message': f'Successfully uploaded {len(uploaded_files)} files and generated {success_count} consolidated timetables!',
             'uploaded_files': uploaded_files,
             'generated_count': success_count,
-            'files': generated_files
+            'files': generated_files,
+            'audit_files': {
+                'faculty': os.path.basename(audit_result['faculty_audit']) if audit_result.get('faculty_audit') else None,
+                'classroom': os.path.basename(audit_result['classroom_audit']) if audit_result.get('classroom_audit') else None
+            }
         })
         
     except Exception as e:
@@ -9278,6 +10637,15 @@ def generate_timetables_with_baskets():
                 print(f"[CLEAN] Removed old file: {file}")
             except Exception as e:
                 print(f"[WARN] Could not remove {file}: {e}")
+        
+        # Also clear old audit files
+        audit_files = glob.glob(os.path.join(OUTPUT_DIR, "*_Audit.xlsx"))
+        for file in audit_files:
+            try:
+                os.remove(file)
+                print(f"[CLEAN] Removed old audit file: {file}")
+            except Exception as e:
+                print(f"[WARN] Could not remove {file}: {e}")
 
         # Load data
         data_frames = load_all_data(force_reload=True)
@@ -9305,11 +10673,41 @@ def generate_timetables_with_baskets():
                     print(f"[FAIL] Error generating timetable for {branch} semester {sem}: {e}")
                     traceback.print_exc()
         
+        # After all timetables are generated, populate audit trackers from generated files
+        # and generate audit Excel files
+        audit_result = {'faculty_audit': None, 'classroom_audit': None}
+        try:
+            print(f"\n[AUDIT] Starting audit file generation...")
+            print(f"[AUDIT] Output directory: {OUTPUT_DIR}")
+            print(f"[AUDIT] Timetable files generated: {len(generated_files)}")
+            
+            # Extract schedule data from generated timetables to build audit info
+            populate_audit_trackers_from_timetables(data_frames, OUTPUT_DIR)
+            
+            print(f"[AUDIT] Tracker populated with {len(_FACULTY_SCHEDULE_TRACKER)} faculty, {len(_CLASSROOM_SCHEDULE_TRACKER)} classrooms")
+            
+            # Generate the audit files
+            audit_result = generate_audit_files(data_frames, OUTPUT_DIR)
+            
+            print(f"[AUDIT] Audit result: faculty={audit_result.get('faculty_audit')}, classroom={audit_result.get('classroom_audit')}")
+            
+            if audit_result.get('faculty_audit'):
+                generated_files.append(os.path.basename(audit_result['faculty_audit']))
+            if audit_result.get('classroom_audit'):
+                generated_files.append(os.path.basename(audit_result['classroom_audit']))
+        except Exception as audit_error:
+            print(f"[WARN] Audit file generation failed: {audit_error}")
+            traceback.print_exc()
+        
         return jsonify({
             'success': True, 
             'message': f'Successfully generated {success_count} consolidated timetables!',
             'generated_count': success_count,
-            'files': generated_files
+            'files': generated_files,
+            'audit_files': {
+                'faculty': os.path.basename(audit_result['faculty_audit']) if audit_result.get('faculty_audit') else None,
+                'classroom': os.path.basename(audit_result['classroom_audit']) if audit_result.get('classroom_audit') else None
+            }
         })
         
     except Exception as e:

@@ -1,7 +1,7 @@
 Course Code,Course Name,Semester,Department,LTPSC,Credits,Faculty,Registered Students,Elective (Yes/No),Half Semester (Yes/No),Basket,Post mid-sem,Common
 MA161,Statistics,1,CSE,2-0-0-0-2,2,Ramesh Athe,160,No,Yes,None,No,Yes
 DS161,Introduction to data science and artifical inteligance,1,CSE,2-0-0-0-2,2,Abdul Wahid,160,No,Yes,None,No,Yes
-MA162,Probability,1,CSE,2-0-0-0-2,2,Chinmayananda,160,No,Yes,None,Yes,Yes
+MA162,Probability,1,CSE,2-0-0-0-2,2,Chimayananda A,160,No,Yes,None,Yes,Yes
 EC161,Digital Design,1,CSE,3-0-2-0-2,2,Prakash Pawar,160,No,Yes,None,Yes,Yes
 CS161,Problem Solving,1,CSE,3-0-2-0-4,4,"Sunil P V, Sunil C K, Animesh Roy",160,No,No,None,No,No
 HS161,English Language,1,CSE,3-0-0-0-3,3,Rajesh N S,160,No,No,None,No,No
@@ -10,28 +10,28 @@ DS151,Linux for Engineers,1,CSE,2-0-0-0-2,2,Vivekraj,20,Yes,Yes,ELECTIVE_B1,No,N
 CS101,Fundamentals of Computing,1,CSE,2-0-0-0-2,2,Mallikarjun Kande,20,Yes,Yes,ELECTIVE_B1,No,No
 CS151,introduction to cyber security,1,CSE,2-0-0-0-2,2,Girish Revadigar,140,Yes,Yes,ELECTIVE_B1,Yes,No
 HS157,Computational musicology for hindustani music,1,CSE,1-0-0-0-1,1,Chandrika Kamat,20,Yes,No,ELECTIVE_B1,No,No
-HS102,Kannada Kali-Nali,1,CSE,2-0-0-0-2,2,Anand B,20,Yes,Yes,ELECTIVE_B1,No,No
+HS102,Kannada Kali-Nali,1,CSE,2-0-0-0-2,2,Anand Barangi,20,Yes,Yes,ELECTIVE_B1,No,No
 HS103,Leveraging IT for Better Life,1,CSE,2-0-0-0-2,2,Rajesh N S,20,Yes,Yes,ELECTIVE_B1,No,No
-DE101,Basics of Design,1,CSE,2-0-0-0-2,2,Sandesh Phalke,20,Yes,Yes,ELECTIVE_B1,No,No
+DE101,Basics of Design,1,CSE,2-0-0-0-2,2,Sandesh P,20,Yes,Yes,ELECTIVE_B1,No,No
 HS156,Holistic Personality Development,1,CSE,1-0-0-0-1,1,Rajesh N S,20,Yes,No,ELECTIVE_B1,No,No
 MA261,Differential Equations,3,CSE,2-0-0-0-2,2,Anand Barangi,170,No,Yes,None,No,Yes
 MA262,Multivariable Calculus,3,CSE,2-0-0-0-2,2,Somen Bhattacharjee,170,No,Yes,None,Yes,Yes
-CS261,Operating systems,3,CSE,3-0-0-4-2,2,Suvadip Hazra,170,No,Yes,None,No,No
+CS261,Operating systems,3,CSE,3-0-0-4-2,2,Suvadip,170,No,Yes,None,No,No
 CS262,Software design tool and tecnique,3,CSE,2-0-2-0-3,3,"Sunil P V, Vivekraj",170,No,No,None,No,No
-CS263,Design & Analysis of Algorithms,3,CSE,3-0-2-0-4,4,"Malay, Pramod Y",170,No,No,None,No,No
+CS263,Design & Analysis of Algorithms,3,CSE,3-0-2-0-4,4,"Malay Kumar, Pramod",170,No,No,None,No,No
 CS264,Computer Networks,3,CSE,3-1-0-0-4,4,Prabhu Prasad B M,170,No,No,None,No,No
-HS261,HSS (Ethics),3,CSE,2-0-0-0-2,3,Aswath Babu H,40,Yes,No,HSS_B3,No,Yes
-EC251,Electronics Systems design-1,3,CSE,2-0-0-0-2,2,Pankaj,40,Yes,Yes,ELECTIVE_B3,No,No
+HS261,HSS (Ethics),3,CSE,2-0-0-0-2,3,Aswath Babu,40,Yes,No,HSS_B3,No,Yes
+EC251,Electronics Systems design-1,3,CSE,2-0-0-0-2,2,Pankaj Kumar,40,Yes,Yes,ELECTIVE_B3,No,No
 EC252,Introduction of RFIC design,3,CSE,2-0-0-0-2,2,Rajesh Kumar,20,Yes,Yes,ELECTIVE_B3,No,No
 CS253,Introduction to embedded signals,3,CSE,2-0-0-0-2,2,Sibasankar Padhy,40,Yes,Yes,ELECTIVE_B3,Yes,No
 EC254,Electronic Systems engineering,3,CSE,2-0-0-0-2,2,Mallikarjun Kande,40,Yes,Yes,ELECTIVE_B3,No,No
 CS152,Data Science with Python,3,CSE,2-0-0-0-2,2,Abdul Wahid,40,Yes,Yes,ELECTIVE_B3,No,No
 ASD352,User Interaction and expirence design,3,CSE,3-1-0-0-4,4,Sandesh P,40,Yes,No,ELECTIVE_B3,No,No
-CS251,2D Computer Graphics,3,CSE,2-0-0-0-2,2,Vivekraj V K,140,Yes,Yes,ELECTIVE_B3,No,No
-CS309,Statistics for CS,5,CSE,3-1-0-0-4,4,"Sunil C K, Pavan",139,No,No,None,No,No
+CS251,2D Computer Graphics,3,CSE,2-0-0-0-2,2,Vivekraj,140,Yes,Yes,ELECTIVE_B3,No,No
+CS309,Statistics for CS,5,CSE,3-1-0-0-4,4,"Sunil C K, Pavan Kumar",139,No,No,None,No,No
 CS303,Computer Networks,5,CSE,3-1-2-0-5,5,"Animesh Roy, Dibyajyothi",139,No,No,None,No,No
-CS304,Artificial Intelligence,5,CSE,3-1-0-0-4,4,"Krishendu, Girish",139,No,No,None,No,No
-HS101,Environmental Studies,5,CSE,0-0-0-8-2,2,Aswath Babu H,139,No,Yes,None,No,Yes
+CS304,Artificial Intelligence,5,CSE,3-1-0-0-4,4,"Krishnendu, Girish G N",139,No,No,None,No,No
+HS101,Environmental Studies,5,CSE,0-0-0-8-2,2,Aswath Babu,139,No,Yes,None,No,Yes
 CS463,Parallel computing,5,CSE,3-1-0-0-4,4,Pramod,50,Yes,No,ELECTIVE_B4,No,No
 CS308,Compiler Design,5,CSE,3-1-0-0-4,4,Pavan Kumar,50,Yes,No,ELECTIVE_B4,No,No
 DS301,Graphs and Social Networks,5,CSE,3-1-0-0-4,4,Utkarsh K,50,Yes,No,ELECTIVE_B4,No,No
@@ -44,31 +44,31 @@ ASD352,User Interaction,5,CSE,3-1-0-0-4,4,Sandesh P,50,Yes,No,ELECTIVE_B5,No,No
 EC365,AI in Biomedical Engineering,5,CSE,3-1-0-0-4,4,Sibasankar Padhy,50,Yes,No,ELECTIVE_B5,No,No
 MA161,Statistics,1,DSAI,2-0-0-0-2,2,Ramesh Athe,144,No,Yes,None,Yes,Yes
 DS161,Introduction to DS and AI,1,DSAI,2-0-0-0-2,2,Girish Revadigar,144,No,Yes,None,Yes,Yes
-HS152,Economics/IET,1,DSAI,3-0-0-0-3,3,Anushree Kini,0,Yes,No,ELECTIVE_B1,No,No
-MA162,Probability,1,DSAI,2-0-0-0-2,2,Chinmayananda,144,No,Yes,None,No,Yes
+HS152,Economics/IET,1,DSAI,3-0-0-0-3,3,Anushree,0,Yes,No,ELECTIVE_B1,No,No
+MA162,Probability,1,DSAI,2-0-0-0-2,2,Chinmayananda A,144,No,Yes,None,No,Yes
 EC161,Digital Design,1,DSAI,3-0-2-0-2,2,Prakash Pawar,144,No,Yes,None,No,Yes
 CS161,Problem Solving,1,DSAI,3-0-2-0-4,4,Animesh Roy,144,No,No,None,No,No
 PH151,Introduction to quantum Physics,1,DSAI,2-0-0-0-2,2,Ravishankar,50,Yes,Yes,ELECTIVE_B1,No,No
 DS151,Linux for Engineers,1,DSAI,2-0-0-0-2,2,Vivekraj,50,Yes,Yes,ELECTIVE_B1,No,No
-CS101,Fundamentals of Computing,1,DSAI,2-0-0-0-2,2,Mallikarjun K,50,Yes,Yes,ELECTIVE_B1,No,No
+CS101,Fundamentals of Computing,1,DSAI,2-0-0-0-2,2,Mallikarjun Kande,50,Yes,Yes,ELECTIVE_B1,No,No
 HS157,Computational Thinking,1,DSAI,1-0-0-0-1,1,Chandrika Kamat,50,Yes,No,ELECTIVE_B1,No,No
-HS102,Kannada Kali-Nali,1,DSAI,2-0-0-0-2,2,Anand B,50,Yes,Yes,ELECTIVE_B1,No,No
+HS102,Kannada Kali-Nali,1,DSAI,2-0-0-0-2,2,Anand Barangi,50,Yes,Yes,ELECTIVE_B1,No,No
 HS103,Leveraging IT for Better Life,1,DSAI,2-0-0-0-2,2,Rajesh N S,50,Yes,Yes,ELECTIVE_B1,No,No
-DE101,Basics of Design,1,DSAI,2-0-0-0-2,2,Sandesh Phalke,50,Yes,Yes,ELECTIVE_B1,No,No
+DE101,Basics of Design,1,DSAI,2-0-0-0-2,2,Sandesh P,50,Yes,Yes,ELECTIVE_B1,No,No
 HS156,Holistic Personality Development,1,DSAI,1-0-0-0-1,1,Rajesh N S,20,Yes,No,ELECTIVE_B1,No,No
 CS151,introduction to cyber security,1,DSAI,2-0-0-0-2,2,Girish Revadigar,50,Yes,Yes,ELECTIVE_B1,No,No
-MA262,Multivariable Calculus,3,DSAI,2-0-0-0-2,2,Somen B,80,No,No,None,Yes,Yes
+MA262,Multivariable Calculus,3,DSAI,2-0-0-0-2,2,Somen Bhattacharjee,80,No,No,None,Yes,Yes
 MA261,Differential Equations,3,DSAI,2-0-0-0-2,2,Anand Barangi,80,No,No,None,No,Yes
 DA261,Statistical Programming,3,DSAI,1-0-2-0-2,2,Ramesh Athe,80,No,Yes,None,Yes,No
 DA262,Data Handling,3,DSAI,2-0-2-0-3,3,Siddharth,80,No,No,None,No,No
 CS304,Artificial Intelligence,3,DSAI,3-1-0-0-4,4,Animesh Chaturvedi,80,No,No,None,No,No
-CS307,Machine Learning,3,DSAI,3-0-2-0-4,4,"Utkarsh Mahadeo Khaire, Siddharth R, Deepak K T",80,No,No,None,No,No
+CS307,Machine Learning,3,DSAI,3-0-2-0-4,4,"Utkarsh K, Siddharth, Deepak K T",80,No,No,None,No,No
 HS361,Neuro-Linguistics,3,DSAI,1-0-0-0-1,1,Manjunath K V,50,Yes,No,HSS_B3,No,No
 HS362,Leadership I,3,DSAI,1-0-0-0-1,1,Jagadeesha R Bhat,50,Yes,No,HSS_B3,No,No
-HS363,Sociology for India,3,DSAI,1-0-0-0-1,1,Anushree Kini,50,Yes,No,HSS_B3,No,No
+HS363,Sociology for India,3,DSAI,1-0-0-0-1,1,Anushree,50,Yes,No,HSS_B3,No,No
 HS364,Social Impact,3,DSAI,1-0-0-0-1,1,Rajesh Kumar,50,Yes,No,HSS_B3,No,No
 HS365,Holistic Personality,3,DSAI,1-0-0-0-1,1,Rajesh N S,50,Yes,No,HSS_B3,No,No
-EC251,Electronics Systems,3,DSAI,2-0-0-0-2,2,Pankaj,50,Yes,Yes,ELECTIVE_B3,No,No
+EC251,Electronics Systems,3,DSAI,2-0-0-0-2,2,Pankaj Kumar,50,Yes,Yes,ELECTIVE_B3,No,No
 EC252,Introduction of Communication,3,DSAI,2-0-0-0-2,2,Rajesh Kumar,50,Yes,Yes,ELECTIVE_B3,No,No
 CS253,Introduction to AI,3,DSAI,2-0-0-0-2,2,Sibasankar Padhy,50,Yes,Yes,ELECTIVE_B3,No,No
 EC254,Electronic Systems,3,DSAI,2-0-0-0-2,2,Mallikarjun Kande,50,Yes,Yes,ELECTIVE_B3,No,No
@@ -89,23 +89,23 @@ ASD352,User Interaction,5,DSAI,3-1-0-0-4,4,Sandesh P,50,Yes,No,ELECTIVE_B5,No,No
 EC365,AI in Biomedical Engineering,5,DSAI,3-1-0-0-4,4,Sibasankar Padhy,24,Yes,No,ELECTIVE_B5,No,No
 MA161,Statistics,1,ECE,3-0-2-0-2,2,Ramesh Athe,102,No,Yes,None,Yes,Yes
 DS161,Introduction to DATA science and artificial intelligence,1,ECE,2-0-0-0-2,2,Girish Revadigar,102,No,Yes,None,Yes,Yes
-MA162,Probability,1,ECE,2-0-0-0-2,2,Chinmayananda,102,No,Yes,None,No,Yes
+MA162,Probability,1,ECE,2-0-0-0-2,2,Chinmayananda A,102,No,Yes,None,No,Yes
 EC161,Digital Design,1,ECE,3-0-2-0-2,2,Prakash Pawar,102,No,Yes,None,No,Yes
-CS161,Problem Solving,1,ECE,3-0-2-0-4,4,Manjunath,102,No,No,None,No,Yes
-HS152,Economics/IET,1,ECE,3-0-0-0-3,3,Anushree Kini,102,No,No,None,No,No
+CS161,Problem Solving,1,ECE,3-0-2-0-4,4,Manjunath K V,102,No,No,None,No,Yes
+HS152,Economics/IET,1,ECE,3-0-0-0-3,3,Anushree,102,No,No,None,No,No
 PH151,Introduction to quantum physics,1,ECE,2-0-0-0-2,2,Ravishankar,50,Yes,Yes,ELECTIVE_B1,No,No
 DS151,Linux for Engineers,1,ECE,2-0-0-0-2,2,Vivekraj,50,Yes,Yes,ELECTIVE_B1,No,No
 CS101,Fundamentals of Computing,1,ECE,2-0-0-0-2,2,Mallikarjun Kande,50,Yes,Yes,ELECTIVE_B1,No,No
 HS157,Computational musicology for hindustani music,1,ECE,1-0-0-0-1,1,Chandrika Kamat,50,Yes,No,ELECTIVE_B1,No,No
-HS102,Kannada Kali-Nali,1,ECE,2-0-0-0-2,2,Anand B,50,Yes,Yes,ELECTIVE_B1,No,No
+HS102,Kannada Kali-Nali,1,ECE,2-0-0-0-2,2,Anand Barangi,50,Yes,Yes,ELECTIVE_B1,No,No
 HS103,Leveraging IT for Better Life,1,ECE,2-0-0-0-2,2,Rajesh N S,50,Yes,Yes,ELECTIVE_B1,No,No
-DE101,Basics of Design,1,ECE,2-0-0-0-2,2,Sandesh Phalke,50,Yes,Yes,ELECTIVE_B1,No,No
+DE101,Basics of Design,1,ECE,2-0-0-0-2,2,Sandesh P,50,Yes,Yes,ELECTIVE_B1,No,No
 HS156,Holistic Personality Development,1,ECE,1-0-0-0-1,1,Rajesh N S,50,Yes,No,ELECTIVE_B1,No,No
 CS151,introduction to cyber security,1,ECE,2-0-0-0-2,2,Girish Revadigar,50,Yes,Yes,ELECTIVE_B1,Yes,No
 EC306,Digital Signal Processing,5,ECE,3-0-2-0-4,4,Sibasankar Padhy,80,No,No,None,No,No
 EC301,Introduction to VLSI Design,5,ECE,3-1-0-0-4,4,Jagadish D.N,80,No,No,None,No,No
-EC351,Introduction to Algorithms,5,ECE,3-1-0-0-4,4,Jagdish R.B,80,No,No,None,No,No
-HS351,Happiness & Wellbeing,5,ECE,3-0-0-0-3,3,Chandrika Kamath,80,No,No,None,No,No
+EC351,Introduction to Algorithms,5,ECE,3-1-0-0-4,4,Jagadeesha R Bhat,80,No,No,None,No,No
+HS351,Happiness & Wellbeing,5,ECE,3-0-0-0-3,3,Chandrika Kamat,80,No,No,None,No,No
 CS463,Parallel computing,5,ECE,3-1-0-0-4,4,Pramod,45,Yes,No,ELECTIVE_B3,No,No
 CS308,Compiler Design,5,ECE,3-1-0-0-4,4,Pavan Kumar,45,Yes,No,ELECTIVE_B3,No,No
 DS301,Graphs and Social Network,5,ECE,3-1-0-0-4,4,Utkarsh K,45,Yes,No,ELECTIVE_B3,No,No
@@ -116,15 +116,15 @@ EC355,Internet of Things,5,ECE,3-1-0-0-4,4,Prakash Pawar,45,Yes,No,ELECTIVE_B3,N
 CS352,Cryptography & Information Security,5,ECE,3-1-0-0-4,4,Rajendra Hegadi,45,Yes,No,ELECTIVE_B3,No,No
 DE351,User Interactions and Experience Design,5,ECE,3-1-0-0-4,4,Sandesh P,45,Yes,No,ELECTIVE_B3,No,No
 EC358,AI in Biomedical Signal Interpretation,5,ECE,3-1-0-0-4,4,Sibasankar Padhy,45,Yes,No,ELECTIVE_B3,No,No
-MA261,Multivariable Calculus,3,ECE,3-1-0-0-2,2,Somen B,80,No,Yes,None,No,Yes
+MA261,Multivariable Calculus,3,ECE,3-1-0-0-2,2,Somen Bhattacharjee,80,No,Yes,None,No,Yes
 MA262,Differential Equations,3,ECE,3-1-0-0-2,2,Anand Barangi,80,No,Yes,None,Yes,Yes
-HS301,HSS/IE,3,ECE,3-0-0-0-3,3,TBD,80,Yes,No,HSS_B5,No,Yes
+HS301,HSS/IE,3,ECE,3-0-0-0-3,3,Aswath Babu,80,Yes,No,HSS_B5,No,Yes
 MA263,Random Processes,3,ECE,2-0-0-0-2,2,Chinmayananda A,80,No,Yes,None,No,No
-EC261,Signals & Systems,3,ECE,2-1-0-0-3,3,Somen B,80,No,No,None,No,No
+EC261,Signals & Systems,3,ECE,2-1-0-0-3,3,Somen Bhattacharjee,80,No,No,None,No,No
 EC262,Semiconductor Devices,3,ECE,3-0-2-0-2,2,Pankaj Kumar,80,No,Yes,None,No,No
 EC263,Analog Electronics,3,ECE,3-0-2-0-2,2,Rajesh Kumar,80,No,Yes,None,Yes,No
 CS307,Machine Learning,3,ECE,3-1-0-0-4,4,Deepak K T,80,No,No,None,No,No
-EC251,Electronics Systems design - 1,3,ECE,2-0-0-0-2,2,Pankaj,60,Yes,Yes,ELECTIVE_B4,No,No
+EC251,Electronics Systems design - 1,3,ECE,2-0-0-0-2,2,Pankaj Kumar,60,Yes,Yes,ELECTIVE_B4,No,No
 EC252,Introduction of RFIC,3,ECE,2-0-0-0-2,2,Rajesh Kumar,60,Yes,Yes,ELECTIVE_B4,No,No
 EC253,Introduction to embedded signels,3,ECE,2-0-0-0-2,2,Sibasankar Padhy,60,Yes,Yes,ELECTIVE_B4,Yes,No
 EC254,Electronic Systems engineering,3,ECE,2-0-0-0-2,2,Mallikarjun Kande,60,Yes,Yes,ELECTIVE_B4,No,No
@@ -136,7 +136,7 @@ EC456,Reinforcement learning,7,CSE,3-1-0-0-4,4,Dibyajyothi,80,Yes,No,ELECTIVE_B6
 DS401,health care data analytics,7,CSE,3-1-0-0-4,4,Girish G N,80,Yes,No,ELECTIVE_B6,No,No
 EC462,Generative AI,7,CSE,3-1-0-0-4,4,Chinmayananda A,80,Yes,No,ELECTIVE_B8,No,No
 EC465,Hands on CMOS analog and RF circuit design,7,CSE,3-1-0-0-4,4,Rajesh Kumar,80,Yes,No,ELECTIVE_B8,No,No
-ASD352,User Interactions and Experience Design,7,CSE,3-1-0-0-4,4,Sandesh Phalke,80,Yes,No,ELECTIVE_B8,No,No
+ASD352,User Interactions and Experience Design,7,CSE,3-1-0-0-4,4,Sandesh P,80,Yes,No,ELECTIVE_B8,No,No
 PH454,Quantum AI + Quantum Gen AI: Generative models on quantum platform,7,CSE,3-1-0-0-4,4,Aswath Babu,80,Yes,No,ELECTIVE_B8,No,No
 CS457,DevOPS and its application,7,CSE,3-1-0-0-4,4,Shirshendu Layek,80,Yes,No,ELECTIVE_B7,No,No
 DS458,Agentic AI,7,CSE,3-1-0-0-4,4,Sunil Saumya,80,Yes,No,ELECTIVE_B7,No,No
@@ -144,38 +144,38 @@ CS468,Information retrieval,7,CSE,3-1-0-0-4,4,Krishnendu,80,Yes,No,ELECTIVE_B7,N
 CS473,Cloud SRE and security,7,CSE,3-1-0-0-4,4,Malay Kumar,80,Yes,No,ELECTIVE_B7,No,No
 CS470,AI for cybersecurity,7,CSE,3-1-0-0-4,4,Abdul Wahid,80,Yes,No,ELECTIVE_B9,No,No
 DS102,Finance and accounting,7,CSE,3-1-0-0-4,4,Anushree,80,Yes,No,ELECTIVE_B9,No,No
-MA452,Operation research,7,CSE,3-1-0-0-4,4,Anand B,80,Yes,No,ELECTIVE_B9,No,No
+MA452,Operation research,7,CSE,3-1-0-0-4,4,Anand Barangi,80,Yes,No,ELECTIVE_B9,No,No
 EC463,Energy efficient neural networks,7,CSE,3-1-0-0-4,4,Jagadish D N,80,Yes,No,ELECTIVE_B9,No,No
-CS498,Mini Project,7,CSE,0-0-0-8-2,2,"Animesh Roy, Pramod Yelmewad",130,No,No,None,No,No
-DS456,Cybersecurity techniques,7,DSAI,3-1-0-0-4,4,Rajendra Hegadi,70,Yes,No,ELECTIVE_B6,No,No
-EC456,Reinforcement learning,7,DSAI,3-1-0-0-4,4,Dibyajyothi,70,Yes,No,ELECTIVE_B6,No,No
-DS401,health care data analytics,7,DSAI,3-1-0-0-4,4,Girish G N,70,Yes,No,ELECTIVE_B6,No,No
-EC462,Generative AI,7,DSAI,3-1-0-0-4,4,Chinmayananda A,70,Yes,No,ELECTIVE_B8,No,No
-EC465,Hands on CMOS Analog and RF Circuit design,7,DSAI,3-1-0-0-4,4,Rajesh Kumar,70,Yes,No,ELECTIVE_B8,No,No
-ASD352,User Interactions and Experience Design,7,DSAI,3-1-0-0-4,4,Sandesh Phalke,70,Yes,No,ELECTIVE_B8,No,No
-PH454,Quantum AI+ Generative Models on Quantum Platform,7,DSAI,3-1-0-0-4,4,Aswath Babu,70,Yes,No,ELECTIVE_B8,No,No
-CS457,Devlops and its Applications,7,DSAI,3-1-0-0-4,4,Shirshendu Layek,70,Yes,No,ELECTIVE_B7,No,No
-DS458,Agentic AI,7,DSAI,3-1-0-0-4,4,Sunil Saumya,70,Yes,No,ELECTIVE_B7,No,No
-CS468,Information Retrieval,7,DSAI,3-1-0-0-4,4,Krishnendu,70,Yes,No,ELECTIVE_B7,No,No
-CS473,Cloud SRE and Security,7,DSAI,3-1-0-0-4,4,Malay Kumar,60,Yes,No,ELECTIVE_B7,No,No
+CS498,Mini Project,7,CSE,0-0-0-8-2,2,Animesh Roy,130,No,No,None,No,No
+DS456,Cybersecurity techniques,7,DSAI,3-1-0-0-4,4,Pramod,70,Yes,No,ELECTIVE_B6,No,No
+EC456,Reinforcement learning,7,DSAI,3-1-0-0-4,4,Rajendra Hegadi,70,Yes,No,ELECTIVE_B6,No,No
+DS401,health care data analytics,7,DSAI,3-1-0-0-4,4,Dibyajyothi,70,Yes,No,ELECTIVE_B6,No,No
+EC462,Generative AI,7,DSAI,3-1-0-0-4,4,Girish G N,70,Yes,No,ELECTIVE_B8,No,No
+EC465,Hands on CMOS Analog and RF Circuit design,7,DSAI,3-1-0-0-4,4,Chinmayananda A,70,Yes,No,ELECTIVE_B8,No,No
+ASD352,User Interactions and Experience Design,7,DSAI,3-1-0-0-4,4,Rajesh Kumar,70,Yes,No,ELECTIVE_B8,No,No
+PH454,Quantum AI+ Generative Models on Quantum Platform,7,DSAI,3-1-0-0-4,4,Sandesh P,70,Yes,No,ELECTIVE_B8,No,No
+CS457,Devlops and its Applications,7,DSAI,3-1-0-0-4,4,Aswath Babu,70,Yes,No,ELECTIVE_B7,No,No
+DS458,Agentic AI,7,DSAI,3-1-0-0-4,4,Shirshendu Layek,70,Yes,No,ELECTIVE_B7,No,No
+CS468,Information Retrieval,7,DSAI,3-1-0-0-4,4,Sunil Saumya,70,Yes,No,ELECTIVE_B7,No,No
+CS473,Cloud SRE and Security,7,DSAI,3-1-0-0-4,4,Krishnendu,60,Yes,No,ELECTIVE_B7,No,No
 CS470,AI for Cybersecurity,7,DSAI,3-1-0-0-4,4,Abdul Wahid,60,Yes,No,ELECTIVE_B9,No,No
 DS102,Finance and Accounting,7,DSAI,3-1-0-0-4,4,Anushree,60,Yes,No,ELECTIVE_B9,No,No
-MA452,Operation Research,7,DSAI,3-1-0-0-4,4,Anand barangi,60,Yes,No,ELECTIVE_B9,No,No
+MA452,Operation Research,7,DSAI,3-1-0-0-4,4,Anand Barangi,60,Yes,No,ELECTIVE_B9,No,No
 EC463,Energy Efficient Neural Network,7,DSAI,3-1-0-0-4,4,Jagadish D N,60,Yes,No,ELECTIVE_B9,No,No
-DS498,Mini Project,7,DSAI,0-0-0-8-2,2,"Animesh Roy, Pramod Yelmewad",80,No,No,None,No,No
-DS456,Cybersecurity techniques,7,ECE,3-1-0-0-4,4,Rajendra Hegadi,60,Yes,No,ELECTIVE_B6,No,No
-EC456,Reinforcement learning,7,ECE,3-1-0-0-4,4,Dibyajyothi,30,Yes,No,ELECTIVE_B6,No,No
-DS401,health care data analytics,7,ECE,3-1-0-0-4,4,Girish G N,30,Yes,No,ELECTIVE_B6,No,No
-EC462,Generative AI,7,ECE,3-1-0-0-4,4,Chinmayananda A,30,Yes,No,ELECTIVE_B8,No,No
-EC465,Hands on CMOS analog and RF circuit design,7,ECE,3-1-0-0-4,4,Rajesh Kumar,30,Yes,No,ELECTIVE_B8,No,No
-DE451,Usability testing,7,ECE,3-1-0-0-4,4,Sandesh Phalke,30,Yes,No,ELECTIVE_B8,No,No
-PH454,Quantum AI + Quantum Gen AI: Generative models on quantum platform,7,ECE,3-1-0-0-4,4,Aswath Babu,60,Yes,No,ELECTIVE_B8,No,No
-CS457,DevOPS and its application,7,ECE,3-1-0-0-4,4,Shirshendu Layek,24,Yes,No,ELECTIVE_B7,No,No
+DS498,Mini Project,7,DSAI,0-0-0-8-2,2,Animesh Roy,80,No,No,None,No,No
+DS456,Cybersecurity techniques,7,ECE,3-1-0-0-4,4,Pramod,60,Yes,No,ELECTIVE_B6,No,No
+EC456,Reinforcement learning,7,ECE,3-1-0-0-4,4,Rajendra Hegadi,30,Yes,No,ELECTIVE_B6,No,No
+DS401,health care data analytics,7,ECE,3-1-0-0-4,4,Dibyajyothi,30,Yes,No,ELECTIVE_B6,No,No
+EC462,Generative AI,7,ECE,3-1-0-0-4,4,Girish G N,30,Yes,No,ELECTIVE_B8,No,No
+EC465,Hands on CMOS analog and RF circuit design,7,ECE,3-1-0-0-4,4,Chinmayananda A,30,Yes,No,ELECTIVE_B8,No,No
+DE451,Usability testing,7,ECE,3-1-0-0-4,4,Rajesh Kumar,30,Yes,No,ELECTIVE_B8,No,No
+PH454,Quantum AI + Quantum Gen AI: Generative models on quantum platform,7,ECE,3-1-0-0-4,4,Sandesh P,60,Yes,No,ELECTIVE_B8,No,No
+CS457,DevOPS and its application,7,ECE,3-1-0-0-4,4,Aswath Babu,24,Yes,No,ELECTIVE_B7,No,No
 DS458,Agentic AI,7,ECE,3-1-0-0-4,4,Sunil Saumya,24,Yes,No,ELECTIVE_B7,No,No
 CS468,Information retrieval,7,ECE,3-1-0-0-4,4,Krishnendu,24,Yes,No,ELECTIVE_B7,No,No
 CS473,Cloud SRE and security,7,ECE,3-1-0-0-4,4,Malay Kumar,24,Yes,No,ELECTIVE_B7,No,No
 CS470,AI for cybersecurity,7,ECE,3-1-0-0-4,4,Abdul Wahid,60,Yes,No,ELECTIVE_B9,No,No
 DS102,Finance and accounting,7,ECE,3-1-0-0-4,4,Anushree,30,Yes,No,ELECTIVE_B9,No,No
-MA452,Operation research,7,ECE,3-1-0-0-4,4,Anand B,30,Yes,No,ELECTIVE_B9,No,No
+MA452,Operation research,7,ECE,3-1-0-0-4,4,Anand Barangi,30,Yes,No,ELECTIVE_B9,No,No
 EC463,Energy efficient neural networks,7,ECE,3-1-0-0-4,4,Jagadish D N,30,Yes,No,ELECTIVE_B9,No,No
 EC498,Mini Project,7,ECE,0-0-0-8-2,2,Pankaj Kumar,80,No,No,None,No,No
