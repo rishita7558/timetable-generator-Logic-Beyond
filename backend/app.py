@@ -48,6 +48,10 @@ _GLOBAL_PREFERRED_CLASSROOMS = {}
 _COMMON_COURSE_ROOMS = {}  # Track classroom allocations for common courses (same room for both sections)
 _COMMON_COURSE_SCHEDULE = {}  # Track timeslot allocations for common courses (same timeslot for both sections)
 
+# Global counter to track total allocations per room for load balancing
+# Structure: { room_id: total_allocation_count }
+_ROOM_ALLOCATION_COUNTER = {}
+
 # Global time slot labels used across schedule normalization
 TIME_SLOT_LABELS = [
     '07:30-09:00',
@@ -117,6 +121,59 @@ def initialize_classroom_usage_tracker():
     print(f"   [SCHOOL] Initialized classroom tracker: {len(days)} days x {len(time_slots)} time slots")
 
 
+def compute_effective_enrollment(enrollment, is_common_course=False):
+    """Calculate effective enrollment for room allocation purposes.
+    
+    For common courses (same course taught in multiple sections/departments):
+    - Divide enrollment by number of sections to get effective enrollment per section
+    - This ensures room capacity is appropriate for one section, not the combined total
+    
+    Args:
+        enrollment: Total enrollment number
+        is_common_course: Whether this is a common course (taught multiple times)
+    
+    Returns:
+        Effective enrollment for room sizing
+    """
+    if not enrollment or enrollment <= 0:
+        return 40  # Default enrollment if not specified
+    
+    enrollment = int(enrollment)
+    
+    # For common courses, assume 2 sections and divide enrollment
+    if is_common_course:
+        return max(1, int(enrollment / 2))
+    
+    return enrollment
+
+
+def _get_capacity_tiers(enrollment):
+    """Return a list of classroom capacity tiers ordered by preference for the given enrollment.
+    
+    Args:
+        enrollment: Effective enrollment number
+    
+    Returns:
+        List of capacity tiers in priority order (smallest suitable first, then larger options)
+    """
+    # Define capacity ranges for different room types
+    if enrollment <= 30:
+        # Small rooms: 30, 40, 50, then larger
+        return [30, 40, 50, 60, 80, 100, 120, 240]
+    elif enrollment <= 50:
+        # Medium-small rooms: 50, 60, 80, then larger
+        return [50, 60, 80, 100, 120, 240]
+    elif enrollment <= 80:
+        # Medium rooms: 80, 100, 120
+        return [80, 100, 120, 240]
+    elif enrollment <= 120:
+        # Large rooms: 120, 240
+        return [120, 240]
+    else:
+        # Extra-large enrollment: prefer largest rooms
+        return [240, 120, 100]
+
+
 def _get_available_rooms(dfs):
     """Return a list of available room identifiers from classroom data if present, otherwise generate placeholders."""
     rooms = []
@@ -137,12 +194,37 @@ def _get_available_rooms(dfs):
     return rooms
 
 
-def _allocate_classrooms_for_file(df_a, df_b, dfs, filename, sem, branch, basket_allocations):
+def _allocate_classrooms_for_file(df_a, df_b, dfs, filename, sem, branch, basket_allocations, course_enrollment_map=None, common_courses_list=None, classroom_capacities=None):
     """Allocate classrooms deterministically per course and avoid double-booking when possible.
     Returns modified df_a, df_b and a list of allocation records.
     """
     global _CLASSROOM_USAGE_TRACKER, _TIMETABLE_CLASSROOM_ALLOCATIONS, _GLOBAL_PREFERRED_CLASSROOMS
-    rooms = _get_available_rooms(dfs)
+    
+    # Build classroom capacity mapping ONCE at the start to be used consistently
+    # This filters out non-teaching rooms (library, research, empty, etc.)
+    classroom_capacities = {}
+    room_types = {}
+    if dfs and 'classroom' in dfs and not dfs['classroom'].empty:
+        for _, room_row in dfs['classroom'].iterrows():
+            room_id = str(room_row.get('Room Number', '')).strip()
+            capacity = room_row.get('Capacity', 0)
+            room_type = str(room_row.get('Type', '')).strip().lower()
+            # Exclude non-teaching rooms (library, research, empty, physics lab, etc.)
+            if room_type in ['library', 'research lab', 'empty', 'physics lab', 'examination room'] or 'nil' in str(capacity).lower():
+                continue
+            if room_id and capacity:
+                try:
+                    classroom_capacities[room_id] = int(capacity)
+                    room_types[room_id] = room_type
+                except (ValueError, TypeError):
+                    pass
+    
+    # Use ONLY teaching rooms (filtered classroom_capacities keys)
+    rooms = list(classroom_capacities.keys())
+    if not rooms:
+        # Fallback to _get_available_rooms if no capacity mapping was built
+        rooms = _get_available_rooms(dfs)
+    
     # Use the global preferred map so course-to-room preference is consistent across files
     preferred_room_map = _GLOBAL_PREFERRED_CLASSROOMS
 
@@ -158,51 +240,158 @@ def _allocate_classrooms_for_file(df_a, df_b, dfs, filename, sem, branch, basket
                 return None
         return None
 
-    def _choose_room_for_course(course_key, day, time_slot):
+    def _choose_room_for_course(course_key, day, time_slot, course_enrollment_map=None, common_courses_list=None, passed_classroom_capacities=None):
+        global _ROOM_ALLOCATION_COUNTER
+        
+        # Use the pre-built classroom_capacities from outer scope if not passed
+        local_classroom_capacities = passed_classroom_capacities if passed_classroom_capacities else classroom_capacities
+        
         # Ensure time slot exists in tracker
         if day not in _CLASSROOM_USAGE_TRACKER:
             _CLASSROOM_USAGE_TRACKER[day] = {}
         if time_slot not in _CLASSROOM_USAGE_TRACKER[day]:
             _CLASSROOM_USAGE_TRACKER[day][time_slot] = set()
 
-        # Ensure we have a preferred room for this course
-        if course_key not in preferred_room_map:
-            if rooms:
-                preferred_room_map[course_key] = rooms[hash(course_key) % len(rooms)]
-            else:
-                preferred_room_map[course_key] = None
+        # Initialize room allocation counter for all rooms if not done
+        for r in rooms:
+            if r not in _ROOM_ALLOCATION_COUNTER:
+                _ROOM_ALLOCATION_COUNTER[r] = 0
+
+        # Check if this course already has a preferred room (for consistency across sections)
         pref = preferred_room_map.get(course_key)
-        # If preferred room is not in current available rooms, reset it so we choose from current rooms
         if pref and pref not in rooms:
             pref = None
             preferred_room_map[course_key] = None
 
-        # If preferred room is available, use it
+        # If preferred room exists and is available, use it
         if pref and pref not in _CLASSROOM_USAGE_TRACKER[day][time_slot]:
             chosen = pref
             conflict = False
         else:
-            # Find an alternative free room
-            chosen = None
-            for r in rooms:
-                if r not in _CLASSROOM_USAGE_TRACKER[day][time_slot]:
-                    chosen = r
-                    break
-            if chosen:
+            # IMPROVED: Find the least-used available room (load balancing)
+            # This ensures all rooms are used evenly instead of clustering on a few rooms
+            available_rooms = [r for r in rooms if r not in _CLASSROOM_USAGE_TRACKER[day][time_slot]]
+            
+            if available_rooms:
+                # Sort by allocation count (ascending) to pick least-used room
+                available_rooms.sort(key=lambda r: _ROOM_ALLOCATION_COUNTER.get(r, 0))
+                chosen = available_rooms[0]
                 conflict = False
+                # Set as preferred for this course for consistency
+                if course_key not in preferred_room_map:
+                    preferred_room_map[course_key] = chosen
             else:
-                # No free room; fall back to preferred if exists, otherwise pick the largest room
-                if pref:
-                    chosen = pref
-                else:
-                    chosen = rooms[0] if rooms else None
-                conflict = True
-        # Mark used
+                # --- SWAP LOGIC START ---
+                # All rooms are booked. Try to swap with another allocation at this slot.
+                # Find a room that is booked, but whose occupant could move to a free room.
+                swap_found = False
+                for booked_room in list(_CLASSROOM_USAGE_TRACKER[day][time_slot]):
+                    # Try to move the occupant of booked_room to a free room
+                    for alt_room in rooms:
+                        if alt_room not in _CLASSROOM_USAGE_TRACKER[day][time_slot]:
+                            # Find the allocation for this (day, time_slot, booked_room)
+                            # We need to update the allocations list and tracker
+                            for alloc in allocations:
+                                if alloc['day'] == day and alloc['time_slot'] == time_slot and alloc['room'] == booked_room:
+                                    # Swap: move occupant to alt_room, assign booked_room to current course
+                                    alloc['room'] = alt_room
+                                    # Update tracker
+                                    _CLASSROOM_USAGE_TRACKER[day][time_slot].remove(booked_room)
+                                    _CLASSROOM_USAGE_TRACKER[day][time_slot].add(alt_room)
+                                    chosen = booked_room
+                                    swap_found = True
+                                    conflict = False
+                                    break
+                        if swap_found:
+                            break
+                    if swap_found:
+                        break
+                if not swap_found:
+                    # No swap possible. Instead of creating a conflict, try to find any available room
+                    # that meets capacity requirements, similar to the main allocation logic.
+                    # This is a simplified tiered fallback.
+                    enrollment = (course_enrollment_map or {}).get(course_key, 0)
+                    # Correctly determine if the course is common for accurate enrollment calculation
+                    is_common = course_key in (common_courses_list or [])
+                    effective_enrollment = compute_effective_enrollment(enrollment, is_common_course=is_common)
+
+                    capacity_tiers = _get_capacity_tiers(effective_enrollment)
+                    
+                    fallback_room = None
+                    # Use the pre-built classroom_capacities from outer scope (excludes non-teaching rooms)
+                    
+                    # Get currently booked rooms for this slot
+                    booked_at_slot = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
+                    
+                    # FIX: Search C-prefix rooms FIRST in tier search, then L-prefix as fallback
+                    for cap in capacity_tiers:
+                        # Find C-prefix rooms first with capacity >= enrollment but close to preferred tier
+                        c_candidate_rooms = [
+                            r for r, c in local_classroom_capacities.items() 
+                            if c >= effective_enrollment and c <= cap + 20 and r not in booked_at_slot and not r.startswith('L')
+                        ]
+                        c_candidate_rooms.sort(key=lambda r: (_ROOM_ALLOCATION_COUNTER.get(r, 0), local_classroom_capacities.get(r, 0)))
+                        if c_candidate_rooms:
+                            fallback_room = c_candidate_rooms[0]
+                            break
+                    
+                    # If no C-prefix room found in tiers, try L-prefix within tiers
+                    if not fallback_room:
+                        for cap in capacity_tiers:
+                            l_candidate_rooms = [
+                                r for r, c in local_classroom_capacities.items() 
+                                if c >= effective_enrollment and c <= cap + 20 and r not in booked_at_slot and r.startswith('L')
+                            ]
+                            l_candidate_rooms.sort(key=lambda r: (_ROOM_ALLOCATION_COUNTER.get(r, 0), local_classroom_capacities.get(r, 0)))
+                            if l_candidate_rooms:
+                                fallback_room = l_candidate_rooms[0]
+                                break
+                    
+                    # FINAL FALLBACK: If no room found in tiers, try any available room (ignore capacity requirement)
+                    if not fallback_room:
+                        # Try C-prefix rooms first (any capacity)
+                        c_prefix_rooms = [r for r in local_classroom_capacities.keys() 
+                                         if not r.startswith('L') and r not in booked_at_slot]
+                        c_prefix_rooms.sort(key=lambda r: (_ROOM_ALLOCATION_COUNTER.get(r, 0), local_classroom_capacities.get(r, 0)))
+                        if c_prefix_rooms:
+                            fallback_room = c_prefix_rooms[0]
+                        else:
+                            # Then try L-prefix rooms (any capacity)
+                            l_prefix_rooms = [r for r in local_classroom_capacities.keys() 
+                                             if r.startswith('L') and r not in booked_at_slot]
+                            l_prefix_rooms.sort(key=lambda r: (_ROOM_ALLOCATION_COUNTER.get(r, 0), local_classroom_capacities.get(r, 0)))
+                            if l_prefix_rooms:
+                                fallback_room = l_prefix_rooms[0]
+                    
+                    # Ultimate fallback: ANY available room regardless of capacity or prefix
+                    if not fallback_room:
+                        any_available = [r for r in local_classroom_capacities.keys() if r not in booked_at_slot]
+                        any_available.sort(key=lambda r: (_ROOM_ALLOCATION_COUNTER.get(r, 0), -local_classroom_capacities.get(r, 0)))  # Prefer larger
+                        if any_available:
+                            fallback_room = any_available[0]
+                    
+                    if fallback_room:
+                        chosen = fallback_room
+                        conflict = False
+                    else:
+                        # All rooms truly booked - pick least-used room (conflict will occur)
+                        all_rooms_sorted = sorted(rooms, key=lambda r: _ROOM_ALLOCATION_COUNTER.get(r, 0))
+                        chosen = all_rooms_sorted[0] if all_rooms_sorted else None
+                        conflict = True
+                        if chosen:
+                            print(f"      [ROOM-CONFLICT] All rooms booked at {day} {time_slot}, assigning {course_key} to least-used room {chosen}")
+        # Mark used and increment allocation counter
         if chosen:
             _CLASSROOM_USAGE_TRACKER[day][time_slot].add(chosen)
+            # Increment room allocation counter for load balancing
+            if chosen not in _ROOM_ALLOCATION_COUNTER:
+                _ROOM_ALLOCATION_COUNTER[chosen] = 0
+            _ROOM_ALLOCATION_COUNTER[chosen] += 1
         return chosen, conflict
 
-    def _process_df(df, section_label):
+    def _process_df(df, section_label, course_enrollment_map=None, common_courses_list=None, passed_capacities=None):
+        # Use outer classroom_capacities if not passed
+        local_caps = passed_capacities if passed_capacities else classroom_capacities
         if df.empty:
             return df
         df_copy = df.copy()
@@ -245,15 +434,15 @@ def _allocate_classrooms_for_file(df_a, df_b, dfs, filename, sem, branch, basket
                         _CLASSROOM_USAGE_TRACKER[day][time_slot] = set()
                     _CLASSROOM_USAGE_TRACKER[day][time_slot].add(room)
                 else:
-                    room, conflict = _choose_room_for_course(course_code, day, time_slot)
+                    room, conflict = _choose_room_for_course(course_code, day, time_slot, course_enrollment_map, common_courses_list, local_caps)
                     # Append room info to cell
                     if room:
                         df_copy.iat[row_idx, df_copy.columns.get_loc(col)] = f"{val} [{room}]"
                     allocations.append({'course': course_code, 'room': room, 'classroom': room, 'day': day, 'time_slot': time_slot, 'section': section_label, 'conflict': conflict if room is not None else False})
         return df_copy
 
-    df_a_alloc = _process_df(df_a, 'A')
-    df_b_alloc = _process_df(df_b, 'B') if df_b is not None and not df_b.empty else df_b
+    df_a_alloc = _process_df(df_a, 'A', course_enrollment_map, common_courses_list, classroom_capacities)
+    df_b_alloc = _process_df(df_b, 'B', course_enrollment_map, common_courses_list, classroom_capacities) if df_b is not None and not df_b.empty else df_b
 
     # Convert allocations list into map keyed by day_time for consistency with other allocation structures
     alloc_map = {}
@@ -305,6 +494,7 @@ def reset_classroom_usage_tracker():
     """Reset the classroom usage tracker (call before generating new timetables)"""
     global _CLASSROOM_USAGE_TRACKER, _TIMETABLE_CLASSROOM_ALLOCATIONS, _COMMON_COURSE_SCHEDULE, _COMMON_COURSE_ROOMS, _LAB_ROOM_ALLOCATIONS
     global _FACULTY_SCHEDULE_TRACKER, _CLASSROOM_SCHEDULE_TRACKER, _FACULTY_BOOKING_TRACKER, _MINOR_SCHEDULE_TRACKER
+    global _ROOM_ALLOCATION_COUNTER, _GLOBAL_PREFERRED_CLASSROOMS
     _CLASSROOM_USAGE_TRACKER = {}
     _TIMETABLE_CLASSROOM_ALLOCATIONS = {}
     _COMMON_COURSE_SCHEDULE = {}
@@ -314,8 +504,10 @@ def reset_classroom_usage_tracker():
     _CLASSROOM_SCHEDULE_TRACKER = {}
     _FACULTY_BOOKING_TRACKER = {}  # Reset faculty booking tracker
     _MINOR_SCHEDULE_TRACKER = {}  # Reset minor schedule tracker
+    _ROOM_ALLOCATION_COUNTER = {}  # Reset room allocation counter for load balancing
+    _GLOBAL_PREFERRED_CLASSROOMS = {}  # Reset preferred classrooms to allow fresh distribution
     initialize_classroom_usage_tracker()
-    print("[RESET] Classroom usage tracker, faculty booking tracker, and audit trackers reset for new timetable generation")
+    print("[RESET] Classroom usage tracker, faculty booking tracker, room allocation counter, and audit trackers reset for new timetable generation")
 
 
 # ===== AUDIT TRACKING FUNCTIONS =====
@@ -6556,16 +6748,30 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
     print(f"[COMMON-DEBUG] Starting allocation for Semester {semester}, Branch {branch}, Section {section}")
     print(f"[COMMON-DEBUG] Current _COMMON_COURSE_ROOMS keys: {list(_COMMON_COURSE_ROOMS.keys())}")
     
-    # Filter available classrooms (exclude labs, recreation, library, etc.)
-    available_classrooms = classrooms_df[
-        (classrooms_df['Type'].str.contains('classroom', case=False, na=False)) |
-        (classrooms_df['Type'].str.contains('auditorium', case=False, na=False))
-    ].copy()
+    room_type_series = classrooms_df['Type'].fillna('').astype(str).str.lower()
+    room_number_series = classrooms_df['Room Number'].fillna('').astype(str)
+
+    # FIX: Define lab rooms by ACTUAL lab type, not just L prefix
+    # L402-L408 are "classroom" type - should NOT be treated as labs
+    # Only "Hardware Lab", "Software Lab", "Physics Lab" etc. are labs
+    is_classroom_type = room_type_series.isin(['classroom', 'large classroom', 'auditorium'])
+    has_lab_in_type = room_type_series.str.contains('lab', na=False)
     
-    # Filter lab rooms separately (rooms starting with "L")
-    available_lab_rooms = classrooms_df[
-        classrooms_df['Room Number'].astype(str).str.startswith('L', na=False)
-    ].copy()
+    # A room is a lab ONLY if it has "lab" in type AND is not a classroom type
+    lab_mask = has_lab_in_type & ~is_classroom_type
+
+    # Exclude non-teaching spaces from non-lab pool
+    excluded_non_teaching_mask = (
+        room_type_series.str.contains('library', na=False) |
+        room_type_series.str.contains('research', na=False) |
+        room_type_series.str.contains('empty', na=False)
+    )
+
+    # Accept all usable non-lab teaching rooms (classroom, auditorium, examination room, etc.)
+    available_classrooms = classrooms_df[(~lab_mask) & (~excluded_non_teaching_mask)].copy()
+
+    # Keep lab pool separate for lab sessions
+    available_lab_rooms = classrooms_df[lab_mask].copy()
     
     # Convert capacity to numeric, handle 'nil' values
     available_classrooms['Capacity'] = pd.to_numeric(available_classrooms['Capacity'], errors='coerce')
@@ -6582,12 +6788,23 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
     print(f"   Available classrooms: {len(available_classrooms)}")
     print(f"   Available lab rooms: {len(available_lab_rooms)}")
     
-    non_lab_mask = ~available_classrooms['Room Number'].astype(str).str.startswith('L', na=False)
-    primary_classrooms = available_classrooms[non_lab_mask].copy()
-    fallback_lab_classrooms = available_classrooms[~non_lab_mask].copy()
+    # FIX: Use room TYPE to classify rooms, not just prefix
+    # L402-L408 are "classroom" type despite L prefix - include them in primary
+    # Only actual labs (Hardware Lab, Software Lab) are fallback
+    room_type_lower = available_classrooms['Type'].astype(str).str.lower().str.strip()
+    is_actual_lab_type = (
+        room_type_lower.str.contains('hardware', na=False) | 
+        room_type_lower.str.contains('software', na=False) |
+        room_type_lower.str.contains('lab', na=False)
+    ) & ~room_type_lower.isin(['classroom', 'large classroom', 'auditorium'])
     
-    print(f"   Primary classrooms (non-L prefix): {len(primary_classrooms)}")
-    print(f"   Fallback classrooms (L prefix): {len(fallback_lab_classrooms)}")
+    # Primary = all classrooms/auditoriums (including L4xx classroom types)
+    # Fallback = only actual labs (Hardware Lab, Software Lab)
+    primary_classrooms = available_classrooms[~is_actual_lab_type].copy()
+    fallback_lab_classrooms = available_classrooms[is_actual_lab_type].copy()
+    
+    print(f"   Primary classrooms (all classroom types): {len(primary_classrooms)}")
+    print(f"   Fallback classrooms (lab types only): {len(fallback_lab_classrooms)}")
     
     # Create a copy of schedule with classroom allocation
     schedule_with_rooms = schedule_df.copy()
@@ -6622,42 +6839,222 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
         return room_number not in _CLASSROOM_USAGE_TRACKER.get(day_key, {}).get(slot_key, set())
 
     def reserve_room(room_number, day_key, slot_key):
+        global _ROOM_ALLOCATION_COUNTER
         if day_key not in _CLASSROOM_USAGE_TRACKER:
             _CLASSROOM_USAGE_TRACKER[day_key] = {}
         if slot_key not in _CLASSROOM_USAGE_TRACKER[day_key]:
             _CLASSROOM_USAGE_TRACKER[day_key][slot_key] = set()
         _CLASSROOM_USAGE_TRACKER[day_key][slot_key].add(room_number)
+        # Increment allocation counter for load balancing
+        if room_number not in _ROOM_ALLOCATION_COUNTER:
+            _ROOM_ALLOCATION_COUNTER[room_number] = 0
+        _ROOM_ALLOCATION_COUNTER[room_number] += 1
+
+    def get_room_usage_count(room_number):
+        """Get the total allocation count for a room (for load balancing)."""
+        return _ROOM_ALLOCATION_COUNTER.get(room_number, 0)
+
+    def select_least_used_room(candidates_df):
+        """Select the least-used room from a DataFrame of candidates.
+        Returns room number string or None if candidates is empty.
+        Uses _ROOM_ALLOCATION_COUNTER for load balancing."""
+        if candidates_df.empty:
+            return None
+        # Add usage count column for sorting
+        candidates = candidates_df.copy()
+        candidates['_usage'] = candidates['Room Number'].apply(lambda r: _ROOM_ALLOCATION_COUNTER.get(str(r), 0))
+        # Sort by capacity (ascending), then by usage (ascending) to pick least-used room of appropriate size
+        if '_cap' not in candidates.columns:
+            candidates['_cap'] = pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0)
+        candidates = candidates.sort_values(['_cap', '_usage', 'Room Number'], ascending=[True, True, True])
+        return str(candidates.iloc[0]['Room Number'])
+
+    def pick_forced_fallback_room(preferred_min_capacity=None, day_key=None, slot_key=None):
+        """Pick a room, preferring available rooms first, then allowing conflicts as last resort.
+        
+        IMPROVED: First try to find rooms NOT booked for this specific time slot.
+        Only if all rooms are booked at this slot, pick the least-used room (conflict).
+        
+        Args:
+            preferred_min_capacity: Minimum capacity requirement
+            day_key: Day to check availability (optional)
+            slot_key: Time slot to check availability (optional)
+        """
+        candidate_sets = []
+        if not primary_classrooms.empty:
+            candidate_sets.append(primary_classrooms)
+        if not available_classrooms.empty:
+            candidate_sets.append(available_classrooms)
+        if not available_lab_rooms.empty:
+            candidate_sets.append(available_lab_rooms)
+
+        # Get rooms booked at this specific slot (if day/slot provided)
+        booked_at_slot = set()
+        if day_key and slot_key:
+            booked_at_slot = _CLASSROOM_USAGE_TRACKER.get(day_key, {}).get(slot_key, set())
+
+        # FIRST PASS: Try to find a room that is NOT booked at this slot
+        for rooms_df in candidate_sets:
+            candidates = rooms_df.copy()
+            if preferred_min_capacity is not None:
+                capacities = pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0)
+                sized = candidates[capacities >= preferred_min_capacity]
+                if not sized.empty:
+                    candidates = sized
+            if not candidates.empty:
+                candidates = candidates.assign(_cap=pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0))
+                # Filter to only rooms NOT booked at this slot
+                if booked_at_slot:
+                    available_candidates = candidates[~candidates['Room Number'].isin(booked_at_slot)]
+                    if not available_candidates.empty:
+                        selected = select_least_used_room(available_candidates)
+                        if selected:
+                            # Reserve the room in the tracker to prevent future conflicts
+                            reserve_room(selected, day_key, slot_key)
+                            print(f"         [FORCED-AVAIL] Found available room {selected} for {day_key} {slot_key}")
+                            return selected
+                else:
+                    # No rooms booked at this slot - pick any
+                    selected = select_least_used_room(candidates)
+                    if selected:
+                        if day_key and slot_key:
+                            reserve_room(selected, day_key, slot_key)
+                        return selected
+
+        # SECOND PASS: All rooms booked at this slot - pick least-used overall (conflict)
+        for rooms_df in candidate_sets:
+            candidates = rooms_df.copy()
+            if preferred_min_capacity is not None:
+                capacities = pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0)
+                sized = candidates[capacities >= preferred_min_capacity]
+                if not sized.empty:
+                    candidates = sized
+            if not candidates.empty:
+                candidates = candidates.assign(_cap=pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0))
+                # Use load-balanced selection - prefer least-used room of appropriate size
+                selected = select_least_used_room(candidates)
+                if selected:
+                    print(f"         [FORCED-CONFLICT] All rooms booked at {day_key} {slot_key}, using {selected}")
+                    return selected
+        return None
 
     def room_available_for_lab_pair(room_number, day_key, slot_one, slot_two):
         return room_available(room_number, day_key, slot_one) and room_available(room_number, day_key, slot_two)
+
+    def _get_capacity_tiers(enroll):
+        """Return ordered list of capacity tiers to try for a given enrollment."""
+        if enroll <= 80:
+            return [80, 96, 120, 135]
+        elif enroll <= 96:
+            return [96, 120, 135]
+        elif enroll <= 120:
+            return [120, 135]
+        elif enroll <= 135:
+            return [135, 240]
+        else:
+            return [240]
+
+    def find_tiered_fallback_room(enroll, day_key, slot_key, extra_disallowed=None):
+        """Find the best room using tiered logic from all available room pools.
+        Uses load balancing to distribute rooms evenly.
+        PRIORITY: C-prefix rooms FIRST, L-prefix rooms ONLY as last resort.
+        Returns room number or None."""
+        globally_booked = _CLASSROOM_USAGE_TRACKER.get(day_key, {}).get(slot_key, set())
+        disallowed = set(globally_booked)
+        if extra_disallowed:
+            disallowed |= set(extra_disallowed)
+        tier_caps = _get_capacity_tiers(enroll)
+        
+        # Filter primary_classrooms into C-prefix ONLY and L-prefix separately
+        c_prefix_rooms = primary_classrooms[~primary_classrooms['Room Number'].astype(str).str.startswith('L')].copy() if not primary_classrooms.empty else pd.DataFrame()
+        l_prefix_rooms = primary_classrooms[primary_classrooms['Room Number'].astype(str).str.startswith('L')].copy() if not primary_classrooms.empty else pd.DataFrame()
+        
+        # STEP 1: Try ALL tiers in C-prefix classrooms first
+        if not c_prefix_rooms.empty:
+            candidates = c_prefix_rooms.copy()
+            candidates['_cap'] = pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0)
+            candidates = candidates[candidates['_cap'] >= enroll]
+            candidates = candidates[~candidates['Room Number'].isin(disallowed)]
+            if not candidates.empty:
+                for tier_cap in tier_caps:
+                    tier_match = candidates[(candidates['_cap'] >= tier_cap - 10) & (candidates['_cap'] <= tier_cap + 10)]
+                    if not tier_match.empty:
+                        return select_least_used_room(tier_match)
+                # No tier match in C-prefix, use smallest adequate C-prefix room
+                return select_least_used_room(candidates)
+        
+        # STEP 2: ONLY if C-prefix exhausted, try L-prefix classroom rooms
+        if not l_prefix_rooms.empty:
+            candidates = l_prefix_rooms.copy()
+            candidates['_cap'] = pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0)
+            candidates = candidates[candidates['_cap'] >= enroll]
+            candidates = candidates[~candidates['Room Number'].isin(disallowed)]
+            if not candidates.empty:
+                for tier_cap in tier_caps:
+                    tier_match = candidates[(candidates['_cap'] >= tier_cap - 10) & (candidates['_cap'] <= tier_cap + 10)]
+                    if not tier_match.empty:
+                        return select_least_used_room(tier_match)
+                return select_least_used_room(candidates)
+        
+        # STEP 3: Last resort - try available_classrooms (includes all) with capacity filter
+        if not available_classrooms.empty:
+            candidates = available_classrooms.copy()
+            candidates['_cap'] = pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0)
+            candidates = candidates[candidates['_cap'] >= enroll]
+            candidates = candidates[~candidates['Room Number'].isin(disallowed)]
+            if not candidates.empty:
+                return select_least_used_room(candidates)
+        
+        # STEP 4: ULTIMATE FALLBACK - any available room ignoring capacity (prefer larger)
+        if not available_classrooms.empty:
+            candidates = available_classrooms.copy()
+            candidates['_cap'] = pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0)
+            candidates = candidates[~candidates['Room Number'].isin(disallowed)]
+            if not candidates.empty:
+                # Sort by capacity descending to get largest available room
+                candidates = candidates.sort_values('_cap', ascending=False)
+                return select_least_used_room(candidates)
+        
+        return None
     
     def get_suitable_lab_rooms_for_course(course_code):
         """Filter lab rooms based on course type:
-           - EC courses use Hardware labs
-           - CS and DS courses use Software labs
-           - Default: any available lab room"""
+           - EC courses use Hardware labs (priority), then Software labs as fallback
+           - CS and DS courses use Software labs (priority), then Hardware labs as fallback
+           - Default: any available lab room
+           
+           Returns: DataFrame with preferred labs first, then other labs for fallback"""
         if not available_lab_rooms.empty:
             # Extract base course code (remove prefixes, suffixes)
             base_code = str(course_code).upper().split('[')[0].split('(')[0].strip()
             
-            # EC courses (Electronics/Electrical) → Hardware labs
+            # Separate lab types
+            hardware_labs = available_lab_rooms[available_lab_rooms['Type'].str.contains('Hardware', case=False, na=False)].copy()
+            software_labs = available_lab_rooms[available_lab_rooms['Type'].str.contains('Software', case=False, na=False)].copy()
+            other_labs = available_lab_rooms[
+                ~available_lab_rooms['Type'].str.contains('Hardware', case=False, na=False) &
+                ~available_lab_rooms['Type'].str.contains('Software', case=False, na=False)
+            ].copy()
+            
+            # EC courses (Electronics/Electrical) → Hardware labs first, then Software labs
             if base_code.startswith('EC'):
-                hardware_labs = available_lab_rooms[available_lab_rooms['Type'].str.contains('Hardware', case=False, na=False)].copy()
                 if not hardware_labs.empty:
-                    print(f"         [LAB-TYPE] {base_code} (EC): Using Hardware labs")
-                    return hardware_labs
+                    print(f"         [LAB-TYPE] {base_code} (EC): Using Hardware labs (priority), Software labs (fallback)")
+                    # Concatenate: hardware first, then software, then other
+                    return pd.concat([hardware_labs, software_labs, other_labs], ignore_index=True)
                 else:
-                    print(f"         [LAB-WARN] {base_code} (EC): No Hardware labs found, using any lab")
+                    print(f"         [LAB-WARN] {base_code} (EC): No Hardware labs found, using all labs")
                     return available_lab_rooms
             
-            # CS and DS courses (Computer Science, Data Science) → Software labs
-            elif base_code.startswith(('CS', 'DS')):
-                software_labs = available_lab_rooms[available_lab_rooms['Type'].str.contains('Software', case=False, na=False)].copy()
+            # CS, DS, and DA courses (Computer Science, Data Science/DSAI) → Software labs first, then Hardware labs
+            elif base_code.startswith(('CS', 'DS', 'DA')):
+                dept_label = 'CS' if base_code.startswith('CS') else ('DS' if base_code.startswith('DS') else 'DA')
                 if not software_labs.empty:
-                    print(f"         [LAB-TYPE] {base_code} ({'CS' if base_code.startswith('CS') else 'DS'}): Using Software labs")
-                    return software_labs
+                    print(f"         [LAB-TYPE] {base_code} ({dept_label}): Using Software labs (priority), Hardware labs (fallback)")
+                    # Concatenate: software first, then hardware, then other
+                    return pd.concat([software_labs, hardware_labs, other_labs], ignore_index=True)
                 else:
-                    print(f"         [LAB-WARN] {base_code} ({'CS' if base_code.startswith('CS') else 'DS'}): No Software labs found, using any lab")
+                    print(f"         [LAB-WARN] {base_code} ({dept_label}): No Software labs found, using all labs")
                     return available_lab_rooms
             
             # Other courses: use any available lab
@@ -6668,15 +7065,12 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
     
     def allocate_regular_classroom(enrollment_value, day_key, slot_key, is_common_course=False, is_lab_session=False, course_code=None, preferred_capacities_override=None):
         classroom_choice = None
-        
-        # If this is a lab session, ONLY use lab rooms (starting with 'L')
+        # LABS: unchanged
         if is_lab_session:
-            # For labs, use appropriate lab rooms based on course type
             if course_code:
                 lab_rooms_to_use = get_suitable_lab_rooms_for_course(course_code)
             else:
                 lab_rooms_to_use = available_lab_rooms
-            
             if not lab_rooms_to_use.empty:
                 classroom_choice = find_suitable_classroom_with_tracking(
                     lab_rooms_to_use, enrollment_value, day_key, slot_key, _CLASSROOM_USAGE_TRACKER,
@@ -6685,51 +7079,181 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
             if not classroom_choice:
                 print(f"         [LAB-WARN] No lab room available for {day_key} {slot_key}")
             return classroom_choice
+
+        # NON-LAB: prefer smallest adequate room, escalate capacity tier by tier
+        # Use capacity RANGES instead of exact matches to ensure rooms are found
+        # Escalation order: smallest fit → medium → large
+
+        # FIX: Use C-prefix rooms FIRST in tier search, L-prefix ONLY as last resort
+        # This prevents L4xx rooms (80-cap) from being overloaded
+        # Filter primary_classrooms to get ONLY C-prefix rooms (exclude L-prefix)
         
-        # For non-lab courses, use regular classrooms
-        # DISABLED: Multi-room allocation for regular courses
-        # Multi-room allocation should ONLY happen for extremely large enrollments (>150)
-        # Most courses should fit in a single classroom
+        # Start with C-prefix only for tier search (exclude L-prefix rooms entirely)
+        c_prefix_classrooms = primary_classrooms[~primary_classrooms['Room Number'].astype(str).str.startswith('L')].copy()
+        # L-prefix classroom rooms (L402-L408 etc.) for fallback only
+        l_prefix_classrooms = primary_classrooms[primary_classrooms['Room Number'].astype(str).str.startswith('L')].copy()
         
-        # Try to find a single suitable room
-        if not primary_classrooms.empty:
+        print(f"         [ROOM-POOLS] C-prefix: {len(c_prefix_classrooms)}, L-prefix: {len(l_prefix_classrooms)}")
+        
+        # IMPROVED: Define capacity tiers using RANGES to prevent clustering
+        # Instead of exact capacity matches, use ranges that allow room distribution
+        if enrollment_value <= 60:
+            # Small classes: prefer rooms 60-100, then any larger (C-prefix only first)
+            capacity_tiers = [
+                ('c-small-60-100', c_prefix_classrooms[(c_prefix_classrooms['Capacity'] >= 60) & (c_prefix_classrooms['Capacity'] <= 100)]),
+                ('c-medium-100-140', c_prefix_classrooms[(c_prefix_classrooms['Capacity'] > 100) & (c_prefix_classrooms['Capacity'] <= 140)]),
+                ('c-large-140+', c_prefix_classrooms[c_prefix_classrooms['Capacity'] > 140]),
+            ]
+        elif enrollment_value <= 96:
+            # Medium classes: prefer rooms 96-120, then larger (C-prefix first)
+            capacity_tiers = [
+                ('c-med-96-120', c_prefix_classrooms[(c_prefix_classrooms['Capacity'] >= enrollment_value) & (c_prefix_classrooms['Capacity'] <= 120)]),
+                ('c-large-120-140', c_prefix_classrooms[(c_prefix_classrooms['Capacity'] > 120) & (c_prefix_classrooms['Capacity'] <= 140)]),
+                ('c-xlarge-140+', c_prefix_classrooms[c_prefix_classrooms['Capacity'] > 140]),
+            ]
+        elif enrollment_value <= 120:
+            # Larger classes: need 120+ (C-prefix first)
+            capacity_tiers = [
+                ('c-120-140', c_prefix_classrooms[(c_prefix_classrooms['Capacity'] >= 120) & (c_prefix_classrooms['Capacity'] <= 140)]),
+                ('c-140+', c_prefix_classrooms[c_prefix_classrooms['Capacity'] > 140]),
+            ]
+        else:
+            # Large enrollment: any room that fits (C-prefix first)
+            capacity_tiers = [
+                ('c-adequate', c_prefix_classrooms[c_prefix_classrooms['Capacity'] >= enrollment_value]),
+            ]
+            # If nothing fits and enrollment exceeds max, use largest available
+            if all(tier_rooms.empty for _, tier_rooms in capacity_tiers):
+                max_capacity = c_prefix_classrooms['Capacity'].max() if not c_prefix_classrooms.empty else 0
+                if enrollment_value > max_capacity and max_capacity > 0:
+                    capacity_tiers = [
+                        ('c-largest', c_prefix_classrooms[c_prefix_classrooms['Capacity'] == max_capacity]),
+                    ]
+                else:
+                    return None
+
+        # Try each tier in order until a room is found
+        for tier_name, eligible_rooms in capacity_tiers:
+            if eligible_rooms is None or eligible_rooms.empty:
+                continue
+
+            # ROTATE eligible rooms to maximize usage (least used first)
+            # Use the global allocation counter for consistent load balancing
+            eligible_rooms = eligible_rooms.copy()
+            eligible_rooms['_usage'] = eligible_rooms['Room Number'].apply(lambda r: _ROOM_ALLOCATION_COUNTER.get(str(r), 0))
+            eligible_rooms = eligible_rooms.sort_values(['_usage', 'Room Number'])
             classroom_choice = find_suitable_classroom_with_tracking(
-                primary_classrooms, enrollment_value, day_key, slot_key, _CLASSROOM_USAGE_TRACKER,
-                is_common=is_common_course, is_lab=False, preferred_capacities_override=preferred_capacities_override
-            )
-        if classroom_choice is None and not fallback_lab_classrooms.empty:
-            classroom_choice = find_suitable_classroom_with_tracking(
-                fallback_lab_classrooms, enrollment_value, day_key, slot_key, _CLASSROOM_USAGE_TRACKER,
+                eligible_rooms, enrollment_value, day_key, slot_key, _CLASSROOM_USAGE_TRACKER,
                 is_common=is_common_course, is_lab=False, preferred_capacities_override=preferred_capacities_override
             )
             if classroom_choice:
-                print(f"         [WARN] Falling back to lab-prefixed room {classroom_choice} for {day_key} {slot_key}")
+                print(f"         [TIER-OK] Found room in {tier_name} tier for {enrollment_value} students")
+                return classroom_choice
+            else:
+                print(f"         [ESCALATE] No available room in {tier_name} tier for {enrollment_value} students, trying next tier")
 
-        return classroom_choice
+        print(f"         [ESCALATE-WARN] No room found in any tier for {enrollment_value} students")
+        
+        # CROSS-PREFIX FALLBACK: Try L-prefix classroom rooms (L402-L408) as last resort
+        # These are 80-cap rooms that should only be used when C-prefix rooms are exhausted
+        print(f"         [L-PREFIX-FALLBACK] Trying L-prefix classroom rooms...")
+        
+        # Get all rooms that are NOT booked for this slot
+        booked_at_slot = _CLASSROOM_USAGE_TRACKER.get(day_key, {}).get(slot_key, set())
+        
+        # Try L-prefix classroom rooms (filtered earlier as l_prefix_classrooms)
+        if not l_prefix_classrooms.empty:
+            l_prefix_available = l_prefix_classrooms[
+                (l_prefix_classrooms['Capacity'] >= enrollment_value) &
+                (~l_prefix_classrooms['Room Number'].isin(booked_at_slot))
+            ].copy()
+            
+            if not l_prefix_available.empty:
+                l_prefix_available['_usage'] = l_prefix_available['Room Number'].apply(lambda r: _ROOM_ALLOCATION_COUNTER.get(str(r), 0))
+                l_prefix_available = l_prefix_available.sort_values(['_usage', 'Capacity'])
+                classroom_choice = l_prefix_available.iloc[0]['Room Number']
+                reserve_room(classroom_choice, day_key, slot_key)
+                print(f"         [L-PREFIX-FALLBACK] Found L-prefix room {classroom_choice} for {enrollment_value} students")
+                return classroom_choice
+        
+        # FINAL FALLBACK: Try ANY available room regardless of capacity from C-prefix
+        c_prefix_available = c_prefix_classrooms[~c_prefix_classrooms['Room Number'].isin(booked_at_slot)].copy()
+        if not c_prefix_available.empty:
+            c_prefix_available['_usage'] = c_prefix_available['Room Number'].apply(lambda r: _ROOM_ALLOCATION_COUNTER.get(str(r), 0))
+            c_prefix_available = c_prefix_available.sort_values(['_usage', 'Capacity'], ascending=[True, False])  # Prefer larger if available
+            classroom_choice = c_prefix_available.iloc[0]['Room Number']
+            reserve_room(classroom_choice, day_key, slot_key)
+            print(f"         [FINAL-FALLBACK] Found C-prefix room {classroom_choice} (any capacity) for {enrollment_value} students")
+            return classroom_choice
+        
+        # Try ANY L-prefix room regardless of capacity
+        if not l_prefix_classrooms.empty:
+            l_any_available = l_prefix_classrooms[~l_prefix_classrooms['Room Number'].isin(booked_at_slot)].copy()
+            if not l_any_available.empty:
+                l_any_available['_usage'] = l_any_available['Room Number'].apply(lambda r: _ROOM_ALLOCATION_COUNTER.get(str(r), 0))
+                l_any_available = l_any_available.sort_values(['_usage', 'Capacity'], ascending=[True, False])
+                classroom_choice = l_any_available.iloc[0]['Room Number']
+                reserve_room(classroom_choice, day_key, slot_key)
+                print(f"         [FINAL-FALLBACK] Found L-prefix room {classroom_choice} (any capacity) for {enrollment_value} students")
+                return classroom_choice
+        
+        # ULTIMATE FALLBACK: Check ALL primary_classrooms (any prefix) - catches rooms with other prefixes
+        if not primary_classrooms.empty:
+            any_primary_available = primary_classrooms[~primary_classrooms['Room Number'].isin(booked_at_slot)].copy()
+            if not any_primary_available.empty:
+                any_primary_available['_usage'] = any_primary_available['Room Number'].apply(lambda r: _ROOM_ALLOCATION_COUNTER.get(str(r), 0))
+                any_primary_available = any_primary_available.sort_values(['_usage', 'Capacity'], ascending=[True, False])
+                classroom_choice = any_primary_available.iloc[0]['Room Number']
+                reserve_room(classroom_choice, day_key, slot_key)
+                print(f"         [ULTIMATE-FALLBACK] Found ANY room {classroom_choice} for {enrollment_value} students")
+                return classroom_choice
+        
+        # DEBUG: Print available vs booked for troubleshooting
+        total_primary = len(primary_classrooms) if not primary_classrooms.empty else 0
+        total_booked = len(booked_at_slot)
+        print(f"         [FALLBACK-FAIL] No rooms available at {day_key} {slot_key}")
+        print(f"         [DEBUG] Total primary classrooms: {total_primary}, Booked at slot: {total_booked}")
+        print(f"         [DEBUG] Booked rooms: {list(booked_at_slot)[:10]}...")  # Show first 10
+        
+        # ABSOLUTE LAST RESORT: Force use ANY available room from available_classrooms
+        # even if it means we missed it in previous checks (defensive fallback)
+        if not available_classrooms.empty:
+            all_rooms = set(available_classrooms['Room Number'].astype(str).tolist())
+            truly_available = all_rooms - booked_at_slot
+            if truly_available:
+                fallback_room = list(truly_available)[0]
+                reserve_room(fallback_room, day_key, slot_key)
+                print(f"         [ABSOLUTE-FALLBACK] Found room {fallback_room} via defensive check")
+                return fallback_room
+        
+        return None
     
     # Estimate student numbers for courses
     course_enrollment_raw = estimate_course_enrollment(course_info)
-    
-    # Adjust enrollment based on Common column
     course_enrollment = {}
     for course_code, raw_enrollment in course_enrollment_raw.items():
         info = course_info.get(course_code, {})
+        dept = str(info.get('department', '')).strip().upper()
         is_common = str(info.get('common', 'No')).strip().upper() == 'YES'
-        
-        # If common: use full strength; else: use half strength (for single section)
-        if is_common:
-            course_enrollment[course_code] = raw_enrollment
-        else:
-            course_enrollment[course_code] = max(1, int(math.ceil(raw_enrollment / 2.0)))
+        is_elective = str(info.get('elective', 'No')).strip().upper() == 'YES'
+        is_minor = 'MINOR' in str(info.get('basket', '')).upper() or 'MINOR' in str(course_code).upper()
+        reg_students = None
+        try:
+            reg_students = int(info.get('registered students', raw_enrollment))
+        except Exception:
+            reg_students = raw_enrollment
+
+        # Store raw registered students for all departments uniformly
+        # Halving (for 2 sections) is done later in compute_effective_enrollment()
+        course_enrollment[course_code] = reg_students
 
     def compute_effective_enrollment(raw_enrollment, is_common_course):
-        """Use full capacity for common courses; split across sections for non-common."""
+        """Always halve once for room sizing (all departments have 2 sections)."""
         try:
             value = float(raw_enrollment)
         except Exception:
             return raw_enrollment
-        if is_common_course:
-            return max(1, int(math.ceil(value)))
+        # All courses (common or not) are halved once since each section needs its own room
         return max(1, int(math.ceil(value / 2.0)))
 
     # Cache cross-department (DSAI+ECE) common metadata per course for this semester
@@ -6908,17 +7432,40 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         booked_global = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
                         disallowed = rooms_used_in_this_slot | booked_global
                         
-                        # Find a suitable room not in disallowed set
-                        for rooms_df in [primary_classrooms, available_classrooms]:
+                        # Find a suitable room not in disallowed set (tiered: smallest adequate)
+                        # Build tier order based on enrollment
+                        tier_caps = []
+                        if enrollment <= 80:
+                            tier_caps = [80, 96, 120, 135]
+                        elif enrollment <= 96:
+                            tier_caps = [96, 120, 135]
+                        elif enrollment <= 120:
+                            tier_caps = [120, 135]
+                        elif enrollment <= 135:
+                            tier_caps = [135, 240]
+                        else:
+                            tier_caps = [240]
+                        
+                        for rooms_df in [primary_classrooms, fallback_lab_classrooms, available_classrooms]:
                             if rooms_df.empty:
                                 continue
                             candidates = rooms_df.copy()
-                            candidates = candidates[pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0) >= enrollment]
+                            candidates['_cap'] = pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0)
+                            candidates = candidates[candidates['_cap'] >= enrollment]
                             candidates = candidates[~candidates['Room Number'].isin(disallowed)]
                             if not candidates.empty:
-                                candidates = candidates.sort_values('Capacity')
-                                suitable_classroom = str(candidates.iloc[0]['Room Number'])
-                                print(f"        [ALLOCATED] {suitable_classroom} (Cap: {candidates.iloc[0]['Capacity']}) for {day} {time_slot} - {enrollment} students")
+                                # Try each tier to find the best-fit room with load balancing
+                                for tier_cap in tier_caps:
+                                    tier_match = candidates[(candidates['_cap'] >= tier_cap - 10) & (candidates['_cap'] <= tier_cap + 10)]
+                                    if not tier_match.empty:
+                                        suitable_classroom = select_least_used_room(tier_match)
+                                        print(f"        [ALLOCATED] {suitable_classroom} for {day} {time_slot} - {enrollment} students (tier {tier_cap}, load-balanced)")
+                                        break
+                                if suitable_classroom:
+                                    break
+                                # No tier match, use smallest adequate with load balancing
+                                suitable_classroom = select_least_used_room(candidates)
+                                print(f"        [ALLOCATED] {suitable_classroom} for {day} {time_slot} - {enrollment} students (smallest adequate, load-balanced)")
                                 break
                         
                         if suitable_classroom:
@@ -6986,8 +7533,17 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                     print(f"      [DUAL-INSTR] {clean_existing_code} ({branch}): {dual_info['num_instructors']} instructors detected. Enrollment {original_enroll} → {annotated_enrollment} (total {dual_info['total_enrollment']}) for room sizing")
                 
                 if not is_common_course and not is_elective and not is_minor:
-                    # Core (non-common, non-elective, non-minor) → prefer 80-90 capacity rooms
-                    preferred_caps_override = [80, 90]
+                    # Core (non-common, non-elective, non-minor) → tiered by enrollment
+                    if annotated_enrollment > 135:
+                        preferred_caps_override = [240]
+                    elif annotated_enrollment > 120:
+                        preferred_caps_override = [135, 120]
+                    elif annotated_enrollment > 96:
+                        preferred_caps_override = [120, 135]
+                    elif annotated_enrollment > 80:
+                        preferred_caps_override = [96, 120]
+                    else:
+                        preferred_caps_override = [80, 96, 120]
 
                 # If the timetable already contains a room, lock it in the tracker to avoid clashes
                 if existing_room:
@@ -7218,22 +7774,44 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                 booked_global = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
                                 disallowed = set(basket_rooms_at_this_slot) | set(booked_global)
 
-                                # Prefer primary classrooms first (smallest adequate room)
+                                # Prefer primary classrooms first (tiered: smallest adequate room)
                                 search_sets = []
                                 if not primary_classrooms.empty:
                                     search_sets.append(primary_classrooms)
+                                if not fallback_lab_classrooms.empty:
+                                    search_sets.append(fallback_lab_classrooms)
                                 if not available_classrooms.empty:
                                     search_sets.append(available_classrooms)
 
+                                # Build tier order based on enrollment
+                                tier_caps = []
+                                if individual_enrollment <= 80:
+                                    tier_caps = [80, 96, 120, 135]
+                                elif individual_enrollment <= 96:
+                                    tier_caps = [96, 120, 135]
+                                elif individual_enrollment <= 120:
+                                    tier_caps = [120, 135]
+                                elif individual_enrollment <= 135:
+                                    tier_caps = [135, 240]
+                                else:
+                                    tier_caps = [240]
+
                                 for rooms_df in search_sets:
                                     candidates = rooms_df.copy()
+                                    candidates['_cap'] = pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0)
                                     # capacity filter
-                                    candidates = candidates[pd.to_numeric(candidates['Capacity'], errors='coerce').fillna(0) >= individual_enrollment]
+                                    candidates = candidates[candidates['_cap'] >= individual_enrollment]
                                     # remove disallowed
                                     candidates = candidates[~candidates['Room Number'].isin(disallowed)]
                                     if not candidates.empty:
-                                        candidates = candidates.sort_values('Capacity')
-                                        alt_room = str(candidates.iloc[0]['Room Number'])
+                                        # Try each tier for best fit with load balancing
+                                        for tier_cap in tier_caps:
+                                            tier_match = candidates[(candidates['_cap'] >= tier_cap - 10) & (candidates['_cap'] <= tier_cap + 10)]
+                                            if not tier_match.empty:
+                                                alt_room = select_least_used_room(tier_match)
+                                                break
+                                        if not alt_room:
+                                            alt_room = select_least_used_room(candidates)
                                         break
 
                                 if alt_room:
@@ -7258,20 +7836,8 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                             globally_booked_rooms = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
                             unavailable_rooms = basket_rooms_at_this_slot | globally_booked_rooms
                             
-                            # Try to find an unused room that is GLOBALLY available
-                            if not primary_classrooms.empty:
-                                for _, room_row in primary_classrooms.sort_values('Capacity', ascending=False).iterrows():
-                                    candidate_room = room_row['Room Number']
-                                    if candidate_room not in unavailable_rooms:
-                                        fallback_room = candidate_room
-                                        break
-                            
-                            if not fallback_room and not available_classrooms.empty:
-                                for _, room_row in available_classrooms.sort_values('Capacity', ascending=False).iterrows():
-                                    candidate_room = room_row['Room Number']
-                                    if candidate_room not in unavailable_rooms:
-                                        fallback_room = candidate_room
-                                        break
+                            # Try to find an unused room that is GLOBALLY available (tiered)
+                            fallback_room = find_tiered_fallback_room(individual_enrollment, day, time_slot, basket_rooms_at_this_slot)
                             
                             if fallback_room:
                                 reserve_room(fallback_room, day, time_slot)
@@ -7486,8 +8052,18 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         is_minor_course = clean_code.upper().startswith('MINOR')
                         preferred_caps_override = None
                         if not is_common and not is_elective and not is_minor_course:
-                            # Core (non-common, non-elective, non-minor) → prefer 80-90 capacity rooms
-                            preferred_caps_override = [80, 90]
+                            # Core (non-common, non-elective, non-minor) → tiered by enrollment
+                            eff_enroll = effective_enrollment if cross_common_active else enrollment
+                            if eff_enroll > 135:
+                                preferred_caps_override = [240]
+                            elif eff_enroll > 120:
+                                preferred_caps_override = [135, 120]
+                            elif eff_enroll > 96:
+                                preferred_caps_override = [120, 135]
+                            elif eff_enroll > 80:
+                                preferred_caps_override = [96, 120]
+                            else:
+                                preferred_caps_override = [80, 96, 120]
 
                         if is_common:
                             enrollment_for_room = effective_enrollment
@@ -7552,24 +8128,8 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                             allocation_count += 1
                             print(f"      [OK] {day} {time_slot}: {course_display} -> {single_room} ({enrollment} students)")
                         else:
-                            # As a last resort, try to find an AVAILABLE classroom (check global tracker)
-                            fallback_room = None
-                            globally_booked = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
-                            
-                            # First try to find an available room (not globally booked)
-                            if not primary_classrooms.empty:
-                                for _, room_row in primary_classrooms.sort_values('Capacity', ascending=False).iterrows():
-                                    candidate = room_row['Room Number']
-                                    if candidate not in globally_booked:
-                                        fallback_room = candidate
-                                        break
-                            
-                            if not fallback_room and not available_classrooms.empty:
-                                for _, room_row in available_classrooms.sort_values('Capacity', ascending=False).iterrows():
-                                    candidate = room_row['Room Number']
-                                    if candidate not in globally_booked:
-                                        fallback_room = candidate
-                                        break
+                            # As a last resort, try to find an AVAILABLE classroom (tiered, check global tracker)
+                            fallback_room = find_tiered_fallback_room(enrollment, day, time_slot)
                             
                             if fallback_room and str(fallback_room).strip():
                                 # Found an available room - no conflict
@@ -7588,9 +8148,25 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                 allocation_count += 1
                                 print(f"      [FALLBACK-OK] {day} {time_slot}: {course_display} -> {fallback_room} ({enrollment} students) [Found available room]")
                             else:
-                                # No available room found - leave without room assignment to avoid conflict
-                                schedule_with_rooms.loc[time_slot, day] = course_display
-                                print(f"      [WARN]  {day} {time_slot}: No classroom available for {course_display} ({enrollment} students) - all rooms booked")
+                                # Last-resort forced assignment: pick a room even if already booked
+                                forced_room = pick_forced_fallback_room(enrollment, day, time_slot)
+                                if forced_room:
+                                    schedule_with_rooms.loc[time_slot, day] = f"{course_display} [{forced_room}]"
+                                    allocation_key = f"{day}_{time_slot}"
+                                    _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key] = {
+                                        'course': course_display,
+                                        'classroom': forced_room,
+                                        'enrollment': enrollment,
+                                        'conflict': True,
+                                        'split': False
+                                    }
+                                    if course_key not in course_preferred_classrooms:
+                                        course_preferred_classrooms[course_key] = forced_room
+                                    allocation_count += 1
+                                    print(f"      [FORCED] {day} {time_slot}: {course_display} -> {forced_room} ({enrollment} students) [all rooms booked; conflict-allowed fallback]")
+                                else:
+                                    schedule_with_rooms.loc[time_slot, day] = course_display
+                                    print(f"      [WARN]  {day} {time_slot}: No classroom available for {course_display} ({enrollment} students) - no rooms configured")
             else:
                 # Regular course (not a lab pair) - find classroom normally
                 # Extract clean course code for common check
@@ -7701,24 +8277,8 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         allocation_count += 1
                         print(f"      [OK] {day} {time_slot}: {course_display} -> {suitable_classroom} ({effective_enrollment} students)")
                     else:
-                        # FALLBACK: Try to find an AVAILABLE classroom (check global tracker)
-                        fallback_room = None
-                        globally_booked = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
-                        
-                        # First try to find an available room (not globally booked)
-                        if not primary_classrooms.empty:
-                            for _, room_row in primary_classrooms.sort_values('Capacity', ascending=False).iterrows():
-                                candidate = room_row['Room Number']
-                                if candidate not in globally_booked:
-                                    fallback_room = candidate
-                                    break
-                        
-                        if not fallback_room and not available_classrooms.empty:
-                            for _, room_row in available_classrooms.sort_values('Capacity', ascending=False).iterrows():
-                                candidate = room_row['Room Number']
-                                if candidate not in globally_booked:
-                                    fallback_room = candidate
-                                    break
+                        # FALLBACK: Try to find an AVAILABLE classroom (tiered, check global tracker)
+                        fallback_room = find_tiered_fallback_room(effective_enrollment, day, time_slot)
                         
                         if fallback_room and str(fallback_room).strip():
                             # Found an available room - no conflict
@@ -7737,26 +8297,48 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                             allocation_count += 1
                             print(f"      [FALLBACK-OK] {day} {time_slot}: {course_display} -> {fallback_room} ({effective_enrollment} students) [Found available room]")
                         else:
-                            # No available room found - leave without room assignment to avoid conflict
-                            schedule_with_rooms.loc[time_slot, day] = course_display
-                            print(f"      [WARN] {day} {time_slot}: NO ROOM AVAILABLE for {course_display} ({effective_enrollment} students) - all rooms booked")
+                            # Last-resort forced assignment: pick a room even if already booked
+                            forced_room = pick_forced_fallback_room(effective_enrollment, day, time_slot)
+                            if forced_room:
+                                schedule_with_rooms.loc[time_slot, day] = f"{course_display} [{forced_room}]"
+                                allocation_key = f"{day}_{time_slot}"
+                                _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key] = {
+                                    'course': course_display,
+                                    'classroom': forced_room,
+                                    'enrollment': effective_enrollment,
+                                    'conflict': True,
+                                    'split': False
+                                }
+                                if course_key not in course_preferred_classrooms:
+                                    course_preferred_classrooms[course_key] = forced_room
+                                allocation_count += 1
+                                print(f"      [FORCED] {day} {time_slot}: {course_display} -> {forced_room} ({effective_enrollment} students) [all rooms booked; conflict-allowed fallback]")
+                            else:
+                                schedule_with_rooms.loc[time_slot, day] = course_display
+                                print(f"      [WARN] {day} {time_slot}: NO ROOM AVAILABLE for {course_display} ({effective_enrollment} students) - no rooms configured")
     
     print(f"   [SCHOOL] Total classroom allocations: {allocation_count}")
     return schedule_with_rooms
 
 def find_suitable_classroom_for_lab_pair(lab_rooms_df, enrollment, day, time_slot1, time_slot2, classroom_usage_tracker):
-    """Find a suitable LAB ROOM (starting with "L") that's available for BOTH slots of a lab pair"""
+    """Find a suitable LAB ROOM (Hardware Lab, Software Lab types) that's available for BOTH slots of a lab pair"""
     # Ensure Capacity is numeric and exclude rooms with missing/non-positive capacity
+    lab_rooms_df = lab_rooms_df.copy()
     lab_rooms_df['Capacity'] = pd.to_numeric(lab_rooms_df['Capacity'], errors='coerce')
     lab_rooms_df = lab_rooms_df[lab_rooms_df['Capacity'].notna() & (lab_rooms_df['Capacity'] > 0)].copy()
     if lab_rooms_df.empty:
         print(f"         [WARN] No lab rooms available with valid capacity for lab pair")
         return None
 
-    # Ensure we only use lab rooms (rooms starting with "L")
-    lab_rooms_df = lab_rooms_df[
-        lab_rooms_df['Room Number'].astype(str).str.startswith('L', na=False)
-    ].copy()
+    # FIX: Only use actual lab rooms by TYPE, not L prefix
+    # L402-L408 are classrooms with 80 capacity, NOT labs
+    room_type_lower = lab_rooms_df['Type'].astype(str).str.lower().str.strip()
+    is_actual_lab = (
+        room_type_lower.str.contains('hardware', na=False) | 
+        room_type_lower.str.contains('software', na=False) |
+        (room_type_lower.str.contains('lab', na=False) & ~room_type_lower.isin(['classroom', 'large classroom', 'auditorium']))
+    )
+    lab_rooms_df = lab_rooms_df[is_actual_lab].copy()
     
     if lab_rooms_df.empty:
         print(f"         [WARN] No lab rooms (starting with 'L') found")
@@ -7811,13 +8393,15 @@ def find_suitable_classroom_for_lab_pair(lab_rooms_df, enrollment, day, time_slo
         for _, room in larger_rooms.iterrows():
             room_number = room['Room Number']
             
-            available_slot1 = (day in classroom_usage_tracker and 
-                              time_slot1 in classroom_usage_tracker[day] and
-                              room_number not in classroom_usage_tracker[day][time_slot1])
+            # FIX: Correct availability check - room is available if NOT tracked as booked
+            # A room is available if the day/slot doesn't exist in tracker OR room is not in booked set
+            available_slot1 = not (day in classroom_usage_tracker and 
+                                  time_slot1 in classroom_usage_tracker[day] and
+                                  room_number in classroom_usage_tracker[day][time_slot1])
             
-            available_slot2 = (day in classroom_usage_tracker and 
-                              time_slot2 in classroom_usage_tracker[day] and
-                              room_number not in classroom_usage_tracker[day][time_slot2])
+            available_slot2 = not (day in classroom_usage_tracker and 
+                                  time_slot2 in classroom_usage_tracker[day] and
+                                  room_number in classroom_usage_tracker[day][time_slot2])
             
             if available_slot1 and available_slot2:
                 if day not in classroom_usage_tracker:
@@ -7832,6 +8416,29 @@ def find_suitable_classroom_for_lab_pair(lab_rooms_df, enrollment, day, time_slo
                 print(f"         [RESET] Using larger room {room_number} for lab pair {day} {time_slot1} & {time_slot2} (Capacity: {room['Capacity']})")
                 return room_number
     
+    # ULTIMATE FALLBACK: Try ANY lab room regardless of capacity (prefer larger)
+    all_labs_sorted = lab_rooms_df.sort_values('Capacity', ascending=False)
+    for _, room in all_labs_sorted.iterrows():
+        room_number = room['Room Number']
+        available_slot1 = not (day in classroom_usage_tracker and 
+                              time_slot1 in classroom_usage_tracker[day] and
+                              room_number in classroom_usage_tracker[day][time_slot1])
+        available_slot2 = not (day in classroom_usage_tracker and 
+                              time_slot2 in classroom_usage_tracker[day] and
+                              room_number in classroom_usage_tracker[day][time_slot2])
+        if available_slot1 and available_slot2:
+            if day not in classroom_usage_tracker:
+                classroom_usage_tracker[day] = {}
+            if time_slot1 not in classroom_usage_tracker[day]:
+                classroom_usage_tracker[day][time_slot1] = set()
+            if time_slot2 not in classroom_usage_tracker[day]:
+                classroom_usage_tracker[day][time_slot2] = set()
+            classroom_usage_tracker[day][time_slot1].add(room_number)
+            classroom_usage_tracker[day][time_slot2].add(room_number)
+            print(f"         [ULTIMATE-LAB] Using any available lab {room_number} for {day} {time_slot1} & {time_slot2}")
+            return room_number
+    
+    print(f"         [LAB-CONFLICT] All lab rooms booked for {day} {time_slot1} & {time_slot2}")
     return None
 
 def find_suitable_classroom_with_tracking(
@@ -7864,11 +8471,16 @@ def find_suitable_classroom_with_tracking(
     if classrooms_df.empty:
         return None
     
-    # If this is a lab session, filter to ONLY lab rooms (starting with 'L')
+    # If this is a lab session, filter to ONLY actual lab rooms by TYPE (not L prefix)
+    # L402-L408 are classrooms, not labs despite L prefix
     if is_lab:
-        classrooms_df = classrooms_df[
-            classrooms_df['Room Number'].astype(str).str.startswith('L', na=False)
-        ].copy()
+        room_type_lower = classrooms_df['Type'].astype(str).str.lower().str.strip()
+        is_actual_lab = (
+            room_type_lower.str.contains('hardware', na=False) | 
+            room_type_lower.str.contains('software', na=False) |
+            (room_type_lower.str.contains('lab', na=False) & ~room_type_lower.isin(['classroom', 'large classroom', 'auditorium']))
+        )
+        classrooms_df = classrooms_df[is_actual_lab].copy()
         if classrooms_df.empty:
             print(f"         [LAB-WARN] No lab rooms available after filtering")
             return None
@@ -7889,24 +8501,45 @@ def find_suitable_classroom_with_tracking(
         preferred_capacities = preferred_capacities_override
         print(f"         [PREF-OVERRIDE] Using preferred capacities {preferred_capacities} for {enrollment} students")
     elif is_common:
-        # Common courses: optimize for smallest adequate room to preserve larger rooms
-        # Only use 240 if enrollment > 150, prefer 120 for moderate, 96 if feasible
+        # Common courses: tiered escalation based on enrollment
         if enrollment > 150:
             preferred_capacities = [240]
-            print(f"         [COMMON] High enrollment ({enrollment}): Prefer 240 capacity room (no unnecessary large rooms)")
+            print(f"         [COMMON] High enrollment ({enrollment}): Prefer 240 capacity room")
+        elif enrollment > 135:
+            preferred_capacities = [240, 135]
+            print(f"         [COMMON] Large enrollment ({enrollment}): Prefer 240, fallback 135")
         elif enrollment > 120:
-            preferred_capacities = [120, 96]
-            print(f"         [COMMON] Moderate-high enrollment ({enrollment}): Prefer 120 capacity room, fallback to 96")
+            preferred_capacities = [135, 120]
+            print(f"         [COMMON] Moderate-high enrollment ({enrollment}): Prefer 135, fallback 120")
+        elif enrollment > 96:
+            preferred_capacities = [120, 135]
+            print(f"         [COMMON] Moderate enrollment ({enrollment}): Prefer 120, fallback 135")
+        elif enrollment > 80:
+            preferred_capacities = [96, 120, 135]
+            print(f"         [COMMON] Medium enrollment ({enrollment}): Prefer 96, fallback 120/135")
         else:
-            preferred_capacities = [96, 120]
-            print(f"         [COMMON] Moderate enrollment ({enrollment}): Prefer 96 capacity room, fallback to 120 (avoid 240)")
+            preferred_capacities = [80, 96, 120]
+            print(f"         [COMMON] Small enrollment ({enrollment}): Prefer 80, fallback 96/120")
     elif is_lab:
         # Labs use whatever capacity is needed
         preferred_capacities = None
     else:
-        # Non-common lectures/tutorials prefer 80 capacity rooms
-        preferred_capacities = [80]
-        print(f"         [NON-COMMON] Looking for 80 capacity rooms for lecture/tutorial ({enrollment} students)")
+        # Non-common lectures/tutorials: tiered escalation based on enrollment
+        if enrollment > 135:
+            preferred_capacities = [240]
+            print(f"         [NON-COMMON] Large enrollment ({enrollment}): Prefer 240 capacity room")
+        elif enrollment > 120:
+            preferred_capacities = [135, 120]
+            print(f"         [NON-COMMON] Enrollment ({enrollment}): Prefer 135, fallback 120")
+        elif enrollment > 96:
+            preferred_capacities = [120, 135]
+            print(f"         [NON-COMMON] Enrollment ({enrollment}): Prefer 120, fallback 135")
+        elif enrollment > 80:
+            preferred_capacities = [96, 120]
+            print(f"         [NON-COMMON] Enrollment ({enrollment}): Prefer 96, fallback 120")
+        else:
+            preferred_capacities = [80, 96, 120]
+            print(f"         [NON-COMMON] Small enrollment ({enrollment}): Prefer 80, fallback 96/120")
     
     # Try to find preferred capacity rooms first
     selected_room = None
@@ -7919,12 +8552,14 @@ def find_suitable_classroom_with_tracking(
                 (available_now['Capacity'] >= enrollment)  # Must fit the students
             ]
             if not capacity_match.empty:
-                # Sort by how close to preferred capacity
+                # Sort by how close to preferred capacity, then by usage count (load balancing)
+                capacity_match = capacity_match.copy()
                 capacity_match['cap_diff'] = abs(capacity_match['Capacity'] - pref_cap)
-                capacity_match = capacity_match.sort_values('cap_diff')
+                capacity_match['_usage'] = capacity_match['Room Number'].apply(lambda r: _ROOM_ALLOCATION_COUNTER.get(str(r), 0))
+                capacity_match = capacity_match.sort_values(['cap_diff', '_usage'])
                 selected_room = capacity_match.iloc[0]['Room Number']
                 selected_capacity = capacity_match.iloc[0]['Capacity']
-                print(f"         [MATCH] Found preferred capacity {selected_capacity} (target {pref_cap}) for {enrollment} students")
+                print(f"         [MATCH] Found preferred capacity {selected_capacity} (target {pref_cap}) for {enrollment} students (load-balanced)")
                 break
     
     # If no preferred capacity found, use any suitable room
@@ -7938,8 +8573,9 @@ def find_suitable_classroom_with_tracking(
                 return None
             print(f"         [WARN] Using largest available room for {enrollment} students")
         else:
-            # Sort by capacity (prefer smallest adequate room to preserve larger rooms)
-            suitable_rooms = suitable_rooms.sort_values('Capacity')
+            # Sort by capacity first (prefer smallest adequate room), then by usage (load balancing)
+            suitable_rooms['_usage'] = suitable_rooms['Room Number'].apply(lambda r: _ROOM_ALLOCATION_COUNTER.get(str(r), 0))
+            suitable_rooms = suitable_rooms.sort_values(['Capacity', '_usage'])
         
         selected_room = suitable_rooms.iloc[0]['Room Number']
         selected_capacity = suitable_rooms.iloc[0]['Capacity']
@@ -7951,15 +8587,21 @@ def find_suitable_classroom_with_tracking(
         classroom_usage_tracker[day][time_slot] = set()
     
     classroom_usage_tracker[day][time_slot].add(selected_room)
+    # Update global allocation counter for load balancing
+    room_key = str(selected_room)
+    if room_key not in _ROOM_ALLOCATION_COUNTER:
+        _ROOM_ALLOCATION_COUNTER[room_key] = 0
+    _ROOM_ALLOCATION_COUNTER[room_key] += 1
     print(f"         [ALLOCATED] {selected_room} (Cap: {selected_capacity}) for {day} {time_slot} - {enrollment} students")
     
     return selected_room
 
 def find_suitable_classroom(classrooms_df, enrollment, day, time_slot, classroom_usage):
-    """Find a suitable classroom based on capacity and availability"""
+    """Find a suitable classroom based on capacity and availability with load balancing"""
     if classrooms_df.empty:
         return None
     # Ensure Capacity is numeric and exclude rooms with missing/non-positive capacity
+    classrooms_df = classrooms_df.copy()
     classrooms_df['Capacity'] = pd.to_numeric(classrooms_df['Capacity'], errors='coerce')
     classrooms_df = classrooms_df[classrooms_df['Capacity'].notna() & (classrooms_df['Capacity'] > 0)].copy()
     if classrooms_df.empty:
@@ -7975,18 +8617,18 @@ def find_suitable_classroom(classrooms_df, enrollment, day, time_slot, classroom
             return None
         print(f"         [WARN] Using largest available room for {enrollment} students")
     
-    # Sort by capacity (prefer smallest adequate room first)
-    suitable_rooms = suitable_rooms.sort_values('Capacity')
+    # Filter out already booked rooms
+    booked_rooms = classroom_usage.get(day, {}).get(time_slot, set())
+    suitable_rooms = suitable_rooms[~suitable_rooms['Room Number'].isin(booked_rooms)]
     
-    # Check availability
-    for _, room in suitable_rooms.iterrows():
-        room_number = room['Room Number']
-        
-        # Check if room is already booked at this time
-        if room_number not in classroom_usage[day][time_slot]:
-            return room_number
+    if suitable_rooms.empty:
+        return None
     
-    return None
+    # Sort by capacity first, then by usage count (load balancing)
+    suitable_rooms['_usage'] = suitable_rooms['Room Number'].apply(lambda r: _ROOM_ALLOCATION_COUNTER.get(str(r), 0))
+    suitable_rooms = suitable_rooms.sort_values(['Capacity', '_usage'])
+    
+    return suitable_rooms.iloc[0]['Room Number']
 
 def estimate_course_enrollment(course_info):
     """Estimate student enrollment for courses using available student data if present"""
