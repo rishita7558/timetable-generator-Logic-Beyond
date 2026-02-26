@@ -1300,8 +1300,20 @@ def generate_classroom_audit_file(dfs, output_dir):
                 summary_df = pd.DataFrame(summary_data)
                 summary_df.to_excel(writer, sheet_name='CONFLICT_SUMMARY', index=False)
             else:
+                # No conflicts - still create both sheets for consistency
                 summary_df = pd.DataFrame([{'Status': 'No double-bookings detected - All classroom allocations are unique'}])
                 summary_df.to_excel(writer, sheet_name='DOUBLE_BOOKING_ALERTS', index=False)
+                
+                # Create CONFLICT_SUMMARY sheet even when no conflicts
+                summary_data = [
+                    {'Category': 'Total Conflicts', 'Count': 0},
+                    {'Category': 'Lab Room Conflicts', 'Count': 0},
+                    {'Category': 'Large Room (120/240) Conflicts', 'Count': 0},
+                    {'Category': 'Regular Room Conflicts', 'Count': 0},
+                    {'Category': 'Status', 'Count': 'All Clear ✓'}
+                ]
+                conflict_summary_df = pd.DataFrame(summary_data)
+                conflict_summary_df.to_excel(writer, sheet_name='CONFLICT_SUMMARY', index=False)
                 print("[AUDIT] No classroom double-bookings detected")
         
         # Apply formatting

@@ -1,145 +1,48 @@
 # Automated Timetable Generator - IIIT Dharwad
 
-Automates **class timetables**, **basket (elective) schedules**for IIIT Dharwad. The system uses faculty availability, classroom capacity, and course constraints to produce conflict-free timetables and downloadable Excel outputs through a web dashboard.
+A **smart web-based application** that automates the creation of academic timetables for **IIIT Dharwad**. The system intelligently considers faculty availability, classroom capacity, course constraints, and student group schedules to generate **conflict-free and optimized** timetables in seconds.
+
+> **For Testing Teams:** Please refer to [USER_MANUAL.md](USER_MANUAL.md) for detailed usage instructions covering all features.
 
 ---
 
 ## ✨ Key Features
 
-- Branch-specific timetables for CSE, DSAI, and ECE across semesters 1, 3, 5, 7
-- Pre-mid, post-mid, and basket timetable generation with automatic course splits
-- Multi-section output (Section A, Section B, and common courses where applicable)
-- Drag-and-drop CSV upload with required-file validation
-- On-the-fly classroom allocation with room badges in the UI
-- Interactive dashboard filters (branch, semester, section, type, grid/list view)
-- Download-all, print, and per-file downloads directly from the UI
-- Validation sheets and utilization summaries included in Excel outputs
-
----
-
-## 🧰 Tech Stack
-
-- **Backend:** Python, Flask, Pandas, OpenPyXL
-- **Frontend:** HTML, CSS, JavaScript
-- **Icons:** Font Awesome
-
----
-
-## 📋 Prerequisites
-
-- Python 3.8+ (3.12 works fine)
-- `pip` (Python package manager)
-
----
-
-## 📂 Input CSV Files (required)
-
-Place the following files in `backend/temp_inputs/` (or upload from the UI):
-
-- course_data.csv
-- faculty_availability.csv
-- classroom_data.csv
-- student_data.csv
-
-Optional:
-- exams_data.csv (exam functionality is currently disabled)
-- minor_data.csv
-- room_availability.csv
-
----
-
-## 📦 Output Files
-
-Generated Excel files are saved in `backend/output_timetables/`.
-
-When you click **Generate All Timetables**:
-
-- 24 mid-semester timetables (4 semesters × 3 branches × 2 types)
-- 12 basket timetables (Excel files with separate sheets for each section)
-- Classroom allocation and utilization sheets
-
-*Note: Exam schedule generation is currently disabled. See [EXAM_TIMETABLE_DISABLED.md](EXAM_TIMETABLE_DISABLED.md) for re-enabling instructions.*
-
----
-
-## 🧭 Using the Web Interface
-
-1. Start the server.
-2. Open http://localhost:5000.
-3. Use **Generate All Timetables** for full generation.
-4. Use filters (branch/semester/section/type) to explore results.
-5. Upload new CSVs from **Upload Files** and click **Process Files**.
-   - Note: `exams_data.csv` is no longer required (exam functionality is disabled)
-   - All other required files must be present for generation to proceed
-
----
-
-## 🗂️ Project Structure (key paths)
-
-```
-timetable-generator-Logic-Beyond/
-├── START_SERVER.bat
-├── START_SERVER.ps1
-├── START_WITH_VENV.bat
-├── START_WITH_VENV.ps1
-└── timetable-generator-Logic-Beyond/
-    └── backend/
-        ├── app.py
-        ├── main.py
-        ├── requirements.txt
-        ├── temp_inputs/
-        ├── output_timetables/
-        ├── templates/
-        └── static/
-```
-
----
-
-## ⚙️ Configuration
-
-- **Default port:** 5000
-- **Input folder:** backend/temp_inputs/
-- **Output folder:** backend/output_timetables/
-
-To change the port, edit `app.py` and update the `app.run(...)` call.# 🎓 Automated Timetable Scheduler – IIIT Dharwad
-
-A **smart web-based application** that automates the creation of academic and examination timetables for **IIIT Dharwad**.  
-It intelligently considers faculty availability, classroom capacity, course constraints, and student group schedules to generate **conflict-free and optimized** timetables in seconds.
-
----
-
-## ✨ Key Features
-
-- ✅ Automatic generation of **class and exam timetables**  
-- ⚡ Built-in **conflict detection** for overlapping classes or unavailable faculty  
-- 🏫 Dynamic **classroom allocation** based on student strength *(partially implemented)*  
-- 📤 Export timetables in **PDF / Excel / CSV** formats  
-- 🧭 **User-friendly interface** for administrators and academic coordinators  
-- 🎨 Customizable appearance, layout, and accessibility options  
-- 📅 Supports **multiple semesters (1, 3, 5, 7)** and sections (A & B) for all departments  
-- 🔎 Smart filtering, color coding, and real-time validation
+| Feature | Description |
+|---------|-------------|
+| **Branch-Specific Timetables** | Generates timetables for CSE, DSAI, and ECE across semesters 1, 3, 5, 7 |
+| **Pre-Mid/Post-Mid Split** | Automatic course division for half-semester courses |
+| **Multi-Section Support** | Section A, Section B, and whole-branch courses |
+| **Basket/Elective Scheduling** | Groups elective courses into common time slots |
+| **Classroom Allocation** | Dynamic room assignment based on capacity |
+| **Conflict Detection** | Prevents faculty and room double-booking |
+| **Drag-and-Drop Upload** | Easy CSV file upload with validation |
+| **Interactive Filters** | Filter by branch, semester, section, or type |
+| **Excel Export** | Download formatted Excel files with multiple sheets |
+| **Theme Customization** | Multiple themes and accessibility options |
 
 ---
 
 ## 🛠️ Technology Stack
 
-**Backend:** Python | Flask | Pandas | OpenPyXL  
-**Frontend:** HTML5 | CSS3 | JavaScript  
-**Styling:** Custom CSS (Glass Morphism effects)  
-**Icons:** Font Awesome
+| Layer | Technologies |
+|-------|--------------|
+| **Backend** | Python 3.8+, Flask, Pandas, OpenPyXL |
+| **Frontend** | HTML5, CSS3, JavaScript |
+| **Styling** | Custom CSS with Glass Morphism effects |
+| **Icons** | Font Awesome |
 
 ---
 
 ## 📋 Prerequisites
 
-- Python 3.8 or higher  
+- Python 3.8 or higher (3.12 recommended)
 - `pip` (Python package manager)
+- Modern web browser (Chrome, Firefox, Edge, Safari)
 
 ---
 
-## 📦 Installation & Setup
-
-Follow these steps carefully to set up and run the application locally.
+## 🚀 Quick Start
 
 ```bash
 # Step 1: Clone the Repository
@@ -169,3 +72,113 @@ pip install flask pandas openpyxl werkzeug
 python app.py
 # or (Windows)
 py app.py
+```
+
+---
+
+## 📂 Required CSV Files
+
+Upload these files via the web interface or place them in `backend/temp_inputs/`:
+
+| File | Purpose | Required |
+|------|---------|----------|
+| `course_data.csv` | Course info, faculty, credits, elective flags | ✅ Yes |
+| `faculty_availability.csv` | Faculty names | ✅ Yes |
+| `classroom_data.csv` | Room numbers, types, capacities | ✅ Yes |
+| `student_data.csv` | Student enrollment data | ✅ Yes |
+| `minor_data.csv` | Minor course registrations | Optional |
+
+> See [USER_MANUAL.md](USER_MANUAL.md) for detailed CSV format specifications.
+
+---
+
+## 📦 Output
+
+Generated Excel files are saved in `backend/output_timetables/`:
+
+- **24 Mid-Semester Timetables** (4 semesters × 3 branches × 2 types)
+- **12 Basket Timetables** (elective schedules per semester/branch)
+- **Allocation & Validation Sheets**
+
+---
+
+## 🧭 Using the Web Interface
+
+1. **Start** the server and open http://localhost:5000
+2. **Upload** CSV files via the Upload section
+3. **Click** "Generate All Timetables"
+4. **Filter** results by branch, semester, section, or type
+5. **Download** individual files or all as ZIP
+
+---
+
+## 🗂️ Project Structure
+
+```
+timetable-generator-Logic-Beyond/
+├── START_SERVER.bat          # Quick start scripts
+├── START_SERVER.ps1
+├── START_WITH_VENV.bat
+├── START_WITH_VENV.ps1
+└── timetable-generator-Logic-Beyond/
+    ├── USER_MANUAL.md        # Detailed user documentation
+    ├── README.md             # This file
+    └── backend/
+        ├── app.py            # Main Flask application
+        ├── requirements.txt  # Python dependencies
+        ├── temp_inputs/      # Input CSV files
+        ├── output_timetables/# Generated Excel files
+        ├── templates/        # HTML templates
+        ├── static/           # CSS, JS, assets
+        └── test_data/        # Sample test data
+```
+
+---
+
+## ⚙️ Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Port | 5000 | Edit `app.run()` in app.py to change |
+| Input folder | `backend/temp_inputs/` | CSV files location |
+| Output folder | `backend/output_timetables/` | Generated files |
+
+---
+
+## 📖 Documentation
+
+- **[USER_MANUAL.md](USER_MANUAL.md)** - Complete user documentation with screenshots
+- **[SETUP_AND_RUN_GUIDE.md](../SETUP_AND_RUN_GUIDE.md)** - Detailed setup instructions
+
+---
+
+## ⚠️ Known Limitations
+
+- Exam schedule generation is currently **disabled**
+- Weekend scheduling not supported
+- Single-user local deployment (multi-user requires server deployment)
+
+---
+
+## 🐛 Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| No timetables generated | Ensure all 4 required CSV files are uploaded |
+| Page won't load | Check if server is running; try port 5000 |
+| Electives not showing | Verify `Elective (Yes/No)` column in course_data.csv |
+| Download fails | Check browser download settings; verify files exist |
+
+For more troubleshooting, see the [USER_MANUAL.md](USER_MANUAL.md#14-troubleshooting).
+
+---
+
+## 📞 Support
+
+- Use **Help & Support** in the application sidebar
+- Access debug endpoints: `/debug/current-data`, `/debug/file-matching`
+- Clear cache if data seems stale
+
+---
+
+*IIIT Dharwad Automated Timetable Generator v1.0*
