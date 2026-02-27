@@ -549,18 +549,29 @@ function hideUploadSection() {
     }
 }
 
+// Track upload progress interval for proper cleanup
+let uploadProgressInterval = null;
+
 function showUploadProgress(show) {
     const uploadOverlay = document.getElementById('upload-overlay');
     const progressFill = document.getElementById('upload-progress-fill');
     const progressText = document.getElementById('upload-progress-text');
     
+    // Always clear any existing interval first
+    if (uploadProgressInterval) {
+        clearInterval(uploadProgressInterval);
+        uploadProgressInterval = null;
+    }
+    
     if (uploadOverlay && progressFill && progressText) {
         if (show) {
             uploadOverlay.classList.add('active');
+            uploadOverlay.style.display = 'flex';
             // Simulate upload progress
             simulateUploadProgress(progressFill, progressText);
         } else {
             uploadOverlay.classList.remove('active');
+            uploadOverlay.style.display = 'none';
             progressFill.style.width = '0%';
             progressText.textContent = '0%';
         }
@@ -570,7 +581,7 @@ function showUploadProgress(show) {
 function simulateUploadProgress(progressFill, progressText) {
     let progress = 0;
     
-    const interval = setInterval(() => {
+    uploadProgressInterval = setInterval(() => {
         if (progress < 90) {
             progress += Math.random() * 15;
             progress = Math.min(progress, 90);
@@ -578,13 +589,6 @@ function simulateUploadProgress(progressFill, progressText) {
             progressText.textContent = Math.round(progress) + '%';
         }
     }, 200);
-    
-    // Clear interval when upload is done
-    setTimeout(() => {
-        clearInterval(interval);
-        progressFill.style.width = '100%';
-        progressText.textContent = '100%';
-    }, 2000);
 }
 
 // Debug Functions
