@@ -87,6 +87,12 @@ _CLASSROOM_SCHEDULE_TRACKER = {}
 # Structure: { (day, time_slot, semester): { minor_name, classroom, branch, section, schedule_type } }
 _MINOR_SCHEDULE_TRACKER = {}
 
+# ===== ELECTIVE ROOM SHARING TRACKER =====
+# Tracks elective classroom allocations that should be SHARED across all branches/sections within the same semester
+# This dict is NOT reset between branches - only at the start of a new generation
+# Structure: { "ELECTIVE_COMMON_{semester}_{day}_{time_slot}_{course_code}_{session_type}": classroom }
+_ELECTIVE_COMMON_ROOMS = {}
+
 def normalize_time_slot_label(val):
     """Convert numeric or short labels to canonical time slot strings."""
     try:
@@ -4351,7 +4357,7 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                                     pre_mid_basket_map[basket] = []
                                 if course_code not in pre_mid_basket_map[basket]:
                                     pre_mid_basket_map[basket].append(course_code)
-                    pre_mid_sections[section] = allocate_classrooms_for_timetable(pre_mid_sections[section], classroom_data, course_info, semester, branch, section, pre_mid_basket_map)
+                    pre_mid_sections[section] = allocate_classrooms_for_timetable(pre_mid_sections[section], classroom_data, course_info, semester, branch, section, pre_mid_basket_map, schedule_type='PreMid')
             else:
                 pre_mid_sections[section] = pd.DataFrame()
         
@@ -4371,7 +4377,7 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                                     post_mid_basket_map[basket] = []
                                 if course_code not in post_mid_basket_map[basket]:
                                     post_mid_basket_map[basket].append(course_code)
-                    post_mid_sections[section] = allocate_classrooms_for_timetable(post_mid_sections[section], classroom_data, course_info, semester, branch, section, post_mid_basket_map)
+                    post_mid_sections[section] = allocate_classrooms_for_timetable(post_mid_sections[section], classroom_data, course_info, semester, branch, section, post_mid_basket_map, schedule_type='PostMid')
             else:
                 post_mid_sections[section] = pd.DataFrame()
         
@@ -4783,23 +4789,13 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                         # Process each lecture slot
                         for day, time in lectures:
                             lecture_room = ''
-                            # Find the classroom for this SPECIFIC COURSE (not just any course in basket)
-                            for alloc_key, alloc in allocs_for_file.items():
-                                alloc_course = alloc.get('course', '')
-                                alloc_type = str(alloc.get('type', '')).upper()
-                                
-                                # Match ONLY this specific course (not basket name)
-                                if alloc_course == course_code and 'TUTORIAL' not in alloc_type and 'TUTORIAL' not in alloc_course.upper():
-                                    # Check if this allocation matches the day and time
-                                    parts = alloc_key.split('_')
-                                    if len(parts) >= 2:
-                                        alloc_day = parts[0]
-                                        alloc_time = parts[1]
-                                        if alloc_day == day or alloc_time == time:
-                                            room = alloc.get('classroom') or alloc.get('room')
-                                            if room and not lecture_room:
-                                                lecture_room = str(room)
-                                                break
+                            # Allocation key format: {day}_{time_slot}_{course_code}
+                            expected_key = f"{day}_{time}_{course_code}"
+                            alloc = allocs_for_file.get(expected_key)
+                            if alloc:
+                                room = alloc.get('classroom') or alloc.get('room')
+                                if room:
+                                    lecture_room = str(room)
                             
                             if lecture_room:
                                 lecture_slots_with_rooms.append(f"{day} {time} [{lecture_room}]")
@@ -4811,16 +4807,13 @@ def export_consolidated_semester_timetable(dfs, semester, branch, time_config=No
                         # Process tutorial slot
                         if tutorial:
                             tutorial_room = ''
-                            for alloc_key, alloc in allocs_for_file.items():
-                                alloc_course = alloc.get('course', '')
-                                alloc_type = str(alloc.get('type', '')).upper()
-                                
-                                # Match ONLY this specific course (not basket name)
-                                if alloc_course == course_code and ('TUTORIAL' in alloc_type or 'TUTORIAL' in alloc_course.upper()):
-                                    room = alloc.get('classroom') or alloc.get('room')
-                                    if room and not tutorial_room:
-                                        tutorial_room = str(room)
-                                        break
+                            # Allocation key format for tutorial: {day}_{time_slot}_{course_code}
+                            expected_tutorial_key = f"{tutorial[0]}_{tutorial[1]}_{course_code}"
+                            alloc = allocs_for_file.get(expected_tutorial_key)
+                            if alloc:
+                                room = alloc.get('classroom') or alloc.get('room')
+                                if room:
+                                    tutorial_room = str(room)
                             
                             if tutorial_room:
                                 tutorial_with_room = f"{tutorial_slot} [{tutorial_room}]"
@@ -5736,7 +5729,7 @@ def export_mid_semester_timetables(dfs, semester, branch=None, time_config=None,
                 if pre_mid_data is not None and not pre_mid_data.empty:
                     print(f"   Allocating classrooms for Pre-Mid Section {section}...")
                     pre_mid_sections[section] = allocate_classrooms_for_timetable(
-                        pre_mid_data, classroom_data, course_info, semester, branch, section, pre_mid_basket_courses_map
+                        pre_mid_data, classroom_data, course_info, semester, branch, section, pre_mid_basket_courses_map, schedule_type='PreMid'
                     )
                     print(f"   [OK] Pre-Mid Section {section} classrooms allocated")
         
@@ -5889,7 +5882,7 @@ def export_mid_semester_timetables(dfs, semester, branch=None, time_config=None,
                 if post_mid_data is not None and not post_mid_data.empty:
                     print(f"   Allocating classrooms for Post-Mid Section {section}...")
                     post_mid_sections[section] = allocate_classrooms_for_timetable(
-                        post_mid_data, classroom_data, course_info, semester, branch, section, post_mid_basket_courses_map
+                        post_mid_data, classroom_data, course_info, semester, branch, section, post_mid_basket_courses_map, schedule_type='PostMid'
                     )
                     print(f"   [OK] Post-Mid Section {section} classrooms allocated")
         
@@ -6671,22 +6664,29 @@ def generate_course_colors(courses, course_info):
     
     return course_colors
 
-def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, semester, branch, section, basket_courses_map=None):
-    """Allocate classrooms to timetable sessions with proper tracking across all timetables"""
-    print(f"[SCHOOL] Allocating classrooms for {branch} Semester {semester} Section {section}...")
+def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, semester, branch, section, basket_courses_map=None, schedule_type='Regular'):
+    """Allocate classrooms to timetable sessions with proper tracking across all timetables.
+    
+    Args:
+        schedule_type: 'Regular', 'PreMid', or 'PostMid' - used to separate classroom tracking
+                       so that different schedule types don't conflict with each other.
+    """
+    print(f"[SCHOOL] Allocating classrooms for {branch} Semester {semester} Section {section} ({schedule_type})...")
     
     if classrooms_df is None or classrooms_df.empty:
         print("   [WARN] No classroom data available")
         return schedule_df
     
     # Initialize global tracker if not exists and ensure global preferred classrooms map
-    global _CLASSROOM_USAGE_TRACKER, _GLOBAL_PREFERRED_CLASSROOMS, _COMMON_COURSE_ROOMS
+    global _CLASSROOM_USAGE_TRACKER, _GLOBAL_PREFERRED_CLASSROOMS, _COMMON_COURSE_ROOMS, _ELECTIVE_COMMON_ROOMS
     if not _CLASSROOM_USAGE_TRACKER:
         initialize_classroom_usage_tracker()
     if '_GLOBAL_PREFERRED_CLASSROOMS' not in globals():
         _GLOBAL_PREFERRED_CLASSROOMS = {}
     if '_COMMON_COURSE_ROOMS' not in globals():
         _COMMON_COURSE_ROOMS = {}
+    if '_ELECTIVE_COMMON_ROOMS' not in globals():
+        _ELECTIVE_COMMON_ROOMS = {}
     
     print(f"[COMMON-DEBUG] Starting allocation for Semester {semester}, Branch {branch}, Section {section}")
     print(f"[COMMON-DEBUG] Current _COMMON_COURSE_ROOMS keys: {list(_COMMON_COURSE_ROOMS.keys())}")
@@ -6779,15 +6779,19 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
         return str(room_value).strip() or None
 
     def room_available(room_number, day_key, slot_key):
-        return room_number not in _CLASSROOM_USAGE_TRACKER.get(day_key, {}).get(slot_key, set())
+        # Use schedule_type prefix to separate Regular, PreMid, PostMid tracking
+        prefixed_day = f"{schedule_type}_{day_key}"
+        return room_number not in _CLASSROOM_USAGE_TRACKER.get(prefixed_day, {}).get(slot_key, set())
 
     def reserve_room(room_number, day_key, slot_key):
         global _ROOM_ALLOCATION_COUNTER
-        if day_key not in _CLASSROOM_USAGE_TRACKER:
-            _CLASSROOM_USAGE_TRACKER[day_key] = {}
-        if slot_key not in _CLASSROOM_USAGE_TRACKER[day_key]:
-            _CLASSROOM_USAGE_TRACKER[day_key][slot_key] = set()
-        _CLASSROOM_USAGE_TRACKER[day_key][slot_key].add(room_number)
+        # Use schedule_type prefix to separate Regular, PreMid, PostMid tracking
+        prefixed_day = f"{schedule_type}_{day_key}"
+        if prefixed_day not in _CLASSROOM_USAGE_TRACKER:
+            _CLASSROOM_USAGE_TRACKER[prefixed_day] = {}
+        if slot_key not in _CLASSROOM_USAGE_TRACKER[prefixed_day]:
+            _CLASSROOM_USAGE_TRACKER[prefixed_day][slot_key] = set()
+        _CLASSROOM_USAGE_TRACKER[prefixed_day][slot_key].add(room_number)
         # Increment allocation counter for load balancing
         if room_number not in _ROOM_ALLOCATION_COUNTER:
             _ROOM_ALLOCATION_COUNTER[room_number] = 0
@@ -6834,7 +6838,8 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
         # Get rooms booked at this specific slot (if day/slot provided)
         booked_at_slot = set()
         if day_key and slot_key:
-            booked_at_slot = _CLASSROOM_USAGE_TRACKER.get(day_key, {}).get(slot_key, set())
+            prefixed_day = f"{schedule_type}_{day_key}"
+            booked_at_slot = _CLASSROOM_USAGE_TRACKER.get(prefixed_day, {}).get(slot_key, set())
 
         # FIRST PASS: Try to find a room that is NOT booked at this slot
         for rooms_df in candidate_sets:
@@ -6892,7 +6897,8 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
         Uses load balancing to distribute rooms evenly.
         PRIORITY: C-prefix rooms FIRST, L-prefix rooms ONLY as last resort.
         Returns room number or None."""
-        globally_booked = _CLASSROOM_USAGE_TRACKER.get(day_key, {}).get(slot_key, set())
+        prefixed_day = f"{schedule_type}_{day_key}"
+        globally_booked = _CLASSROOM_USAGE_TRACKER.get(prefixed_day, {}).get(slot_key, set())
         disallowed = set(globally_booked)
         if extra_disallowed:
             disallowed |= set(extra_disallowed)
@@ -7007,7 +7013,8 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
             if not lab_rooms_to_use.empty:
                 classroom_choice = find_suitable_classroom_with_tracking(
                     lab_rooms_to_use, enrollment_value, day_key, slot_key, _CLASSROOM_USAGE_TRACKER,
-                    is_common=is_common_course, is_lab=True, preferred_capacities_override=preferred_capacities_override
+                    is_common=is_common_course, is_lab=True, preferred_capacities_override=preferred_capacities_override,
+                    schedule_type=schedule_type
                 )
             if not classroom_choice:
                 print(f"         [LAB-WARN] No lab room available for {day_key} {slot_key}")
@@ -7077,7 +7084,8 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
             eligible_rooms = eligible_rooms.sort_values(['_usage', 'Room Number'])
             classroom_choice = find_suitable_classroom_with_tracking(
                 eligible_rooms, enrollment_value, day_key, slot_key, _CLASSROOM_USAGE_TRACKER,
-                is_common=is_common_course, is_lab=False, preferred_capacities_override=preferred_capacities_override
+                is_common=is_common_course, is_lab=False, preferred_capacities_override=preferred_capacities_override,
+                schedule_type=schedule_type
             )
             if classroom_choice:
                 print(f"         [TIER-OK] Found room in {tier_name} tier for {enrollment_value} students")
@@ -7092,7 +7100,8 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
         print(f"         [L-PREFIX-FALLBACK] Trying L-prefix classroom rooms...")
         
         # Get all rooms that are NOT booked for this slot
-        booked_at_slot = _CLASSROOM_USAGE_TRACKER.get(day_key, {}).get(slot_key, set())
+        prefixed_day = f"{schedule_type}_{day_key}"
+        booked_at_slot = _CLASSROOM_USAGE_TRACKER.get(prefixed_day, {}).get(slot_key, set())
         
         # Try L-prefix classroom rooms (filtered earlier as l_prefix_classrooms)
         if not l_prefix_classrooms.empty:
@@ -7252,39 +7261,41 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                 is_basket_entry = any(keyword in normalized_value for keyword in basket_keywords)
             
             # Handle basket entries - allocate classrooms for courses but keep basket name in display
-            if is_basket_entry and basket_courses_map:
+            if is_basket_entry:
                 basket_name = course_value.replace(' (Tutorial)', '').replace(' (Lab)', '').strip()
-                courses_in_basket = basket_courses_map.get(basket_name, [])
+                courses_in_basket = basket_courses_map.get(basket_name, []) if basket_courses_map else []
+                
+                # Track all rooms allocated for this basket slot
+                basket_rooms_allocated = []
+                
+                # Determine session type 
+                is_tutorial = '(Tutorial)' in course_value
+                is_lab = '(Lab)' in course_value
+                session_type = 'Tutorial' if is_tutorial else ('Lab' if is_lab else 'Lecture')
                 
                 if courses_in_basket:
-                    # Allocate classrooms for each course in the basket
-                    is_tutorial = '(Tutorial)' in course_value
-                    is_lab = '(Lab)' in course_value
-                    
-                    # Determine session type for common room tracking
-                    session_type = 'Tutorial' if is_tutorial else ('Lab' if is_lab else 'Lecture')
-                    
                     print(f"      [BASKET-ENTRY] {day} {time_slot}: '{course_value}' contains {len(courses_in_basket)} courses ({session_type})")
                     
                     for course_code in courses_in_basket:
                         # Get enrollment for this course
                         enrollment = course_enrollment.get(course_code, 40)
                         
-                        # CRITICAL: Elective courses in baskets should use COMMON classrooms across all sections
-                        # Use a key that includes day+time+course+session so:
-                        # 1. Same course at same day/time across sections shares the SAME room (within-semester common)
-                        # 2. Same course at different day/time gets appropriate room for that slot
-                        # 3. Different courses at same day/time get DIFFERENT rooms (cross-semester isolation)
-                        common_elective_key = f"ELECTIVE_COMMON_{day}_{time_slot}_{course_code}_{session_type}"
+                        # CRITICAL: Elective courses in baskets should use COMMON classrooms across all sections/branches
+                        # Use a key that includes semester+day+time+course+session so:
+                        # 1. Same semester + same day/time + same course shares the SAME room (within-semester common)
+                        # 2. Different semesters are completely isolated
+                        # 3. Different courses at same day/time get DIFFERENT rooms
+                        common_elective_key = f"ELECTIVE_COMMON_{semester}_{day}_{time_slot}_{course_code}_{session_type}"
                         
                         suitable_classroom = None
-                        existing_common_room = _GLOBAL_PREFERRED_CLASSROOMS.get(common_elective_key)
+                        existing_common_room = _ELECTIVE_COMMON_ROOMS.get(common_elective_key)
                         
                         if existing_common_room:
                             # For electives at the SAME day/time/course, reuse the common room
                             # This ensures all sections of same semester use same classroom
                             # CRITICAL: Check if room is available or already booked FOR THIS COURSE
-                            booked_rooms_at_slot = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
+                            prefixed_day = f"{schedule_type}_{day}"
+                            booked_rooms_at_slot = _CLASSROOM_USAGE_TRACKER.get(prefixed_day, {}).get(time_slot, set())
                             if existing_common_room not in booked_rooms_at_slot:
                                 # Room is free - use it and reserve
                                 suitable_classroom = existing_common_room
@@ -7304,13 +7315,17 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                 course_code=course_code
                             )
                             if suitable_classroom:
-                                # Store as common room for all sections at this specific day/time
-                                _GLOBAL_PREFERRED_CLASSROOMS[common_elective_key] = suitable_classroom
-                                print(f"         [BASKET-COMMON-NEW] {course_code} ({session_type}) -> {suitable_classroom} (NEW common room for all sections at {day} {time_slot})")
+                                # Store as common room for all sections/branches at this specific day/time
+                                _ELECTIVE_COMMON_ROOMS[common_elective_key] = suitable_classroom
+                                print(f"         [BASKET-COMMON-NEW] {course_code} ({session_type}) -> {suitable_classroom} (NEW common room for all branches at {day} {time_slot})")
                         
                         if suitable_classroom:
                             # Reserve the room in the tracker
                             reserve_room(suitable_classroom, day, time_slot)
+                            
+                            # Track room for display
+                            if suitable_classroom not in basket_rooms_allocated:
+                                basket_rooms_allocated.append(suitable_classroom)
                             
                             # Track allocation (but don't update cell display)
                             allocation_key = f"{day}_{time_slot}_{course_code}"
@@ -7326,10 +7341,38 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                             allocation_count += 1
                         else:
                             print(f"         [BASKET-WARN] {day} {time_slot}: No classroom available for {course_code} in {basket_name}")
+                else:
+                    # No specific courses in basket_courses_map - allocate a generic room for the basket
+                    print(f"      [BASKET-FALLBACK] {day} {time_slot}: '{course_value}' not in basket_courses_map, allocating generic room")
+                    common_elective_key = f"ELECTIVE_COMMON_{semester}_{day}_{time_slot}_{basket_name}_{session_type}"
+                    existing_common_room = _ELECTIVE_COMMON_ROOMS.get(common_elective_key)
+                    
+                    if existing_common_room:
+                        suitable_classroom = existing_common_room
+                        print(f"         [BASKET-GENERIC-REUSE] {basket_name} ({session_type}) -> {existing_common_room}")
+                    else:
+                        # Allocate new room with default enrollment for electives
+                        suitable_classroom = allocate_regular_classroom(
+                            40, day, time_slot,
+                            is_common_course=True,
+                            is_lab_session=is_lab,
+                            course_code=basket_name
+                        )
+                        if suitable_classroom:
+                            _ELECTIVE_COMMON_ROOMS[common_elective_key] = suitable_classroom
+                            print(f"         [BASKET-GENERIC-NEW] {basket_name} ({session_type}) -> {suitable_classroom}")
+                    
+                    if suitable_classroom:
+                        reserve_room(suitable_classroom, day, time_slot)
+                        basket_rooms_allocated.append(suitable_classroom)
+                        allocation_count += 1
                 
-                # Keep ONLY the basket name in the cell (no classroom info)
+                # Display ONLY basket name in cell - rooms are shown in the legend table
                 schedule_with_rooms.loc[time_slot, day] = course_value
-                print(f"      [BASKET-DISPLAY] {day} {time_slot}: Displaying '{course_value}' (classrooms in legends)")
+                if basket_rooms_allocated:
+                    print(f"      [BASKET-DISPLAY] {day} {time_slot}: '{course_value}' (rooms {basket_rooms_allocated} stored in allocations for legend)")
+                else:
+                    print(f"      [BASKET-DISPLAY] {day} {time_slot}: '{course_value}' (no rooms allocated)")
                 continue
             
             # Handle legacy newline-separated courses (from old data files)
@@ -7350,13 +7393,13 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                     # Get enrollment for this specific course
                     enrollment = course_enrollment.get(clean_code, 40)
                     
-                    # CRITICAL: Each elective course should use the SAME room across all sections (common)
-                    # Use global common room key for electives - include day/time to avoid cross-semester conflicts
+                    # CRITICAL: Each elective course should use the SAME room across all sections/branches
+                    # Include semester to ensure electives are shared within semester but isolated between semesters
                     session_type = 'Tutorial' if is_tutorial else ('Lab' if is_lab else 'Lecture')
-                    common_elective_key = f"ELECTIVE_COMMON_{day}_{time_slot}_{clean_code}_{session_type}"
+                    common_elective_key = f"ELECTIVE_COMMON_{semester}_{day}_{time_slot}_{clean_code}_{session_type}"
                     
                     # Check if this course already has a common room allocated at this day/time
-                    existing_common_room = _GLOBAL_PREFERRED_CLASSROOMS.get(common_elective_key)
+                    existing_common_room = _ELECTIVE_COMMON_ROOMS.get(common_elective_key)
                     suitable_classroom = None
                     
                     if existing_common_room:
@@ -7370,7 +7413,8 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                     else:
                         
                         # Allocate a new room, but avoid rooms already used in this same slot
-                        booked_global = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
+                        prefixed_day = f"{schedule_type}_{day}"
+                        booked_global = _CLASSROOM_USAGE_TRACKER.get(prefixed_day, {}).get(time_slot, set())
                         disallowed = rooms_used_in_this_slot | booked_global
                         
                         # Find a suitable room not in disallowed set (tiered: smallest adequate)
@@ -7410,9 +7454,9 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                 break
                         
                         if suitable_classroom:
-                            # Store as common room for all sections at this specific day/time
-                            _GLOBAL_PREFERRED_CLASSROOMS[common_elective_key] = suitable_classroom
-                            print(f"        [ESTABLISH-COMMON] {day} {time_slot}: {clean_code} -> {suitable_classroom} (NEW common room for all sections at {day} {time_slot})")
+                            # Store as common room for all sections/branches at this specific day/time
+                            _ELECTIVE_COMMON_ROOMS[common_elective_key] = suitable_classroom
+                            print(f"        [ESTABLISH-COMMON] {day} {time_slot}: {clean_code} -> {suitable_classroom} (NEW common room for all branches at {day} {time_slot})")
                     
                     if suitable_classroom:
                         # Reserve and track
@@ -7663,12 +7707,12 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         print(f"        [BASKET-TRY] {day} {time_slot}: Trying {individual_course} (enroll {individual_enrollment}), preferred={individual_preferred}")
                         
                         # IMPORTANT: For basket elective courses, all sections/branches at same time should use SAME room
-                        # Basket courses with same course code should use the SAME room across all sections
-                        # Include day/time in the key to avoid cross-semester conflicts at different time slots
-                        common_elective_key = f"ELECTIVE_COMMON_{day}_{time_slot}_{individual_course}_{session_type}"
+                        # Basket courses with same course code should use the SAME room across all sections/branches
+                        # Include semester in the key to ensure same semester shares but different semesters are separate
+                        common_elective_key = f"ELECTIVE_COMMON_{semester}_{day}_{time_slot}_{individual_course}_{session_type}"
 
                         # If this course's common room is already established at this day/time, reuse it
-                        existing_common_room = _GLOBAL_PREFERRED_CLASSROOMS.get(common_elective_key)
+                        existing_common_room = _ELECTIVE_COMMON_ROOMS.get(common_elective_key)
 
                         if existing_common_room:
                             # For electives at the SAME day/time/course, reuse the common room
@@ -7694,10 +7738,10 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                 )
                             )
                             
-                            # If successful, store this as the common room for all sections
+                            # If successful, store this as the common room for all sections/branches
                             if individual_classroom:
-                                _GLOBAL_PREFERRED_CLASSROOMS[common_elective_key] = individual_classroom
-                                print(f"        [ESTABLISH-COMMON] {day} {time_slot}: {individual_course} -> {individual_classroom} (NEW common room for all sections)")
+                                _ELECTIVE_COMMON_ROOMS[common_elective_key] = individual_classroom
+                                print(f"        [ESTABLISH-COMMON] {day} {time_slot}: {individual_course} -> {individual_classroom} (NEW common room for all branches)")
                         
                         if individual_classroom:
                             # Defensive: ensure uniqueness within this basket and time slot
@@ -7712,7 +7756,8 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                             if individual_classroom in basket_rooms_at_this_slot:
                                 alt_room = None
                                 # Build a set of globally booked rooms for this day/time
-                                booked_global = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
+                                prefixed_day = f"{schedule_type}_{day}"
+                                booked_global = _CLASSROOM_USAGE_TRACKER.get(prefixed_day, {}).get(time_slot, set())
                                 disallowed = set(basket_rooms_at_this_slot) | set(booked_global)
 
                                 # Prefer primary classrooms first (tiered: smallest adequate room)
@@ -7774,7 +7819,8 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                                     basket_rooms_at_this_slot.add(alloc.get('classroom'))
                             
                             # CRITICAL: Also check the global classroom usage tracker to avoid double-booking
-                            globally_booked_rooms = _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
+                            prefixed_day = f"{schedule_type}_{day}"
+                            globally_booked_rooms = _CLASSROOM_USAGE_TRACKER.get(prefixed_day, {}).get(time_slot, set())
                             unavailable_rooms = basket_rooms_at_this_slot | globally_booked_rooms
                             
                             # Try to find an unused room that is GLOBALLY available (tiered)
@@ -7884,7 +7930,7 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         if not suitable_classroom:
                             # Allocate a new room for this lab pair
                             suitable_classroom = find_suitable_classroom_for_lab_pair(
-                                lab_rooms_to_search, enrollment, day, time_slot, second_slot, _CLASSROOM_USAGE_TRACKER
+                                lab_rooms_to_search, enrollment, day, time_slot, second_slot, _CLASSROOM_USAGE_TRACKER, schedule_type=schedule_type
                             )
                             
                             # Store this allocation globally ONLY for non-common courses
@@ -7938,7 +7984,50 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                     # Extract clean course code for common check
                     clean_code = course_display.replace(' (Tutorial)', '').replace(' (Lab)', '').strip()
                     
-                    if preferred_classroom and room_available(preferred_classroom, day, time_slot):
+                    # Check if this is a common course FIRST (before preferred classroom logic)
+                    info_for_room = get_course_info_by_dept(course_info, clean_code, branch)
+                    common_val = str(info_for_room.get('common', info_for_room.get('Common', 'No'))).strip().upper()
+                    is_common = common_val == 'YES'
+                    
+                    # Check for cross-department (DSAI+ECE) common courses
+                    cross_common_bundle = get_cross_common_bundle(clean_code)
+                    normalized_branch = normalize_branch_string(branch)
+                    cross_common_active = bool(
+                        is_common
+                        and cross_common_bundle
+                        and normalized_branch in cross_common_bundle.get('departments', set())
+                    )
+                    
+                    # For COMMON courses, check _COMMON_COURSE_ROOMS first (both sections/branches share same room)
+                    # Use cross-department key if applicable (DSAI+ECE share same room)
+                    if cross_common_active:
+                        common_course_key = f"{cross_common_bundle['room_key']}_{day}_{time_slot}"
+                    else:
+                        common_course_key = f"{semester}_{branch}_{clean_code}_{day}_{time_slot}"
+                    common_room_found = None
+                    
+                    if is_common and common_course_key in _COMMON_COURSE_ROOMS:
+                        common_room_found = normalize_single_room(_COMMON_COURSE_ROOMS[common_course_key])
+                        if common_room_found:
+                            # Use same room as Section A - NO availability check needed (they attend together)
+                            schedule_with_rooms.loc[time_slot, day] = f"{course_display} [{common_room_found}]"
+                            allocation_key = f"{day}_{time_slot}"
+                            _TIMETABLE_CLASSROOM_ALLOCATIONS[timetable_key][allocation_key] = {
+                                'course': course_display,
+                                'classroom': common_room_found,
+                                'enrollment': enrollment,
+                                'conflict': False,
+                                'split': False
+                            }
+                            allocation_count += 1
+                            print(f"      [COMMON-REUSE] {course_display} using SAME room {common_room_found} on {day} {time_slot} (both sections attend together)")
+                    
+                    # For common courses: skip preferred classroom to ensure _COMMON_COURSE_ROOMS is used
+                    skip_preferred_for_common = is_common and not common_room_found
+                    
+                    if common_room_found:
+                        pass  # Already handled above
+                    elif not skip_preferred_for_common and preferred_classroom and room_available(preferred_classroom, day, time_slot):
                         reserve_room(preferred_classroom, day, time_slot)
                         # Validate preferred_classroom is not empty/None before adding brackets
                         if preferred_classroom and str(preferred_classroom).strip():
@@ -8161,12 +8250,44 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
                         'split': False
                     }
                     
+                    # For common courses: store in _COMMON_COURSE_ROOMS with cross-common key if applicable
+                    # This ensures ECE will find the room when DSAI processes first with preferred classroom
+                    if is_common:
+                        cross_common_bundle = detect_cross_dsai_ece_common(course_info, clean_code, semester)
+                        normalized_branch = normalize_branch_string(branch)
+                        cross_common_active = bool(
+                            cross_common_bundle
+                            and normalized_branch in cross_common_bundle.get('departments', set())
+                        )
+                        if cross_common_active:
+                            common_course_key = f"{cross_common_bundle['room_key']}_{day}_{time_slot}"
+                        else:
+                            common_course_key = f"{semester}_{branch}_{clean_code}_{day}_{time_slot}"
+                        if common_course_key not in _COMMON_COURSE_ROOMS:
+                            _COMMON_COURSE_ROOMS[common_course_key] = preferred_classroom
+                            print(f"      [COMMON-STORE] Stored preferred room {preferred_classroom} for common course key: {common_course_key}")
+                    
                     allocation_count += 1
                     print(f"      [REUSE] Reusing {preferred_classroom} for {course_display} on {day} {time_slot} ({effective_enrollment} students)")
                 else:
                     # For common courses, check if a room has already been allocated in another section
                     # Include day/time in key for slot-specific room sharing
-                    common_course_key = f"{semester}_{branch}_{clean_code}_{day}_{time_slot}"
+                    # Check for cross-department (DSAI+ECE) common courses
+                    cross_common_bundle = detect_cross_dsai_ece_common(course_info, clean_code, semester)
+                    normalized_branch = normalize_branch_string(branch)
+                    cross_common_active = bool(
+                        is_common
+                        and cross_common_bundle
+                        and normalized_branch in cross_common_bundle.get('departments', set())
+                    )
+                    
+                    # Use cross-department key if applicable (DSAI+ECE share same room)
+                    if cross_common_active:
+                        common_course_key = f"{cross_common_bundle['room_key']}_{day}_{time_slot}"
+                        effective_enrollment = cross_common_bundle['total_enrollment']
+                        print(f"      [CROSS-COMMON] Using cross-dept key: {common_course_key} (enrollment={effective_enrollment})")
+                    else:
+                        common_course_key = f"{semester}_{branch}_{clean_code}_{day}_{time_slot}"
                     suitable_classroom = None
                     
                     if is_common:
@@ -8263,7 +8384,7 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
     print(f"   [SCHOOL] Total classroom allocations: {allocation_count}")
     return schedule_with_rooms
 
-def find_suitable_classroom_for_lab_pair(lab_rooms_df, enrollment, day, time_slot1, time_slot2, classroom_usage_tracker):
+def find_suitable_classroom_for_lab_pair(lab_rooms_df, enrollment, day, time_slot1, time_slot2, classroom_usage_tracker, schedule_type='Regular'):
     """Find a suitable LAB ROOM (Hardware Lab, Software Lab types) that's available for BOTH slots of a lab pair"""
     # Ensure Capacity is numeric and exclude rooms with missing/non-positive capacity
     lab_rooms_df = lab_rooms_df.copy()
@@ -8287,6 +8408,9 @@ def find_suitable_classroom_for_lab_pair(lab_rooms_df, enrollment, day, time_slo
         print(f"         [WARN] No lab rooms (starting with 'L') found")
         return None
     
+    # Use prefixed day key for proper tracking
+    prefixed_day = f"{schedule_type}_{day}"
+    
     # Filter lab rooms that can accommodate the enrollment
     suitable_rooms = lab_rooms_df[lab_rooms_df['Capacity'] >= enrollment].copy()
     
@@ -8304,27 +8428,27 @@ def find_suitable_classroom_for_lab_pair(lab_rooms_df, enrollment, day, time_slo
     # Shuffle to ensure variety
     suitable_rooms = suitable_rooms.sample(frac=1).reset_index(drop=True)
     
-    # Check availability in global tracker for BOTH slots
+    # Check availability in global tracker for BOTH slots using prefixed_day
     for _, room in suitable_rooms.iterrows():
         room_number = room['Room Number']
         
         # Treat missing day/slot entries as available (they mean nothing is yet reserved for that slot)
-        available_slot1 = not (day in classroom_usage_tracker and time_slot1 in classroom_usage_tracker[day] and room_number in classroom_usage_tracker[day][time_slot1])
+        available_slot1 = not (prefixed_day in classroom_usage_tracker and time_slot1 in classroom_usage_tracker[prefixed_day] and room_number in classroom_usage_tracker[prefixed_day][time_slot1])
         
-        available_slot2 = not (day in classroom_usage_tracker and time_slot2 in classroom_usage_tracker[day] and room_number in classroom_usage_tracker[day][time_slot2])
+        available_slot2 = not (prefixed_day in classroom_usage_tracker and time_slot2 in classroom_usage_tracker[prefixed_day] and room_number in classroom_usage_tracker[prefixed_day][time_slot2])
         
         if available_slot1 and available_slot2:
             # Mark room as used in global tracker for BOTH slots
-            if day not in classroom_usage_tracker:
-                classroom_usage_tracker[day] = {}
-            if time_slot1 not in classroom_usage_tracker[day]:
-                classroom_usage_tracker[day][time_slot1] = set()
-            if time_slot2 not in classroom_usage_tracker[day]:
-                classroom_usage_tracker[day][time_slot2] = set()
+            if prefixed_day not in classroom_usage_tracker:
+                classroom_usage_tracker[prefixed_day] = {}
+            if time_slot1 not in classroom_usage_tracker[prefixed_day]:
+                classroom_usage_tracker[prefixed_day][time_slot1] = set()
+            if time_slot2 not in classroom_usage_tracker[prefixed_day]:
+                classroom_usage_tracker[prefixed_day][time_slot2] = set()
             
-            classroom_usage_tracker[day][time_slot1].add(room_number)
-            classroom_usage_tracker[day][time_slot2].add(room_number)
-            print(f"         [PIN] Allocated {room_number} for lab pair {day} {time_slot1} & {time_slot2} (Capacity: {room['Capacity']})")
+            classroom_usage_tracker[prefixed_day][time_slot1].add(room_number)
+            classroom_usage_tracker[prefixed_day][time_slot2].add(room_number)
+            print(f"         [PIN] Allocated {room_number} for lab pair {prefixed_day} {time_slot1} & {time_slot2} (Capacity: {room['Capacity']})")
             return room_number
     
     # If all suitable rooms are booked, try larger lab rooms
@@ -8338,50 +8462,50 @@ def find_suitable_classroom_for_lab_pair(lab_rooms_df, enrollment, day, time_slo
             
             # FIX: Correct availability check - room is available if NOT tracked as booked
             # A room is available if the day/slot doesn't exist in tracker OR room is not in booked set
-            available_slot1 = not (day in classroom_usage_tracker and 
-                                  time_slot1 in classroom_usage_tracker[day] and
-                                  room_number in classroom_usage_tracker[day][time_slot1])
+            available_slot1 = not (prefixed_day in classroom_usage_tracker and 
+                                  time_slot1 in classroom_usage_tracker[prefixed_day] and
+                                  room_number in classroom_usage_tracker[prefixed_day][time_slot1])
             
-            available_slot2 = not (day in classroom_usage_tracker and 
-                                  time_slot2 in classroom_usage_tracker[day] and
-                                  room_number in classroom_usage_tracker[day][time_slot2])
+            available_slot2 = not (prefixed_day in classroom_usage_tracker and 
+                                  time_slot2 in classroom_usage_tracker[prefixed_day] and
+                                  room_number in classroom_usage_tracker[prefixed_day][time_slot2])
             
             if available_slot1 and available_slot2:
-                if day not in classroom_usage_tracker:
-                    classroom_usage_tracker[day] = {}
-                if time_slot1 not in classroom_usage_tracker[day]:
-                    classroom_usage_tracker[day][time_slot1] = set()
-                if time_slot2 not in classroom_usage_tracker[day]:
-                    classroom_usage_tracker[day][time_slot2] = set()
+                if prefixed_day not in classroom_usage_tracker:
+                    classroom_usage_tracker[prefixed_day] = {}
+                if time_slot1 not in classroom_usage_tracker[prefixed_day]:
+                    classroom_usage_tracker[prefixed_day][time_slot1] = set()
+                if time_slot2 not in classroom_usage_tracker[prefixed_day]:
+                    classroom_usage_tracker[prefixed_day][time_slot2] = set()
                 
-                classroom_usage_tracker[day][time_slot1].add(room_number)
-                classroom_usage_tracker[day][time_slot2].add(room_number)
-                print(f"         [RESET] Using larger room {room_number} for lab pair {day} {time_slot1} & {time_slot2} (Capacity: {room['Capacity']})")
+                classroom_usage_tracker[prefixed_day][time_slot1].add(room_number)
+                classroom_usage_tracker[prefixed_day][time_slot2].add(room_number)
+                print(f"         [RESET] Using larger room {room_number} for lab pair {prefixed_day} {time_slot1} & {time_slot2} (Capacity: {room['Capacity']})")
                 return room_number
     
     # ULTIMATE FALLBACK: Try ANY lab room regardless of capacity (prefer larger)
     all_labs_sorted = lab_rooms_df.sort_values('Capacity', ascending=False)
     for _, room in all_labs_sorted.iterrows():
         room_number = room['Room Number']
-        available_slot1 = not (day in classroom_usage_tracker and 
-                              time_slot1 in classroom_usage_tracker[day] and
-                              room_number in classroom_usage_tracker[day][time_slot1])
-        available_slot2 = not (day in classroom_usage_tracker and 
-                              time_slot2 in classroom_usage_tracker[day] and
-                              room_number in classroom_usage_tracker[day][time_slot2])
+        available_slot1 = not (prefixed_day in classroom_usage_tracker and 
+                              time_slot1 in classroom_usage_tracker[prefixed_day] and
+                              room_number in classroom_usage_tracker[prefixed_day][time_slot1])
+        available_slot2 = not (prefixed_day in classroom_usage_tracker and 
+                              time_slot2 in classroom_usage_tracker[prefixed_day] and
+                              room_number in classroom_usage_tracker[prefixed_day][time_slot2])
         if available_slot1 and available_slot2:
-            if day not in classroom_usage_tracker:
-                classroom_usage_tracker[day] = {}
-            if time_slot1 not in classroom_usage_tracker[day]:
-                classroom_usage_tracker[day][time_slot1] = set()
-            if time_slot2 not in classroom_usage_tracker[day]:
-                classroom_usage_tracker[day][time_slot2] = set()
-            classroom_usage_tracker[day][time_slot1].add(room_number)
-            classroom_usage_tracker[day][time_slot2].add(room_number)
-            print(f"         [ULTIMATE-LAB] Using any available lab {room_number} for {day} {time_slot1} & {time_slot2}")
+            if prefixed_day not in classroom_usage_tracker:
+                classroom_usage_tracker[prefixed_day] = {}
+            if time_slot1 not in classroom_usage_tracker[prefixed_day]:
+                classroom_usage_tracker[prefixed_day][time_slot1] = set()
+            if time_slot2 not in classroom_usage_tracker[prefixed_day]:
+                classroom_usage_tracker[prefixed_day][time_slot2] = set()
+            classroom_usage_tracker[prefixed_day][time_slot1].add(room_number)
+            classroom_usage_tracker[prefixed_day][time_slot2].add(room_number)
+            print(f"         [ULTIMATE-LAB] Using any available lab {room_number} for {prefixed_day} {time_slot1} & {time_slot2}")
             return room_number
     
-    print(f"         [LAB-CONFLICT] All lab rooms booked for {day} {time_slot1} & {time_slot2}")
+    print(f"         [LAB-CONFLICT] All lab rooms booked for {prefixed_day} {time_slot1} & {time_slot2}")
     return None
 
 def find_suitable_classroom_with_tracking(
@@ -8393,6 +8517,7 @@ def find_suitable_classroom_with_tracking(
     is_common=False,
     is_lab=False,
     preferred_capacities_override=None,
+    schedule_type='Regular',
 ):
     """Find a suitable classroom based on capacity, course type, and availability with global tracking
     
@@ -8404,6 +8529,7 @@ def find_suitable_classroom_with_tracking(
         classroom_usage_tracker: Global tracker to prevent double-booking
         is_common: True if this is a common course (should get 120/240 capacity rooms)
         is_lab: True if this is a lab session
+        schedule_type: 'Regular', 'PreMid', or 'PostMid' - used to construct prefixed tracker key
     """
     if classrooms_df.empty:
         return None
@@ -8430,13 +8556,15 @@ def find_suitable_classroom_with_tracking(
         print(f"         [LAB-FILTER] Found {len(classrooms_df)} lab rooms for lab session")
     
     # Filter out already booked rooms FIRST to prevent double-booking
+    # Use prefixed key format to match how rooms are tracked in allocate_classrooms_for_timetable
     available_now = classrooms_df.copy()
-    if day in classroom_usage_tracker and time_slot in classroom_usage_tracker[day]:
-        booked_rooms = classroom_usage_tracker[day][time_slot]
+    prefixed_day = f"{schedule_type}_{day}"
+    if prefixed_day in classroom_usage_tracker and time_slot in classroom_usage_tracker[prefixed_day]:
+        booked_rooms = classroom_usage_tracker[prefixed_day][time_slot]
         available_now = available_now[~available_now['Room Number'].isin(booked_rooms)]
     
     if available_now.empty:
-        print(f"         [WARN] All classrooms are booked for {day} {time_slot}")
+        print(f"         [WARN] All classrooms are booked for {day} {time_slot} (schedule_type={schedule_type})")
         return None
     
     # Determine preferred room capacity based on course type
@@ -8524,18 +8652,20 @@ def find_suitable_classroom_with_tracking(
         selected_capacity = suitable_rooms.iloc[0]['Capacity']
     
     # Reserve the room in global tracker to prevent double-booking
-    if day not in classroom_usage_tracker:
-        classroom_usage_tracker[day] = {}
-    if time_slot not in classroom_usage_tracker[day]:
-        classroom_usage_tracker[day][time_slot] = set()
+    # Use prefixed_day (e.g., "PreMid_Mon") to match how rooms are checked
+    prefixed_day = f"{schedule_type}_{day}"
+    if prefixed_day not in classroom_usage_tracker:
+        classroom_usage_tracker[prefixed_day] = {}
+    if time_slot not in classroom_usage_tracker[prefixed_day]:
+        classroom_usage_tracker[prefixed_day][time_slot] = set()
     
-    classroom_usage_tracker[day][time_slot].add(selected_room)
+    classroom_usage_tracker[prefixed_day][time_slot].add(selected_room)
     # Update global allocation counter for load balancing
     room_key = str(selected_room)
     if room_key not in _ROOM_ALLOCATION_COUNTER:
         _ROOM_ALLOCATION_COUNTER[room_key] = 0
     _ROOM_ALLOCATION_COUNTER[room_key] += 1
-    print(f"         [ALLOCATED] {selected_room} (Cap: {selected_capacity}) for {day} {time_slot} - {enrollment} students")
+    print(f"         [ALLOCATED] {selected_room} (Cap: {selected_capacity}) for {prefixed_day} {time_slot} - {enrollment} students")
     
     return selected_room
 
@@ -11054,9 +11184,11 @@ def upload_files():
             }), 400
         
         # Clear the common elective allocations cache when new files are uploaded
-        global _SEMESTER_ELECTIVE_ALLOCATIONS
+        global _SEMESTER_ELECTIVE_ALLOCATIONS, _ELECTIVE_COMMON_ROOMS
         _SEMESTER_ELECTIVE_ALLOCATIONS = {}
+        _ELECTIVE_COMMON_ROOMS = {}
         print("[CLEAN] Cleared common elective allocations cache")
+        print("[CLEAN] Cleared elective common rooms tracker (will be shared across all branches)")
         
         # Reset classroom usage tracker for new generation
         reset_classroom_usage_tracker()
