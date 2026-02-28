@@ -48,6 +48,7 @@ _TIMETABLE_CLASSROOM_ALLOCATIONS = {}
 _GLOBAL_PREFERRED_CLASSROOMS = {}
 _COMMON_COURSE_ROOMS = {}  # Track classroom allocations for common courses (same room for both sections)
 _COMMON_COURSE_SCHEDULE = {}  # Track timeslot allocations for common courses (same timeslot for both sections)
+_MID_SEM_COMMON_SCHEDULE = {}  # Track timeslot allocations for common courses in Pre-Mid and Post-Mid schedules
 
 # Global counter to track total allocations per room for load balancing
 # Structure: { room_id: total_allocation_count }
@@ -442,7 +443,7 @@ def reset_classroom_usage_tracker():
     """Reset the classroom usage tracker (call before generating new timetables)"""
     global _CLASSROOM_USAGE_TRACKER, _TIMETABLE_CLASSROOM_ALLOCATIONS, _COMMON_COURSE_SCHEDULE, _COMMON_COURSE_ROOMS, _LAB_ROOM_ALLOCATIONS
     global _FACULTY_SCHEDULE_TRACKER, _CLASSROOM_SCHEDULE_TRACKER, _FACULTY_BOOKING_TRACKER, _MINOR_SCHEDULE_TRACKER
-    global _ROOM_ALLOCATION_COUNTER, _GLOBAL_PREFERRED_CLASSROOMS
+    global _ROOM_ALLOCATION_COUNTER, _GLOBAL_PREFERRED_CLASSROOMS, _MID_SEM_COMMON_SCHEDULE
     _CLASSROOM_USAGE_TRACKER = {}
     _TIMETABLE_CLASSROOM_ALLOCATIONS = {}
     _COMMON_COURSE_SCHEDULE = {}
@@ -454,6 +455,7 @@ def reset_classroom_usage_tracker():
     _MINOR_SCHEDULE_TRACKER = {}  # Reset minor schedule tracker
     _ROOM_ALLOCATION_COUNTER = {}  # Reset room allocation counter for load balancing
     _GLOBAL_PREFERRED_CLASSROOMS = {}  # Reset preferred classrooms to allow fresh distribution
+    _MID_SEM_COMMON_SCHEDULE = {}  # Reset mid-semester common schedule tracker
     initialize_classroom_usage_tracker()
     print("[RESET] Classroom usage tracker, faculty booking tracker, room allocation counter, and audit trackers reset for new timetable generation")
 
@@ -625,7 +627,9 @@ def track_classroom_schedule(classroom_id, day, time_slot, course_code, course_n
     Called during timetable scheduling to build the classroom audit data.
     
     The slot_key includes schedule_type (extracted from semester string) to ensure
-    pre-mid and post-mid entries for the same day/time are tracked separately."""
+    pre-mid and post-mid entries for the same day/time are tracked separately.
+    
+    NOTE: This now stores a LIST of allocations per slot to detect double-bookings."""
     global _CLASSROOM_SCHEDULE_TRACKER
     
     if not classroom_id or classroom_id.lower() in ['none', 'n/a', 'na', '']:
@@ -640,8 +644,8 @@ def track_classroom_schedule(classroom_id, day, time_slot, course_code, course_n
     # Use (day, time_slot, semester_info) as key to distinguish pre-mid from post-mid
     slot_key = (day, time_slot, semester)
     
-    # Store schedule info for this slot
-    _CLASSROOM_SCHEDULE_TRACKER[classroom_id][slot_key] = {
+    # Create new allocation entry
+    allocation_entry = {
         'course_code': course_code,
         'course_name': course_name,
         'faculty': faculty,
@@ -649,6 +653,19 @@ def track_classroom_schedule(classroom_id, day, time_slot, course_code, course_n
         'branch': branch,
         'section': section
     }
+    
+    # Store as LIST to detect multiple allocations (double-bookings)
+    if slot_key not in _CLASSROOM_SCHEDULE_TRACKER[classroom_id]:
+        _CLASSROOM_SCHEDULE_TRACKER[classroom_id][slot_key] = [allocation_entry]
+    else:
+        # Check if this exact entry already exists (avoid duplicates from same course)
+        existing_entries = _CLASSROOM_SCHEDULE_TRACKER[classroom_id][slot_key]
+        is_duplicate = any(
+            e['course_code'] == course_code and e['branch'] == branch and e['section'] == section
+            for e in existing_entries
+        )
+        if not is_duplicate:
+            _CLASSROOM_SCHEDULE_TRACKER[classroom_id][slot_key].append(allocation_entry)
 
 
 def populate_audit_trackers_from_timetables(dfs, output_dir):
@@ -672,6 +689,9 @@ def populate_audit_trackers_from_timetables(dfs, output_dir):
     
     # Track faculty double-booking across all files for conflict detection
     faculty_slot_usage = {}  # { faculty_name: { (day, time_slot): [(course, semester, branch, section)] } }
+    
+    # Track classroom double-booking across all files for conflict detection
+    classroom_slot_usage = {}  # { classroom_id: { (day, time_slot, schedule_type): [(course, semester, branch, section)] } }
     
     for filepath in timetable_files:
         try:
@@ -831,6 +851,20 @@ def populate_audit_trackers_from_timetables(dfs, output_dir):
                                     course_code, course_name, faculty_raw,
                                     f"{semester} ({schedule_type})", branch, section
                                 )
+                                
+                                # Track for classroom double-booking detection
+                                if classroom not in classroom_slot_usage:
+                                    classroom_slot_usage[classroom] = {}
+                                classroom_slot_key = (day, time_slot, schedule_type)
+                                if classroom_slot_key not in classroom_slot_usage[classroom]:
+                                    classroom_slot_usage[classroom][classroom_slot_key] = []
+                                classroom_slot_usage[classroom][classroom_slot_key].append({
+                                    'course': course_code,
+                                    'semester': semester,
+                                    'branch': branch,
+                                    'section': section,
+                                    'schedule_type': schedule_type
+                                })
                             
                             # Track faculty usage - handle multiple instructors
                             if faculty_raw:
@@ -868,6 +902,14 @@ def populate_audit_trackers_from_timetables(dfs, output_dir):
             traceback.print_exc()
             continue
     
+    # NOTE: We previously scanned _TIMETABLE_CLASSROOM_ALLOCATIONS here for basket/elective allocations
+    # BUT this caused duplicate entries because:
+    # 1. Excel file scan already tracks all classroom allocations including baskets (from cell values)
+    # 2. _TIMETABLE_CLASSROOM_ALLOCATIONS keys don't distinguish between Regular/PreMid/PostMid
+    # So the duplicates were being flagged as false-positive conflicts.
+    # For now, we rely solely on the Excel file scan which properly extracts classrooms from cells.
+    # Basket allocations that don't have [room] in cells will need to be addressed separately if needed.
+    
     # Report potential double-bookings (within same schedule period)
     double_bookings = []
     for faculty, slots in faculty_slot_usage.items():
@@ -892,6 +934,39 @@ def populate_audit_trackers_from_timetables(dfs, output_dir):
             print(f"   {db['faculty']} at {db['day']} {db['time_slot']} ({db['schedule_type']}): {db['courses']}")
     else:
         print("[AUDIT] ✓ No faculty double-bookings detected")
+    
+    # Report potential CLASSROOM double-bookings (within same schedule period)
+    classroom_double_bookings = []
+    for classroom, slots in classroom_slot_usage.items():
+        for slot_key, usages in slots.items():
+            if len(usages) > 1:
+                # Check if it's actually different courses/sections (not same common course)
+                # For common courses, same course in different sections at same room is expected
+                unique_entries = set()
+                for u in usages:
+                    # Create unique key that considers course + branch + section
+                    entry_key = (u['course'], u['branch'], u['section'])
+                    unique_entries.add(entry_key)
+                
+                if len(unique_entries) > 1:
+                    # Multiple different entries for same room at same time = potential conflict
+                    schedule_type = slot_key[2] if len(slot_key) > 2 else 'Unknown'
+                    classroom_double_bookings.append({
+                        'classroom': classroom,
+                        'day': slot_key[0],
+                        'time_slot': slot_key[1],
+                        'schedule_type': schedule_type,
+                        'entries': list(unique_entries),
+                        'details': usages
+                    })
+    
+    if classroom_double_bookings:
+        print(f"[AUDIT] WARNING: Potential classroom conflicts detected: {len(classroom_double_bookings)}")
+        for cb in classroom_double_bookings:
+            entries_str = ', '.join([f"{e[0]} ({e[1]} {e[2]})" for e in cb['entries']])
+            print(f"   {cb['classroom']} at {cb['day']} {cb['time_slot']} ({cb['schedule_type']}): {entries_str}")
+    else:
+        print("[AUDIT] ✓ No classroom conflicts detected")
     
     print(f"[AUDIT] Populated trackers: {len(_FACULTY_SCHEDULE_TRACKER)} faculty, {len(_CLASSROOM_SCHEDULE_TRACKER)} classrooms")
 
@@ -1261,10 +1336,16 @@ def generate_classroom_audit_file(dfs, output_dir):
                     for day in days:
                         # Find all schedule entries for this day/time slot
                         # New key format is (day, time_slot, semester_info)
+                        # NOTE: schedule_info is now a LIST of entries (to track multiple allocations/conflicts)
                         matching_entries = []
-                        for slot_key, schedule_info in classroom_schedule.items():
+                        for slot_key, schedule_info_list in classroom_schedule.items():
                             if len(slot_key) >= 2 and slot_key[0] == day and slot_key[1] == time_slot:
-                                matching_entries.append(schedule_info)
+                                # schedule_info_list is a LIST of allocation entries
+                                if isinstance(schedule_info_list, list):
+                                    matching_entries.extend(schedule_info_list)
+                                else:
+                                    # Legacy: if it's still a dict, wrap it in a list
+                                    matching_entries.append(schedule_info_list)
                         
                         # Check if classroom is used (from usage tracker as fallback)
                         is_used_in_tracker = classroom_id in _CLASSROOM_USAGE_TRACKER.get(day, {}).get(time_slot, set())
@@ -1321,8 +1402,17 @@ def generate_classroom_audit_file(dfs, output_dir):
                                 for e in period_entries:
                                     course_code = e.get('course_code', '')
                                     if course_code:
-                                        # Normalize: Remove MINOR_ prefix variations, get base code
-                                        base_code = course_code.split('_')[0] if course_code.startswith('MINOR_') else course_code
+                                        # Normalize MINOR course codes to a canonical form
+                                        # "MINOR_Generative_Ai" -> "MINOR_Generative_Ai"
+                                        # "MINOR: Generative Ai" -> "MINOR_Generative_Ai"
+                                        if course_code.startswith('MINOR:'):
+                                            # Convert "MINOR: Xyz" to "MINOR_Xyz" format
+                                            minor_name = course_code.replace('MINOR:', '').strip().replace(' ', '_')
+                                            base_code = f"MINOR_{minor_name}"
+                                        elif course_code.startswith('MINOR_'):
+                                            base_code = course_code
+                                        else:
+                                            base_code = course_code
                                         unique_courses_in_period.add(base_code)
                                 
                                 # Only flag as conflict if we have truly different courses
@@ -3134,6 +3224,7 @@ def generate_section_schedule_with_elective_baskets(dfs, semester_id, section, e
 
 def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch=None, time_config=None, schedule_type='pre_mid', elective_allocations=None):
     """Generate pre-mid or post-mid schedule with elective basket support"""
+    global _MID_SEM_COMMON_SCHEDULE
     schedule_type_name = "PRE-MID" if schedule_type == 'pre_mid' else "POST-MID"
     branch_info = f", Branch {branch}" if branch else ""
     print(f"   [TARGET] Generating {schedule_type_name} schedule for Semester {semester_id}, Section {section}{branch_info}")
@@ -3205,9 +3296,65 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
 
         # SCHEDULE CORE COURSES - iterate over core_courses only
         print(f"   [CORE] Scheduling {len(core_courses)} core courses...")
+        
+        # Build course_info_map for cross-department detection (keyed by course_code + department)
+        course_info_map = {}
+        if 'course' in dfs and not dfs['course'].empty:
+            for _, row in dfs['course'].iterrows():
+                code = row['Course Code']
+                dept = str(row.get('Department', '')).strip()
+                key = f"{code}_{dept}"
+                course_info_map[key] = {
+                    'course_code': code,
+                    'instructor': str(row.get('Faculty', '')).strip(),
+                    'is_common': str(row.get('Common', 'No')).strip().upper() == 'YES',
+                    'common': str(row.get('Common', 'No')).strip(),
+                    'department': dept,
+                    'csv_department': dept,
+                }
+        
         for _, course in core_courses.iterrows():
             course_code = course['Course Code']
             ltpsc_str = course.get('LTPSC', '')
+            
+            # Check if this is a common course (shared between sections A and B)
+            is_common = str(course.get('Common', 'No')).strip().upper() == 'YES'
+            mid_sem_schedule_key = None
+            
+            if is_common:
+                # Check for cross-department common course (DSAI/ECE sharing same instructor)
+                cross_common = detect_cross_dsai_ece_common(course_info_map, course_code, semester_id)
+                normalized_branch = normalize_branch_string(branch)
+                
+                cross_common_active = bool(
+                    cross_common
+                    and normalized_branch in cross_common.get('departments', set())
+                )
+                
+                if cross_common_active:
+                    # Use shared key for cross-department courses
+                    mid_sem_schedule_key = f"mid_{schedule_type}_{semester_id}_CROSS_{course_code}"
+                    print(f"      [COMMON-CROSS] {course_code} shared for DSAI+ECE in {schedule_type_name} (key={mid_sem_schedule_key})")
+                else:
+                    # Use branch-specific key for same-branch sections
+                    mid_sem_schedule_key = f"mid_{schedule_type}_{semester_id}_{branch or 'ALL'}_{course_code}"
+                
+                # Check if this course was already scheduled for another section/department
+                if mid_sem_schedule_key in _MID_SEM_COMMON_SCHEDULE:
+                    print(f"      [COMMON] {course_code} already scheduled for another section - reusing timeslots (key={mid_sem_schedule_key})")
+                    existing_slots = _MID_SEM_COMMON_SCHEDULE[mid_sem_schedule_key]
+                    
+                    # Copy the schedule from the other section
+                    for slot_info in existing_slots:
+                        day = slot_info['day']
+                        time_slot = slot_info['time_slot']
+                        label = slot_info['label']
+                        
+                        schedule.loc[time_slot, day] = label
+                        used_slots.add((day, time_slot))
+                        print(f"         [COMMON-COPY] {label} on {day} at {time_slot}")
+                    
+                    continue  # Skip normal scheduling for this course
             
             # Parse LTPSC - defaults to 2 lectures, 1 tutorial if empty
             ltpsc = parse_ltpsc(ltpsc_str)
@@ -3476,6 +3623,21 @@ def generate_mid_semester_schedule(dfs, semester_id, section, courses_df, branch
                 print(f"      [CRITICAL] Could only schedule {labs_scheduled}/{labs_needed} labs for {course_code}")
             if lectures_scheduled == lectures_needed and tutorials_scheduled == tutorials_needed and labs_scheduled == labs_needed:
                 print(f"      [OK] Successfully scheduled {course_code} according to LTPSC structure")
+            
+            # SAVE common course schedule for other sections to reuse
+            if is_common and mid_sem_schedule_key and mid_sem_schedule_key not in _MID_SEM_COMMON_SCHEDULE:
+                _MID_SEM_COMMON_SCHEDULE[mid_sem_schedule_key] = []
+                # Find all slots scheduled for this course
+                for day in schedule.columns:
+                    for time_slot in schedule.index:
+                        val = str(schedule.loc[time_slot, day])
+                        if course_code in val and 'nan' not in val.lower():
+                            _MID_SEM_COMMON_SCHEDULE[mid_sem_schedule_key].append({
+                                'day': day,
+                                'time_slot': time_slot,
+                                'label': val
+                            })
+                print(f"      [COMMON-SAVE] Saved mid-sem schedule for common course {course_code} ({len(_MID_SEM_COMMON_SCHEDULE[mid_sem_schedule_key])} slots) [key={mid_sem_schedule_key}]")
         
         # FINAL VERIFICATION - Ensure ALL courses are scheduled
         print(f"\n   [VERIFY] Checking that ALL courses were scheduled for {schedule_type_name}...")
@@ -7023,6 +7185,12 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
         # NON-LAB: prefer smallest adequate room, escalate capacity tier by tier
         # Use capacity RANGES instead of exact matches to ensure rooms are found
         # Escalation order: smallest fit → medium → large
+        
+        # COMMON COURSE OPTIMIZATION: For common courses (same course for both sections A & B),
+        # both sections attend together, so prefer larger capacity rooms to accommodate combined enrollment
+        # This naturally results in 240-capacity rooms being chosen for high-enrollment common courses
+        if is_common_course:
+            print(f"         [COMMON-ROOM] Common course detected - preferring larger capacity rooms for combined sections")
 
         # FIX: Use C-prefix rooms FIRST in tier search, L-prefix ONLY as last resort
         # This prevents L4xx rooms (80-cap) from being overloaded
@@ -7035,9 +7203,21 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
         
         print(f"         [ROOM-POOLS] C-prefix: {len(c_prefix_classrooms)}, L-prefix: {len(l_prefix_classrooms)}")
         
+        # COMMON COURSE: Prefer larger capacity rooms when is_common_course=True
+        # This ensures common courses get rooms that can accommodate both sections attending together
+        if is_common_course:
+            # For common courses, try largest rooms first (typically 240 capacity)
+            max_cap = c_prefix_classrooms['Capacity'].max() if not c_prefix_classrooms.empty else 0
+            capacity_tiers = [
+                ('c-large-200+', c_prefix_classrooms[c_prefix_classrooms['Capacity'] >= 200]),
+                ('c-large-140-200', c_prefix_classrooms[(c_prefix_classrooms['Capacity'] >= 140) & (c_prefix_classrooms['Capacity'] < 200)]),
+                ('c-medium-100-140', c_prefix_classrooms[(c_prefix_classrooms['Capacity'] >= 100) & (c_prefix_classrooms['Capacity'] < 140)]),
+                ('c-adequate', c_prefix_classrooms[c_prefix_classrooms['Capacity'] >= enrollment_value]),
+            ]
+            print(f"         [COMMON-TIER] Using large-capacity-first tier order for common course")
         # IMPROVED: Define capacity tiers using RANGES to prevent clustering
         # Instead of exact capacity matches, use ranges that allow room distribution
-        if enrollment_value <= 60:
+        elif enrollment_value <= 60:
             # Small classes: prefer rooms 60-100, then any larger (C-prefix only first)
             capacity_tiers = [
                 ('c-small-60-100', c_prefix_classrooms[(c_prefix_classrooms['Capacity'] >= 60) & (c_prefix_classrooms['Capacity'] <= 100)]),
@@ -7190,13 +7370,26 @@ def allocate_classrooms_for_timetable(schedule_df, classrooms_df, course_info, s
         course_enrollment[course_code] = reg_students
 
     def compute_effective_enrollment(raw_enrollment, is_common_course):
-        """Always halve once for room sizing (all departments have 2 sections)."""
+        """Compute effective enrollment for room sizing.
+        
+        For COMMON courses: Use FULL enrollment (no halving) because both sections
+        attend together in the SAME room at the SAME timeslot.
+        
+        For NON-COMMON courses: Halve once since each section needs its own room.
+        """
         try:
             value = float(raw_enrollment)
         except Exception:
             return raw_enrollment
-        # All courses (common or not) are halved once since each section needs its own room
-        return max(1, int(math.ceil(value / 2.0)))
+        
+        if is_common_course:
+            # Common courses: BOTH sections attend together in same room
+            # Use FULL enrollment for room sizing (no halving)
+            print(f"         [COMMON-ENROLL] Using FULL enrollment {int(value)} for common course (both sections attend together)")
+            return max(1, int(value))
+        else:
+            # Non-common courses: each section needs its own room, halve enrollment
+            return max(1, int(math.ceil(value / 2.0)))
 
     # Cache cross-department (DSAI+ECE) common metadata per course for this semester
     _cross_common_cache = {}
